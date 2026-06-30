@@ -1,0 +1,171 @@
+.ws-dash-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 20px;
+  margin-bottom: 8px;
+}
+
+.ws-dash-head .page-head {
+  flex: 1;
+  min-width: 0;
+  margin-bottom: 0;
+}
+
+.ws-dash-section {
+  margin-top: 28px;
+}
+
+.ws-dash-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 16px;
+}
+
+.ws-pipeline-card {
+  position: relative;
+  text-align: left;
+  border-radius: 14px;
+  padding: 20px 20px 22px;
+  border: 1px solid var(--border);
+  background: var(--panel);
+  box-shadow: var(--shadow-sm);
+  cursor: default;
+  transition:
+    border-color 0.15s,
+    box-shadow 0.15s,
+    transform 0.12s;
+}
+
+.ws-pipeline-card--primary {
+  cursor: pointer;
+  border-color: var(--border-strong);
+  background: var(--panel);
+  box-shadow:
+    0 0 0 1px rgba(17, 24, 39, 0.06),
+    var(--shadow-sm);
+}
+
+.ws-pipeline-card--primary:hover {
+  border-color: #9ca3af;
+  box-shadow:
+    0 0 0 1px rgba(17, 24, 39, 0.1),
+    var(--shadow-md);
+  transform: translateY(-2px);
+}
+
+.ws-pipeline-card--primary .ws-pipeline-card-title {
+  color: var(--text);
+}
+
+.ws-pipeline-card--primary .ws-pipeline-card-body {
+  color: var(--text-muted);
+}
+
+.ws-pipeline-card--primary .ws-pipeline-card-icon {
+  background: var(--panel-soft);
+  color: var(--text);
+  border-color: var(--border);
+}
+
+.ws-pipeline-card--muted {
+  opacity: 0.72;
+  background: var(--panel-soft);
+}
+
+.ws-pipeline-card-top {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 14px;
+}
+
+.ws-pipeline-card-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  background: var(--panel-soft);
+  color: var(--text-secondary);
+}
+
+.ws-pipeline-card-icon svg {
+  width: 20px;
+  height: 20px;
+}
+
+.ws-pipeline-card-badge {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+  padding: 4px 8px;
+  border-radius: 999px;
+  background: var(--panel-soft);
+  border: 1px solid var(--border);
+  white-space: nowrap;
+}
+
+.ws-pipeline-card-badge--active {
+  color: var(--text-secondary);
+  background: var(--panel-soft);
+  border-color: var(--border);
+}
+
+.ws-pipeline-card-badge--active::before {
+  content: "";
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  margin-right: 5px;
+  border-radius: 50%;
+  background: var(--text);
+  vertical-align: middle;
+}
+
+.ws-pipeline-card-title {
+  margin: 0 0 8px;
+  font-family: var(--font-headline);
+  font-size: 17px;
+  font-weight: 700;
+  color: var(--text);
+  letter-spacing: var(--tracking-headline);
+  line-height: 1.3;
+}
+
+.ws-pipeline-card-body {
+  margin: 0;
+  font-size: 13px;
+  color: var(--text-muted);
+  line-height: 1.5;
+  letter-spacing: var(--tracking-body);
+}
+
+.ws-pipeline-card-cta {
+  display: inline-block;
+  margin-top: 14px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+
+.ws-pipeline-card--primary:hover .ws-pipeline-card-cta {
+  color: var(--text);
+}
+
+@media (max-width: 640px) {
+  .ws-dash-head {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .ws-dash-grid {
+    grid-template-columns: 1fr;
+  }
+}

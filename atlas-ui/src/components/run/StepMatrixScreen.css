@@ -1,0 +1,186 @@
+/* AirOps-style step matrix screen */
+.step-matrix-page {
+  max-width: none;
+  width: 100%;
+  margin: 0;
+  padding: 16px 24px 20px;
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  box-sizing: border-box;
+  background: var(--canvas);
+}
+
+.step-matrix-header {
+  flex-shrink: 0;
+  margin-bottom: 8px;
+}
+
+.step-matrix-tabs {
+  margin: 0;
+}
+
+.step-matrix-edit-wrap {
+  position: relative;
+}
+
+.step-matrix-edit-btn {
+  font-size: 13px;
+  padding: 8px 14px;
+}
+
+.step-matrix-edit-btn--open {
+  background: var(--hover);
+}
+
+.step-matrix-edit-menu {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  z-index: 30;
+  min-width: 280px;
+  max-width: min(380px, 92vw);
+  padding: 8px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  box-shadow: var(--shadow-md);
+}
+
+.step-matrix-edit-hint {
+  margin: 0;
+  padding: 6px 10px 8px;
+  font-size: 12px;
+  font-weight: 400;
+  color: var(--text);
+  line-height: 1.35;
+  border-bottom: 1px solid var(--border);
+  max-width: 240px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.step-matrix-edit-hint--muted {
+  font-weight: 500;
+  color: var(--text-muted);
+}
+
+.step-matrix-edit-menu .matrix-action-radios {
+  border-top: none;
+  padding-top: 0;
+}
+
+.step-matrix-edit-menu .matrix-action-radio {
+  opacity: 1;
+}
+
+.step-matrix-edit-menu .matrix-action-radio:has(input:disabled) {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.step-matrix-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 0 10px;
+  border-bottom: 1px solid var(--border);
+  flex-wrap: wrap;
+}
+
+.step-matrix-toolbar-left {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px 2px;
+}
+
+.smx-tool {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-secondary);
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.smx-tool svg {
+  width: 14px;
+  height: 14px;
+  flex-shrink: 0;
+  opacity: 0.75;
+}
+
+.smx-tool:hover:not(:disabled) {
+  background: var(--hover);
+  color: var(--text);
+}
+
+.smx-tool:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.smx-tool--active {
+  background: var(--hover);
+  color: var(--text);
+}
+
+.smx-tool--muted {
+  color: var(--text-muted);
+}
+
+.step-matrix-search {
+  width: min(220px, 40vw);
+  padding: 6px 10px;
+  font-size: 13px;
+  border: 1px solid var(--border-strong);
+  border-radius: 8px;
+  background: var(--panel);
+  margin-left: 4px;
+}
+
+.step-matrix-search:focus {
+  outline: none;
+  border-color: var(--text-muted);
+  box-shadow: 0 0 0 2px var(--accent-focus);
+}
+
+.step-matrix-panel {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  overflow: hidden;
+  background: var(--panel-soft);
+}
+
+.step-matrix-loading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  flex: 1;
+  min-height: 200px;
+  color: var(--text-muted);
+  font-size: 14px;
+  background: var(--panel-soft);
+  width: 100%;
+}
+
+.step-matrix-empty-view {
+  padding: 24px;
+  text-align: center;
+}

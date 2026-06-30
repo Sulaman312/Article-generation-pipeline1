@@ -1,0 +1,74 @@
+.clients-grid-lede {
+  margin: -8px 0 24px;
+  font-size: 14px;
+  color: var(--text-muted);
+  line-height: 1.5;
+  max-width: 520px;
+}
+
+.clients-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 14px;
+}
+
+.client-card {
+  cursor: pointer;
+  padding: 18px 18px 16px;
+  transition:
+    border-color 0.15s,
+    box-shadow 0.15s,
+    transform 0.12s;
+}
+
+.client-card:hover {
+  border-color: var(--border-strong);
+  box-shadow: var(--shadow-md);
+  transform: translateY(-1px);
+}
+
+.client-card-inner {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+.client-card-text {
+  min-width: 0;
+  flex: 1;
+}
+
+.client-card-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  text-transform: none;
+}
+
+.client-card-action {
+  margin-top: 4px;
+  font-size: 13px;
+  color: var(--text-muted);
+  font-weight: 500;
+}
+
+.client-card:hover .client-card-action {
+  color: var(--text-secondary);
+}
+
+.client-card-add {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 88px;
+  color: var(--text-muted);
+  border-style: dashed;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.client-card-add:hover {
+  color: var(--text);
+  border-color: var(--border-strong);
+}

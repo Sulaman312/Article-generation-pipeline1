@@ -1,0 +1,15 @@
+﻿# Keep Cursor fast — exclude heavy/generated folders from indexing
+node_modules/
+atlas-ui/node_modules/
+atlas-ui/build/
+clients/
+__pycache__/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+venv/
+.venv/
+backend/venv/
+backend/.venv/
+*.log
+.git/

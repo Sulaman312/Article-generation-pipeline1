@@ -1,0 +1,182 @@
+:root {
+  /* Canvas — reference: ultra-light gray shell */
+  --bg: #f9fafb;
+  --canvas: #ffffff;
+  --panel: #ffffff;
+  --panel-soft: #f9fafb;
+  /* Atlas ref: sidebar same white as cards; page chrome is gray */
+  --sidebar-bg: #ffffff;
+
+  --border: #e5e7eb;
+  --border-strong: #d1d5db;
+
+  /* Type */
+  --text: #111827;
+  --text-secondary: #334155;
+  --text-muted: #4b5563;
+  --text-faint: #64748b;
+
+  /* Brand — screenshot: solid green tile, white initials */
+  --brand-logo-bg: #10b981;
+  --brand-logo-fg: #ffffff;
+
+  /* UI chrome */
+  --accent: #111827;
+  --accent-hover: #1f2937;
+  --accent-soft: #f3f4f6;
+  --accent-link: #2563eb;
+  --accent-focus: rgba(17, 24, 39, 0.12);
+
+  --selected: #f3f4f6;
+  --hover: #f3f4f6;
+
+  --success: #10b981;
+  --success-soft: #ecfdf5;
+  --success-text: #047857;
+
+  /* Pipeline sidebar — brand emerald, not cyan-teal */
+  --pipeline-emerald: #10b981;
+  --pipeline-emerald-dark: #059669;
+  --pipeline-emerald-deep: #065f46;
+  --pipeline-emerald-text: #047857;
+  --pipeline-surface: #f0fdf4;
+  --pipeline-surface-active: #ecfdf5;
+  --pipeline-border: #bbf7d0;
+  --pipeline-border-soft: #d1fae5;
+  --pipeline-track: #e5e7eb;
+  --pipeline-track-done: #bbf7d0;
+  --pipeline-ring: rgba(16, 185, 129, 0.18);
+
+  --running: #eab308;
+  --running-soft: #fefce8;
+  --running-text: #a16207;
+
+  --error: #ef4444;
+  --error-soft: #fef2f2;
+  --error-text: #b91c1c;
+
+  --badge-hot: #ef4444;
+  --badge-hot-text: #ffffff;
+
+  --pending: #d1d5db;
+
+  --font-sans: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI Variable",
+    "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --font-headline: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI Variable",
+    "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --font-mono: "DM Mono", "Space Mono", ui-monospace, Menlo, Consolas,
+    "Liberation Mono", monospace;
+  --tracking-body: 0.02em;
+  --tracking-ui: 0.015em;
+  --tracking-headline: -0.03em;
+
+  --radius-sm: 8px;
+  --radius-md: 12px;
+  --radius-lg: 14px;
+
+  --shadow-sm: 0 1px 2px rgba(17, 24, 39, 0.04);
+  --shadow-md: 0 4px 12px rgba(17, 24, 39, 0.06),
+    0 1px 3px rgba(17, 24, 39, 0.04);
+  --shadow-lg: 0 12px 32px rgba(17, 24, 39, 0.08),
+    0 2px 6px rgba(17, 24, 39, 0.04);
+
+  --sidebar-w: 380px;
+  --sidebar-w-collapsed: 64px;
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  margin: 0;
+  padding: 0;
+  height: 100%;
+}
+
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font-sans);
+  font-size: 14px;
+  line-height: 1.55;
+  letter-spacing: var(--tracking-body);
+  font-feature-settings: "cv11", "ss01";
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+h1,
+h2,
+h3,
+h4,
+.h1,
+.h2,
+.h3 {
+  font-family: var(--font-headline);
+  font-weight: 700;
+  letter-spacing: var(--tracking-headline);
+}
+
+button {
+  font-family: inherit;
+}
+
+input,
+textarea,
+select {
+  font-family: inherit;
+  color: inherit;
+}
+
+input:focus,
+textarea:focus,
+select:focus {
+  outline: none;
+}
+
+a {
+  color: inherit;
+  text-decoration: none;
+}
+
+code,
+kbd,
+pre,
+.sb-step-num {
+  font-family: var(--font-mono);
+}
+
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: #d1d5db;
+  border-radius: 8px;
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #9ca3af;
+  background-clip: padding-box;
+}
