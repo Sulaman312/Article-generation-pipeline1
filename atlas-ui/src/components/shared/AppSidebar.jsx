@@ -205,7 +205,6 @@ function ContentPipelineNav({
   collapsed,
   workspaceView,
   activePipeline,
-  onGoToPipeline,
   onGoToEditorial,
   onGoToMatrix,
   onGoToArtifacts,
@@ -214,13 +213,6 @@ function ContentPipelineNav({
 
   return (
     <SidebarSection collapsed={collapsed} title="Content pipeline">
-      <NavItem
-        collapsed={collapsed}
-        icon={<IconPipelines />}
-        label="Pipeline"
-        active={activePipeline === null && workspaceView !== "artifacts"}
-        onClick={onGoToPipeline}
-      />
       <NavItem
         collapsed={collapsed}
         icon={<IconEditorial />}
@@ -627,7 +619,6 @@ function ClientNavSection({
       collapsed={collapsed}
       workspaceView={workspaceView}
       activePipeline={activePipeline}
-      onGoToPipeline={onGoToPipeline}
       onGoToEditorial={onGoToEditorial}
       onGoToMatrix={onGoToMatrix}
       onGoToArtifacts={onGoToArtifacts}
