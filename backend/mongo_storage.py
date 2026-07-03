@@ -28,10 +28,50 @@ _bucket = None
 _files = None
 _snapshot: dict[str, tuple[int, int]] = {}
 _known_paths: set[str] = set()
+_startup_state_lock = threading.Lock()
+_startup_thread: threading.Thread | None = None
+_startup_state: dict[str, object] = {
+    "status": "disabled",
+    "attempt": 0,
+    "last_error": None,
+    "hydrated_files": 0,
+}
 
 
 def enabled() -> bool:
     return bool(config.MONGODB_URI)
+
+
+def _set_startup_state(
+    status: str,
+    *,
+    attempt: int | None = None,
+    last_error: str | None = None,
+    hydrated_files: int | None = None,
+) -> None:
+    with _startup_state_lock:
+        _startup_state["status"] = status
+        if attempt is not None:
+            _startup_state["attempt"] = attempt
+        if last_error is not None or status in {"ready", "disabled"}:
+            _startup_state["last_error"] = last_error
+        if hydrated_files is not None:
+            _startup_state["hydrated_files"] = hydrated_files
+
+
+def startup_status() -> dict[str, object]:
+    with _startup_state_lock:
+        status = dict(_startup_state)
+    status["enabled"] = enabled()
+    if not status["enabled"]:
+        status["status"] = "disabled"
+    return status
+
+
+def runtime_ready() -> bool:
+    if not enabled():
+        return True
+    return str(startup_status().get("status")) == "ready"
 
 
 def _reset_connection() -> None:
@@ -270,6 +310,7 @@ def seed_from_directory(
 def initialize_runtime_cache() -> int:
     """Initialize MongoDB and hydrate CLIENTS_DIR when persistence is enabled."""
     if not enabled():
+        _set_startup_state("disabled", attempt=0, last_error=None, hydrated_files=0)
         logger.info("MongoDB persistence disabled; using %s", config.CLIENTS_DIR)
         return 0
 
@@ -281,10 +322,23 @@ def initialize_runtime_cache() -> int:
 
     for attempt in range(1, attempts + 1):
         try:
-            return hydrate_cache(clear=True)
+            _set_startup_state("running", attempt=attempt)
+            hydrated = hydrate_cache(clear=True)
+            _set_startup_state(
+                "ready",
+                attempt=attempt,
+                last_error=None,
+                hydrated_files=hydrated,
+            )
+            return hydrated
         except Exception:
             _reset_connection()
             if attempt == attempts:
+                _set_startup_state(
+                    "failed",
+                    attempt=attempt,
+                    last_error="MongoDB startup hydration failed",
+                )
                 logger.exception(
                     "MongoDB startup hydration failed after %s attempts",
                     attempts,
@@ -300,3 +354,65 @@ def initialize_runtime_cache() -> int:
             time.sleep(retry_delay)
 
     raise RuntimeError("MongoDB startup hydration failed")
+
+
+def initialize_runtime_cache_background() -> None:
+    """Start MongoDB hydration in a background thread so web startup is non-blocking."""
+    global _startup_thread
+    if not enabled():
+        initialize_runtime_cache()
+        return
+
+    with _startup_state_lock:
+        if _startup_thread is not None and _startup_thread.is_alive():
+            return
+        _startup_state["status"] = "pending"
+        _startup_state["attempt"] = 0
+        _startup_state["hydrated_files"] = 0
+        _startup_state["last_error"] = None
+
+    try:
+        retry_delay = max(
+            0.0, float(os.getenv("MONGODB_RETRY_DELAY_SECONDS") or "2")
+        )
+    except ValueError:
+        retry_delay = 2.0
+
+    def _worker() -> None:
+        attempt = 0
+        while True:
+            attempt += 1
+            _set_startup_state("running", attempt=attempt)
+            try:
+                hydrated = hydrate_cache(clear=True)
+            except Exception as exc:
+                _reset_connection()
+                detail = f"{type(exc).__name__}: {exc}"
+                _set_startup_state("retrying", attempt=attempt, last_error=detail)
+                logger.warning(
+                    "MongoDB hydration attempt %s failed; retrying in %.1fs",
+                    attempt,
+                    retry_delay,
+                    exc_info=True,
+                )
+                time.sleep(retry_delay)
+                continue
+
+            _set_startup_state(
+                "ready",
+                attempt=attempt,
+                last_error=None,
+                hydrated_files=hydrated,
+            )
+            logger.info(
+                "MongoDB hydration complete after %s attempt(s)",
+                attempt,
+            )
+            return
+
+    _startup_thread = threading.Thread(
+        target=_worker,
+        name="mongodb-hydration",
+        daemon=True,
+    )
+    _startup_thread.start()

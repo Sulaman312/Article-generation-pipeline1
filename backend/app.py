@@ -27,7 +27,7 @@ def _request_can_change_workspace() -> bool:
 def create_app() -> Flask:
     configure_logging(level=logging.INFO)
     logger.info("ContentFlow backend starting")
-    mongo_storage.initialize_runtime_cache()
+    mongo_storage.initialize_runtime_cache_background()
 
     ui_build_dir = Path(__file__).resolve().parent.parent / "atlas-ui" / "build"
     app = Flask(
@@ -49,9 +49,29 @@ def create_app() -> Flask:
     register_request_logging(app)
     app.register_blueprint(api_bp)
 
+    @app.before_request
+    def require_hydrated_workspace():
+        if mongo_storage.runtime_ready():
+            return None
+        if request.path == "/" or request.path == "/health":
+            return None
+        if request.path.startswith("/static/"):
+            return None
+        status = mongo_storage.startup_status()
+        return (
+            jsonify(
+                ok=False,
+                detail="Waiting for MongoDB hydration to complete.",
+                hydration=status,
+            ),
+            503,
+        )
+
     @app.after_request
     def persist_workspace_mutations(response):
         if not mongo_storage.enabled() or not _request_can_change_workspace():
+            return response
+        if not mongo_storage.runtime_ready():
             return response
         try:
             mongo_storage.sync_cache()

@@ -9,6 +9,7 @@ from flask import jsonify, request, send_from_directory
 from backend import artifacts
 from backend import config
 from backend import editorial_input
+from backend import mongo_storage
 from backend import pipeline_flow
 from backend.api.blueprint import api_bp
 from backend.api.helpers import load_manifest, reject_client, reject_run_id

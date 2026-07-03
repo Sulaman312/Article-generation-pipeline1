@@ -13,11 +13,13 @@ def context_files_catalog():
 
 @api_bp.get("/health")
 def health():
+    hydration = mongo_storage.startup_status()
     return jsonify(
         ok=True,
         service="ContentFlow API",
         persistence="mongodb" if mongo_storage.enabled() else "filesystem",
         database=config.MONGODB_DB if mongo_storage.enabled() else None,
+        hydration=hydration,
     )
 
 
