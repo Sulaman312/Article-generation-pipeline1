@@ -1,7 +1,6 @@
 import { useEffect, useState } from "react";
 import * as api from "../../services/api";
 import { useToast } from "../../context/ToastContext";
-import { PIPELINE_STEP_KEYS as STEP_ORDER } from "../../constants/pipeline";
 import ContextDrawer from "./ContextDrawer";
 import ContextEditorDrawer from "./ContextEditorDrawer";
 import {

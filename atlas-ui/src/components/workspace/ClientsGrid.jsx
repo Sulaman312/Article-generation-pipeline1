@@ -3,6 +3,7 @@ import * as api from "../../services/api";
 import PageHeader from "../shared/PageHeader";
 import WorkspaceLogo from "./WorkspaceLogo";
 import LogoFitImage from "./LogoFitImage";
+import EditWorkspaceModal from "./EditWorkspaceModal";
 import { isImageFile, readImageFileAsBase64 } from "../../utils/readImageFile";
 import {
   CONTEXT_FILE_LABELS,
@@ -39,6 +40,7 @@ export default function ClientsGrid({
   const [showSeedContext, setShowSeedContext] = useState(false);
   const [creating, setCreating] = useState(false);
   const [error, setError] = useState(null);
+  const [editingClient, setEditingClient] = useState(null);
   const [logoFile, setLogoFile] = useState(null);
   const [logoPreview, setLogoPreview] = useState(null);
   const logoInputRef = useRef(null);
@@ -408,6 +410,12 @@ export default function ClientsGrid({
               displayName={workspaceDisplayName(c.id, c.display_name)}
               logoVersion={logoVersions[c.id] || 0}
               onOpen={() => onOpenClient(c.id)}
+              onEdit={() =>
+                setEditingClient({
+                  id: c.id,
+                  displayName: workspaceDisplayName(c.id, c.display_name),
+                })
+              }
             />
           ))}
           <div className="card client-card-add" onClick={() => setAdding(true)}>
@@ -415,13 +423,84 @@ export default function ClientsGrid({
           </div>
         </div>
       )}
+
+      {editingClient ? (
+        <EditWorkspaceModal
+          clientId={editingClient.id}
+          displayName={editingClient.displayName}
+          logoVersion={logoVersions[editingClient.id] || 0}
+          onClose={() => setEditingClient(null)}
+          onSaved={async ({ logoUpdated }) => {
+            if (logoUpdated) onClientLogoSaved?.(editingClient.id);
+            setEditingClient(null);
+            await load();
+          }}
+        />
+      ) : null}
     </div>
   );
 }
 
-function ClientCard({ clientId, displayName, onOpen, logoVersion = 0 }) {
+function ClientCard({ clientId, displayName, onOpen, onEdit, logoVersion = 0 }) {
+  const [menuOpen, setMenuOpen] = useState(false);
+  const menuRef = useRef(null);
+  const menuBtnRef = useRef(null);
+
+  useEffect(() => {
+    if (!menuOpen) return undefined;
+    function onDoc(e) {
+      const target = e.target;
+      if (
+        menuRef.current?.contains(target) ||
+        menuBtnRef.current?.contains(target)
+      ) {
+        return;
+      }
+      setMenuOpen(false);
+    }
+    const timer = window.setTimeout(() => {
+      document.addEventListener("click", onDoc);
+    }, 0);
+    return () => {
+      window.clearTimeout(timer);
+      document.removeEventListener("click", onDoc);
+    };
+  }, [menuOpen]);
+
   return (
     <div className="card client-card" onClick={onOpen}>
+      <div
+        className={`client-card-menu-wrap${menuOpen ? " client-card-menu-wrap--open" : ""}`}
+        onMouseDown={(e) => e.stopPropagation()}
+        onClick={(e) => e.stopPropagation()}
+      >
+        <button
+          ref={menuBtnRef}
+          type="button"
+          className={`client-card-menu-btn${menuOpen ? " client-card-menu-btn--open" : ""}`}
+          aria-label="Workspace actions"
+          aria-expanded={menuOpen}
+          aria-haspopup="menu"
+          onClick={() => setMenuOpen((v) => !v)}
+        >
+          ⋮
+        </button>
+        {menuOpen ? (
+          <div ref={menuRef} className="client-card-menu" role="menu">
+            <button
+              type="button"
+              className="client-card-menu-item"
+              role="menuitem"
+              onClick={() => {
+                setMenuOpen(false);
+                onEdit?.();
+              }}
+            >
+              Edit workspace
+            </button>
+          </div>
+        ) : null}
+      </div>
       <div className="client-card-inner">
         <WorkspaceLogo clientId={clientId} size={44} cacheKey={logoVersion} />
         <div className="client-card-text">

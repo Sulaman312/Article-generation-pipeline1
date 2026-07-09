@@ -60,6 +60,80 @@ class EditorialNoticeTests(unittest.TestCase):
         self.assertIn("/book-a-demo/", notice)
         self.assertIn("auto-checked", notice.lower())
 
+    def test_build_meta_seo_context_fills_prompts(self):
+        topic_card = (
+            "---TOPIC CARD START---\n"
+            "TOPIC: How to measure dogs for sweaters\n"
+            "PRIMARY KEYWORD: measure dogs for sweaters\n"
+            "CONTENT TYPE: blog\n"
+            "---TOPIC CARD END---"
+        )
+        brief = (
+            "---BRIEF START---\n"
+            "ARTICLE TITLE: How to measure your dog for a sweater\n"
+            "PRIMARY KEYWORD: measure dogs for sweaters\n"
+            "---BRIEF END---"
+        )
+        ctx = editorial_input.build_meta_seo_context(
+            topic_card=topic_card,
+            assignment_brief=brief,
+            final_output="",
+            manual=None,
+        )
+        self.assertEqual(ctx["keyword"], "measure dogs for sweaters")
+        self.assertIn("blog page", ctx["page_type"])
+        self.assertIn("measure dogs for sweaters", ctx["meta_title_prompt"])
+        self.assertIn("50 and 60 characters", ctx["meta_title_prompt"])
+        self.assertIn("step-by-step guide", ctx["meta_title_prompt"])
+        self.assertIn("120 and 155 characters", ctx["meta_description_prompt"])
+        self.assertIn("5 options", ctx["meta_description_prompt"])
+
+    def test_finalize_meta_seo_output_keeps_step_markers(self):
+        sample = (
+            "---META SEO START---\n"
+            "PAGE TYPE: blog page\n"
+            "TARGET KEYWORD: test keyword\n"
+            "META TITLE OPTIONS (50–60 characters):\n"
+            "  1. Example title here (52 characters)\n"
+            "---META SEO END---\n"
+        )
+        out = editorial_input.finalize_meta_seo_output(sample)
+        self.assertIn("META SEO START", out)
+        self.assertIn("META SEO END", out)
+        self.assertIn("PAGE TYPE:", out)
+        self.assertIn("META TITLE OPTIONS", out)
+
+    def test_parse_and_inject_meta_seo_into_publishing_metadata(self):
+        meta = (
+            "PAGE TYPE: how-to guide page\n"
+            "TARGET KEYWORD: paperless veterinary clinic\n\n"
+            "META TITLE OPTIONS (50–60 characters):\n"
+            "  1. Paperless veterinary clinic guide (38 characters)\n"
+            "  2. Go paperless in your vet clinic (34 characters)\n\n"
+            "META DESCRIPTION OPTIONS (120–155 characters):\n"
+            "  1. Ready to run a paperless veterinary clinic? Start here. (57 characters)\n"
+            "  2. Learn how to migrate your vet clinic to paperless records. (60 characters)\n"
+        )
+        parsed = editorial_input.parse_meta_seo_artifact(meta)
+        self.assertEqual(len(parsed["title_options"]), 2)
+        self.assertEqual(len(parsed["description_options"]), 2)
+
+        final = (
+            "---PUBLISHING METADATA START---\n"
+            "H1 TITLE: How to Go Paperless\n"
+            "H1 CHARACTER COUNT: 24\n"
+            "H1 WORD COUNT: 5\n"
+            "META DESCRIPTION: old value\n"
+            "PRIMARY KEYWORD: paperless veterinary clinic\n"
+            "STATUS: READY FOR CMS\n"
+            "---PUBLISHING METADATA END---\n"
+        )
+        merged = editorial_input.inject_meta_seo_into_publishing_metadata(final, meta)
+        self.assertIn("META TITLE: Paperless veterinary clinic guide", merged)
+        self.assertIn("META TITLE OPTIONS:", merged)
+        self.assertIn("META DESCRIPTION OPTIONS:", merged)
+        self.assertNotIn("META DESCRIPTION: old value", merged)
+
 
 if __name__ == "__main__":
     unittest.main()

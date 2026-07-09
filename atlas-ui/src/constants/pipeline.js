@@ -1,4 +1,4 @@
-/** Must stay in sync with `backend/pipeline.py` STEP_ORDER. */
+/** Fallback when API is unreachable — keep keys aligned with `backend/pipeline_steps.py`. */
 export const PIPELINE_STEPS = [
   {
     key: "topic_card",
@@ -50,11 +50,18 @@ export const PIPELINE_STEPS = [
     index: 7,
   },
   {
+    key: "meta_seo",
+    label: "Meta Title & Description",
+    matrixLabel: "SEO meta tags",
+    matrixCol: "MS",
+    index: 8,
+  },
+  {
     key: "final_output",
     label: "Final Output",
     matrixLabel: "Ready to publish",
     matrixCol: "FO",
-    index: 8,
+    index: 9,
   },
 ];
 

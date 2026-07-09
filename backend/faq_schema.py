@@ -7,8 +7,12 @@ import re
 
 FAQ_SCHEMA_START = "---FAQ SCHEMA (JSON-LD) START---"
 FAQ_SCHEMA_END = "---FAQ SCHEMA (JSON-LD) END---"
-FINAL_ARTICLE_START = "---FINAL ARTICLE START---"
-FINAL_ARTICLE_END = "---FINAL ARTICLE END---"
+FINAL_OUTPUT_START = "---FINAL OUTPUT START---"
+FINAL_OUTPUT_END = "---FINAL OUTPUT END---"
+FINAL_ARTICLE_START = FINAL_OUTPUT_START
+FINAL_ARTICLE_END = FINAL_OUTPUT_END
+PUBLISHING_METADATA_START = "---PUBLISHING METADATA START---"
+PUBLISHING_METADATA_END = "---PUBLISHING METADATA END---"
 CORRECTED_ARTICLE_START = "---CORRECTED ARTICLE START---"
 CORRECTED_ARTICLE_END = "---CORRECTED ARTICLE END---"
 MIN_FAQ_QUESTIONS = 5
@@ -164,28 +168,60 @@ def wrap_faq_schema_block(script_tag: str) -> str:
     return f"\n\n{FAQ_SCHEMA_START}\n{script_tag.strip()}\n{FAQ_SCHEMA_END}\n"
 
 
+def strip_publishing_metadata_block(text: str) -> str:
+    """Remove legacy publishing metadata wrapper from final_output artifacts."""
+    if not text:
+        return ""
+    start = text.find(PUBLISHING_METADATA_START)
+    end = text.find(PUBLISHING_METADATA_END)
+    if start == -1 or end == -1 or end <= start:
+        return text
+    before = text[:start].rstrip()
+    after = text[end + len(PUBLISHING_METADATA_END) :].lstrip()
+    if before and after:
+        return f"{before}\n\n{after}".strip()
+    return (before or after).strip()
+
+
+def wrap_final_article(article_md: str) -> str:
+    body = (article_md or "").strip()
+    if not body:
+        return ""
+    return f"{FINAL_OUTPUT_START}\n{body}\n{FINAL_OUTPUT_END}\n"
+
+
 def extract_final_article_body(text: str) -> str:
     if not text:
         return ""
-    start = text.find(FINAL_ARTICLE_START)
-    end = text.find(FINAL_ARTICLE_END)
-    if start == -1 or end == -1 or end <= start:
-        return text
-    body = text[start + len(FINAL_ARTICLE_START) : end]
-    schema_at = body.find(FAQ_SCHEMA_START)
-    if schema_at != -1:
-        body = body[:schema_at]
-    return body.strip()
+    cleaned = strip_publishing_metadata_block(text)
+    marker_pairs = [
+        (FINAL_OUTPUT_START, FINAL_OUTPUT_END),
+        ("---FINAL ARTICLE START---", "---FINAL ARTICLE END---"),
+    ]
+    for start, end in marker_pairs:
+        s = cleaned.find(start)
+        e = cleaned.find(end)
+        if s != -1 and e != -1 and e > s:
+            body = cleaned[s + len(start) : e]
+            schema_at = body.find(FAQ_SCHEMA_START)
+            if schema_at != -1:
+                body = body[:schema_at]
+            return body.strip()
+    return cleaned.strip()
 
 
 def replace_final_article_body(full_text: str, new_article: str) -> str:
-    start = full_text.find(FINAL_ARTICLE_START)
-    end = full_text.find(FINAL_ARTICLE_END)
-    if start == -1 or end == -1 or end <= start:
-        return full_text
-    head = full_text[: start + len(FINAL_ARTICLE_START)]
-    tail = full_text[end:]
-    return f"{head}\n{new_article.strip()}\n{tail}"
+    for start, end in (
+        (FINAL_OUTPUT_START, FINAL_OUTPUT_END),
+        ("---FINAL ARTICLE START---", "---FINAL ARTICLE END---"),
+    ):
+        s = full_text.find(start)
+        e = full_text.find(end)
+        if s != -1 and e != -1 and e > s:
+            head = full_text[: s + len(start)]
+            tail = full_text[e:]
+            return f"{head}\n{new_article.strip()}\n{tail}"
+    return full_text
 
 
 def extract_faq_schema_script(text: str) -> str:
@@ -253,6 +289,9 @@ def ensure_faq_schema_block(final_output: str, *, min_questions: int = 2) -> str
     script = faq_schema_script_tag(pairs)
     base = strip_faq_schema_block(text)
 
+    if FINAL_OUTPUT_END in base:
+        idx = base.index(FINAL_OUTPUT_END) + len(FINAL_OUTPUT_END)
+        return base[:idx] + wrap_faq_schema_block(script) + base[idx:].lstrip("\n")
     if FINAL_ARTICLE_END in base:
         idx = base.index(FINAL_ARTICLE_END) + len(FINAL_ARTICLE_END)
         return base[:idx] + wrap_faq_schema_block(script) + base[idx:].lstrip("\n")

@@ -86,7 +86,7 @@ def _run_step_job(
                 )
     finally:
         try:
-            mongo_storage.sync_cache()
+            mongo_storage.sync_cache(delete_missing=True)
         except Exception:
             logger.exception(
                 "Could not persist background step result: %s/%s/%s",
@@ -442,10 +442,24 @@ def run_single_step(client_id: str, run_id: str, step_name: str):
         for name in pipeline.step_order:
             statuses.setdefault(name, "pending")
         existing = _STEP_JOBS.get(key)
-        if statuses.get(step_name) == "running" or (
-            existing and existing.is_alive()
-        ):
+        thread_alive = bool(existing and existing.is_alive())
+        step_status = statuses.get(step_name, "pending")
+        if step_status == "running" and not thread_alive:
+            # Stale manifest after a crash/restart — allow a fresh run.
+            statuses[step_name] = "pending"
+            step_status = "pending"
+        if step_status == "running":
             return jsonify(detail="This step is already running"), 409
+        if thread_alive:
+            return (
+                jsonify(
+                    detail=(
+                        "This step is still finishing on the server. "
+                        "Wait a moment, or pause again to reset."
+                    )
+                ),
+                409,
+            )
         timings = artifacts.record_step_started(client_id, run_id, step_name)
         statuses[step_name] = "running"
         errors = dict(latest.get("step_errors") or {})

@@ -1,6 +1,9 @@
 import { Fragment } from "react";
 import { parseBlocks } from "../../utils/markdownBlocks";
-import { normalizePipelineMarkdown } from "../../constants/markdownPreview";
+import {
+  normalizePipelineMarkdown,
+  normalizeStepArtifactMarkdown,
+} from "../../constants/markdownPreview";
 
 const INLINE_TOKEN =
   /(`[^`\n]+`)|(\*\*[^*\n]+\*\*)|(__[^_\n]+__)|(\*[^*\n]+\*)|(_[^_\n]+_)|(\[[^\]]+\]\([^)\s]+\))/g;
@@ -57,6 +60,42 @@ function renderInline(text, keyPrefix = "i") {
 
 function isSystemMetaKey(key) {
   return /^(MODEL|VERSION|STATUS)$/i.test(String(key || "").trim());
+}
+
+function isHiddenPipelineBanner(label) {
+  const t = String(label || "").trim();
+  if (/^META SEO (?:START|END)$/i.test(t)) return true;
+  if (/^SERP RESEARCH/i.test(t)) return true;
+  if (/^SERP ANALYSIS/i.test(t)) return true;
+  if (/^FACT CHECK REPORT/i.test(t)) return true;
+  if (/^CORRECTED ARTICLE/i.test(t)) return true;
+  if (/^PERPLEXITY WEB FACT-CHECK/i.test(t)) return true;
+  if (/^DRAFT FACT-CHECK SCAN/i.test(t)) return true;
+  if (/^EDITOR FACT-CHECK/i.test(t)) return true;
+  if (/^PUBLISHING METADATA/i.test(t)) return true;
+  if (/^(MAIN RESPONSE|RESPONSE)$/i.test(t)) return true;
+  if (/^PASTE PERPLEXITY/i.test(t)) return true;
+  return false;
+}
+
+function isSerpPreambleTitle(text) {
+  const t = String(text || "")
+    .trim()
+    .replace(/^\*\*|\*\*$/g, "")
+    .replace(/^#+\s*/, "");
+  return /^SERP[- ]Oriented Research Summary\s*:/i.test(t);
+}
+
+function isFactcheckPreambleTitle(text) {
+  const t = String(text || "")
+    .trim()
+    .replace(/^\*\*|\*\*$/g, "")
+    .replace(/^#+\s*/, "");
+  return /^Web[- ]Grounded Fact[- ]Check Scan\s*:/i.test(t);
+}
+
+function isRedundantSectionLabel(label) {
+  return /^SERP SNAPSHOT$/i.test(String(label || "").trim());
 }
 
 function isPipelineFieldKey(key) {
@@ -147,6 +186,22 @@ function renderBoldHeading(title, key) {
 
 function renderPipelineField(label, bodyText, key) {
   const cleanLabel = label.trim().replace(/:$/, "");
+  if (isRedundantSectionLabel(cleanLabel)) {
+    const body = bodyText.trim();
+    if (!body) return null;
+    return (
+      <div key={key} className="md-labeled-block md-pipeline-field">
+        <div className="md-labeled-block-body">
+          {body.split("\n").map((seg, j) => (
+            <Fragment key={`${key}-b-${j}`}>
+              {j > 0 ? <br /> : null}
+              {renderInline(seg, `${key}-${j}`)}
+            </Fragment>
+          ))}
+        </div>
+      </div>
+    );
+  }
   const body = bodyText.trim();
   return (
     <div key={key} className="md-labeled-block md-pipeline-field">
@@ -266,8 +321,12 @@ function renderParagraphBlock(block, key) {
 
   const banner = trimmed.match(/^---(.+?)---$/);
   if (banner) {
-    return renderDelimiterHeading(banner[1].trim(), key);
+    const label = banner[1].trim();
+    if (isHiddenPipelineBanner(label)) return null;
+    return renderDelimiterHeading(label, key);
   }
+
+  if (isSerpPreambleTitle(trimmed) || isFactcheckPreambleTitle(trimmed)) return null;
 
   if (isMajorSectionTitle(trimmed) && !trimmed.includes(":")) {
     return renderBoldHeading(trimmed, key);
@@ -276,6 +335,7 @@ function renderParagraphBlock(block, key) {
   const boldOnly = trimmed.match(/^\*\*([^*]+)\*\*\s*$/);
   if (boldOnly) {
     const inner = boldOnly[1].trim();
+    if (isSerpPreambleTitle(inner) || isFactcheckPreambleTitle(inner)) return null;
     const outlineFromBold = renderOutlineHeading(inner, key);
     if (outlineFromBold) return outlineFromBold;
     if (inner.includes(":") && inner.length > 48 && !isMajorSectionTitle(inner)) {
@@ -305,6 +365,7 @@ function renderParagraphBlock(block, key) {
 
   const metaLine = trimmed.match(/^([A-Z][A-Z0-9_ \-]+):\s*(.+)$/);
   if (metaLine && !trimmed.includes("**") && !/^H[1-6]$/i.test(metaLine[1].trim())) {
+    if (isSystemMetaKey(metaLine[1])) return null;
     return (
       <div key={key} className="md-meta-line">
         <span className="md-meta-line-key">{metaLine[1]}</span>
@@ -351,6 +412,8 @@ function renderBlock(block, idx) {
   const k = `b-${idx}`;
   switch (block.type) {
     case "heading": {
+      if (isSerpPreambleTitle(block.text) || isFactcheckPreambleTitle(block.text))
+        return null;
       const outline = renderOutlineHeading(block.text, k);
       if (outline) return outline;
       const level = Math.min(6, Math.max(1, block.level));
@@ -416,8 +479,8 @@ function renderBlock(block, idx) {
   }
 }
 
-export default function Markdown({ text, className = "md" }) {
-  const blocks = parseBlocks(normalizePipelineMarkdown(text || ""));
+export default function Markdown({ text, className = "md", stepKey = null }) {
+  const blocks = parseBlocks(normalizeStepArtifactMarkdown(text || "", stepKey));
   if (blocks.length === 0) {
     return <div className="empty-state">empty artifact</div>;
   }

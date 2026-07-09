@@ -1,9 +1,19 @@
-import { render, screen } from "@testing-library/react";
+import { render, screen, waitFor } from "@testing-library/react";
+import * as api from "./services/api";
 import App from "./App";
 
-test("renders idle state", () => {
+beforeEach(() => {
+  jest.spyOn(api, "getClients").mockResolvedValue([]);
+  jest.spyOn(api, "getContextFilesCatalog").mockResolvedValue([]);
+});
+
+afterEach(() => {
+  jest.restoreAllMocks();
+});
+
+test("renders workspace list after pipeline loads", async () => {
   render(<App />);
-  expect(
-    screen.getByText(/select a run or start a new one/i)
-  ).toBeInTheDocument();
+  await waitFor(() => {
+    expect(screen.getByText(/workspaces/i)).toBeInTheDocument();
+  });
 });

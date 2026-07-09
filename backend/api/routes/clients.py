@@ -77,6 +77,26 @@ def put_client_logo(client_id: str):
     return jsonify(saved=True, filename=stored)
 
 
+@api_bp.patch("/clients/<client_id>")
+def patch_client(client_id: str):
+    bad = reject_client(client_id)
+    if bad:
+        return bad
+    base = Path(config.CLIENTS_DIR) / client_id
+    if not base.is_dir():
+        return jsonify(detail="client not found"), 404
+    body = request.get_json(silent=True) or {}
+    if "display_name" not in body:
+        return jsonify(detail="display_name is required"), 400
+    display_name = str(body.get("display_name") or "").strip()
+    if not display_name:
+        return jsonify(detail="display_name cannot be empty"), 400
+    meta = artifacts.read_workspace_meta(client_id)
+    meta["display_name"] = display_name
+    artifacts.write_workspace_meta(client_id, meta)
+    return jsonify(updated=True, display_name=display_name)
+
+
 @api_bp.delete("/clients/<client_id>")
 def delete_client(client_id: str):
     bad = reject_client(client_id)

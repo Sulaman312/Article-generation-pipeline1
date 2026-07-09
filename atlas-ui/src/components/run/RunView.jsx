@@ -9,6 +9,8 @@ import Markdown from "../shared/Markdown";
 import MarkdownArtifactPanel from "../shared/MarkdownArtifactPanel";
 import ArtifactFormattedPreview from "./ArtifactFormattedPreview";
 import TopicCardStructured from "./TopicCardStructured";
+import MetaSeoStructured from "./MetaSeoStructured";
+import { isMetaSeoFormat } from "../../utils/parseMetaSeo";
 import FinalOutputDocEditor from "./FinalOutputDocEditor";
 import { copyFormattedMarkdown } from "../../utils/markdownExport";
 import { PIPELINE_MARKDOWN_CLASS } from "../../constants/markdownPreview";
@@ -581,7 +583,11 @@ function ArtifactView({
       <TopicCardStructured text={content} manualInputs={manualInputs} />
     ) : null;
 
-  const structuredOnly = topicCardPreview || null;
+  const metaSeoPreview =
+    stepName === "meta_seo" && isMetaSeoFormat(content) ? (
+      <MetaSeoStructured text={content} toast={toast} />
+    ) : null;
+  const structuredOnly = topicCardPreview || metaSeoPreview || null;
 
   const formattedPreview = structuredOnly ? (
     <ArtifactFormattedPreview
@@ -676,6 +682,7 @@ function ArtifactView({
         ) : (
           <MarkdownArtifactPanel
             content={content}
+            stepKey={stepName}
             draft={draft}
             editing={editing && !readOnly}
             onDraftChange={setDraft}

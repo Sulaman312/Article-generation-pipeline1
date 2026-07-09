@@ -14,6 +14,7 @@ $backendCmd = @"
 Set-Location '$Root'
 `$env:API_PORT = '$apiPort'
 `$env:CLIENTS_DATA_DIR = 'clients'
+`$env:MONGODB_DB = 'article_generation_pipeline'
 python main.py
 "@
 

@@ -7,21 +7,15 @@ from . import prompts
 from .context_extractor import extract_for_step_5, extract_for_step_7
 from . import faq_schema
 from . import final_output_enforce
+from .step_markers import wrap_step_artifact
 from . import writing_format_enforce
 from .integrations import anthropic as claude
+from .pipeline_steps import ARTICLE_STEP_ORDER
 
 logger = logging.getLogger(__name__)
 
 _PIPELINE_STEP_NUM: dict[str, int] = {
-    # Must match `backend/pipeline.py` STEP_ORDER.
-    "topic_card": 1,
-    "serp_research": 2,
-    "research": 3,
-    "assignment_brief": 4,
-    "outline": 5,
-    "draft": 6,
-    "fact_check": 7,
-    "final_output": 8,
+    name: index for index, name in enumerate(ARTICLE_STEP_ORDER, start=1)
 }
 
 
@@ -281,6 +275,7 @@ def run_step_1(client_id: str, run_id: str, previous_artifact: str = "") -> str:
         output = editorial_input.apply_manual_keywords_topic_card(
             output, manual, semrush_notes=""
         )
+    output = wrap_step_artifact(step_name, output)
     artifacts.save_artifact(client_id, run_id, step_name, output)
     logger.info("step complete %s", step_name)
     return output
@@ -301,6 +296,7 @@ def run_serp_research(client_id: str, run_id: str, previous_artifact: str = "") 
         logger.info("%s: no PERPLEXITY_API_KEY — writing manual placeholder", step_name)
         output = ppx.manual_serp_placeholder()
 
+    output = wrap_step_artifact(step_name, output)
     artifacts.save_artifact(client_id, run_id, step_name, output)
     logger.info("step complete %s", step_name)
     return output
@@ -339,6 +335,7 @@ def run_step_2(client_id: str, run_id: str, previous_artifact: str = "") -> str:
     if wc_target:
         output = editorial_input.enforce_word_count_in_brief(output, wc_target)
     output = writing_format_enforce.enforce_brief(output, allow_llm_repair=True)
+    output = wrap_step_artifact(step_name, output)
     artifacts.save_artifact(client_id, run_id, step_name, output)
     logger.info("step complete %s", step_name)
     return output
@@ -359,6 +356,7 @@ def run_step_3(client_id: str, run_id: str, previous_artifact: str = "") -> str:
         f"{previous_artifact.strip()}\n"
     )
     output = _chat_complete(system_msg, user_msg, step_label)
+    output = wrap_step_artifact(step_name, output)
     artifacts.save_artifact(client_id, run_id, step_name, output)
     logger.info("step complete %s", step_name)
     return output
@@ -391,6 +389,7 @@ def run_step_4(client_id: str, run_id: str, previous_artifact: str = "") -> str:
     if wc_target:
         output = editorial_input.enforce_outline_section_word_counts(output, wc_target)
     output = writing_format_enforce.enforce_outline(output, allow_llm_repair=True)
+    output = wrap_step_artifact(step_name, output)
     artifacts.save_artifact(client_id, run_id, step_name, output)
     logger.info("step complete %s", step_name)
     return output
@@ -492,6 +491,7 @@ Instead of generic corporate language, use:
     output = writing_format_enforce.enforce_article(
         output, stage="draft", allow_llm_repair=True
     )
+    output = wrap_step_artifact(step_name, output)
     artifacts.save_artifact(client_id, run_id, step_name, output)
     logger.info("step complete %s", step_name)
     return output
@@ -530,6 +530,7 @@ def run_step_6(client_id: str, run_id: str, previous_artifact: str = "") -> str:
         f"{ppx_block}\n"
     )
     claude_out = _chat_complete(system_msg, user_msg, step_label)
+    claude_out = wrap_step_artifact(step_name, claude_out)
     combined = (
         "---PERPLEXITY WEB FACT-CHECK (raw audit trail)---\n"
         + ppx_block.strip()
@@ -569,8 +570,9 @@ CTA Philosophy: {extracted['cta_philosophy']}
     research_doc = _load_prior_artifact(client_id, run_id, "research")
     serp_step = _step_num("serp_research") or "?"
     research_step = _step_num("research") or "?"
+    fact_check = _load_prior_artifact(client_id, run_id, "fact_check")
     user_msg = (
-        f"{previous_artifact.strip()}\n\n"
+        f"{fact_check.strip() or '[fact_check artifact missing]'}\n\n"
         "---SOURCES FOR EXTERNAL LINKS (URLs must appear here — do not invent)---\n"
         f"---SERP RESEARCH (STEP {serp_step})---\n{serp_digest.strip()}\n\n"
         f"---SERP ANALYSIS (STEP {research_step})---\n{research_doc.strip()}\n"
@@ -591,6 +593,67 @@ CTA Philosophy: {extracted['cta_philosophy']}
     output = final_output_enforce.enforce_final_output(
         output, client_id, run_id, allow_llm_repair=True
     )
+    output = wrap_step_artifact(step_name, output)
+    artifacts.save_artifact(client_id, run_id, step_name, output)
+    logger.info("step complete %s", step_name)
+    return output
+
+
+def _article_excerpt_for_meta(article_source: str, *, max_chars: int = 2500) -> str:
+    from . import faq_schema
+
+    body = (
+        faq_schema.extract_corrected_article_body(article_source)
+        or faq_schema.extract_final_article_body(article_source)
+        or (article_source or "").strip()
+    )
+    if len(body) <= max_chars:
+        return body
+    cut = body[:max_chars].rsplit("\n", 1)[0]
+    return (cut or body[:max_chars]).strip() + "\n\n[… excerpt truncated …]"
+
+
+def run_meta_seo(client_id: str, run_id: str, previous_artifact: str = "") -> str:
+    """Step 8 — meta title and meta description options (5 each)."""
+    step_name = "meta_seo"
+    context = artifacts.load_context(client_id, step_name)
+    system_msg = prompts.META_SEO_PROMPT + "\n" + context
+    step_label = _step_label(step_name)
+
+    manifest = artifacts.read_run_manifest(client_id, run_id) or {}
+    manual = manifest.get("manual_inputs")
+    topic_card = _load_prior_artifact(client_id, run_id, "topic_card")
+    brief = _load_prior_artifact(client_id, run_id, "assignment_brief")
+    fact_check = (previous_artifact or "").strip() or _load_prior_artifact(
+        client_id, run_id, "fact_check"
+    )
+
+    seo_ctx = editorial_input.build_meta_seo_context(
+        topic_card=topic_card,
+        assignment_brief=brief,
+        article_source=fact_check,
+        manual=manual if isinstance(manual, dict) else None,
+    )
+
+    article_excerpt = _article_excerpt_for_meta(fact_check)
+
+    user_msg = (
+        "Generate meta title and meta description options using these exact prompts:\n\n"
+        "META TITLE PROMPT:\n"
+        f"{seo_ctx['meta_title_prompt']}\n\n"
+        "META DESCRIPTION PROMPT:\n"
+        f"{seo_ctx['meta_description_prompt']}\n\n"
+        "---REFERENCE MATERIAL---\n"
+        f"PAGE TYPE: {seo_ctx['page_type']}\n"
+        f"TARGET KEYWORD: {seo_ctx['keyword']}\n"
+        f"CONTENT SUMMARY: {seo_ctx['content_description']}\n\n"
+        f"---TOPIC CARD---\n{topic_card.strip() or '[missing]'}\n\n"
+        f"---ASSIGNMENT BRIEF---\n{brief.strip() or '[missing]'}\n\n"
+        f"---CORRECTED ARTICLE EXCERPT (fact-check)---\n{article_excerpt or '[missing]'}\n"
+    )
+
+    output = _chat_complete(system_msg, user_msg, step_label, temperature=0.65)
+    output = editorial_input.finalize_meta_seo_output(output)
     artifacts.save_artifact(client_id, run_id, step_name, output)
     logger.info("step complete %s", step_name)
     return output

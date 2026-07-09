@@ -7,6 +7,7 @@ mutations back to GridFS after API write requests.
 
 from __future__ import annotations
 
+import json
 import logging
 import mimetypes
 import os
@@ -15,11 +16,13 @@ import threading
 import time
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Callable
+from typing import Any, Callable
 
 from . import config
 
 logger = logging.getLogger(__name__)
+
+CACHE_METADATA_FILENAME = ".contentflow-cache.json"
 
 _LOCK = threading.RLock()
 _client = None
@@ -72,6 +75,65 @@ def runtime_ready() -> bool:
     if not enabled():
         return True
     return str(startup_status().get("status")) == "ready"
+
+
+def _cache_metadata_path(root: Path | None = None) -> Path:
+    return (root or Path(config.CLIENTS_DIR)) / CACHE_METADATA_FILENAME
+
+
+def _read_cache_metadata(root: Path | None = None) -> dict[str, Any] | None:
+    path = _cache_metadata_path(root)
+    if not path.is_file():
+        return None
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        logger.warning("Could not read cache metadata from %s", path, exc_info=True)
+        return None
+    return payload if isinstance(payload, dict) else None
+
+
+def _write_cache_metadata(root: Path | None = None) -> None:
+    path = _cache_metadata_path(root)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    payload = {
+        "database": config.MONGODB_DB,
+        "hydrated_at": datetime.now(timezone.utc).isoformat(),
+    }
+    path.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
+
+
+def _assert_cache_database_matches(*, root: Path | None = None) -> None:
+    """Abort sync/hydration when the on-disk cache belongs to another database."""
+    cache_root = root or Path(config.CLIENTS_DIR)
+    meta = _read_cache_metadata(cache_root)
+    if not meta:
+        return
+    recorded = str(meta.get("database") or "").strip()
+    expected = config.MONGODB_DB
+    if recorded and recorded != expected:
+        message = (
+            f"MongoDB cache at {cache_root} was hydrated from database "
+            f"{recorded!r}, but MONGODB_DB is {expected!r}. "
+            "Refusing to sync or overwrite the cache."
+        )
+        logger.error(message)
+        raise RuntimeError(message)
+
+
+def _cache_database_mismatch_error(root: Path | None = None) -> RuntimeError:
+    cache_root = root or Path(config.CLIENTS_DIR)
+    meta = _read_cache_metadata(cache_root) or {}
+    recorded = str(meta.get("database") or "(unknown)").strip()
+    expected = config.MONGODB_DB
+    message = (
+        f"MongoDB cache at {cache_root} was hydrated from database "
+        f"{recorded!r}, but MONGODB_DB is {expected!r}. "
+        "Refusing to delete the existing cache. "
+        "Remove the cache directory manually or point MONGODB_CACHE_DIR "
+        "at an empty folder before restarting."
+    )
+    return RuntimeError(message)
 
 
 def _reset_connection() -> None:
@@ -131,6 +193,8 @@ def _relative_files(root: Path) -> dict[str, Path]:
     rows: dict[str, Path] = {}
     for path in root.rglob("*"):
         if path.is_file() and not path.is_symlink():
+            if path.name == CACHE_METADATA_FILENAME:
+                continue
             if path.name.startswith(".") and path.name.endswith(".tmp"):
                 continue
             rel = path.relative_to(root).as_posix()
@@ -162,8 +226,14 @@ def hydrate_cache(*, clear: bool = True) -> int:
 
     with _LOCK:
         files, bucket = _connect()
-        docs = list(files.find({}, {"path": 1, "gridfs_id": 1}))
         root = Path(config.CLIENTS_DIR)
+        if root.exists():
+            meta = _read_cache_metadata(root)
+            if meta:
+                recorded = str(meta.get("database") or "").strip()
+                if recorded and recorded != config.MONGODB_DB:
+                    raise _cache_database_mismatch_error(root)
+        docs = list(files.find({}, {"path": 1, "gridfs_id": 1}))
         if clear:
             shutil.rmtree(root, ignore_errors=True)
         root.mkdir(parents=True, exist_ok=True)
@@ -176,6 +246,7 @@ def hydrate_cache(*, clear: bool = True) -> int:
             target = root / rel
             target.parent.mkdir(parents=True, exist_ok=True)
             temp = target.with_name(f".{target.name}.mongo-tmp")
+            temp.parent.mkdir(parents=True, exist_ok=True)
             stream = bucket.open_download_stream(doc["gridfs_id"])
             with temp.open("wb") as handle:
                 while chunk := stream.read(1024 * 1024):
@@ -185,6 +256,7 @@ def hydrate_cache(*, clear: bool = True) -> int:
         rows = _relative_files(root)
         _snapshot = _stat_snapshot(rows)
         _known_paths = set(rows)
+        _write_cache_metadata(root)
         logger.info(
             "Hydrated %s files from MongoDB database %s into %s",
             len(rows),
@@ -222,15 +294,16 @@ def _upload_file(rel: str, path: Path, files, bucket) -> None:
             logger.warning("Could not remove superseded GridFS blob %s", old_id)
 
 
-def sync_cache(*, force: bool = False, delete_missing: bool = True) -> dict[str, int]:
+def sync_cache(*, force: bool = False, delete_missing: bool = False) -> dict[str, int]:
     """Persist changed cache files and known deletions to MongoDB."""
     global _snapshot, _known_paths
     if not enabled():
         return {"uploaded": 0, "deleted": 0, "total": 0}
 
     with _LOCK:
-        files, bucket = _connect()
         root = Path(config.CLIENTS_DIR)
+        _assert_cache_database_matches(root=root)
+        files, bucket = _connect()
         rows = _relative_files(root)
         current = _stat_snapshot(rows)
         changed = [
@@ -322,6 +395,13 @@ def initialize_runtime_cache() -> int:
 
     for attempt in range(1, attempts + 1):
         try:
+            root = Path(config.CLIENTS_DIR)
+            if root.exists():
+                meta = _read_cache_metadata(root)
+                if meta:
+                    recorded = str(meta.get("database") or "").strip()
+                    if recorded and recorded != config.MONGODB_DB:
+                        raise _cache_database_mismatch_error(root)
             _set_startup_state("running", attempt=attempt)
             hydrated = hydrate_cache(clear=True)
             _set_startup_state(

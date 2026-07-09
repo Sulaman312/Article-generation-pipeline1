@@ -29,6 +29,7 @@ STEP_4_PROMPT = _load_md("04_outline.md")
 STEP_5_PROMPT = _load_md("05_draft.md")
 STEP_6_PROMPT = _load_md("06_fact_check.md")
 STEP_7_PROMPT = _load_md("07_final_output.md")
+STEP_8_PROMPT = _load_md("08_meta_seo.md")
 
 # Semantic aliases. The numeric STEP_* constants follow the on-disk markdown filenames
 # and intentionally do NOT include the `serp_research` pipeline step.
@@ -39,6 +40,7 @@ OUTLINE_PROMPT = STEP_4_PROMPT
 DRAFT_PROMPT = STEP_5_PROMPT
 FACT_CHECK_PROMPT = STEP_6_PROMPT
 FINAL_OUTPUT_PROMPT = STEP_7_PROMPT
+META_SEO_PROMPT = STEP_8_PROMPT
 WRITING_FORMAT_GUIDELINES = _load_md("../writing_format_guidelines.md")
 
 WRITING_FORMAT_BLOCK = (
@@ -64,6 +66,7 @@ __all__ = [
     "STEP_5_PROMPT",
     "STEP_6_PROMPT",
     "STEP_7_PROMPT",
+    "STEP_8_PROMPT",
     "TOPIC_CARD_PROMPT",
     "ASSIGNMENT_BRIEF_PROMPT",
     "RESEARCH_PROMPT",
@@ -71,6 +74,7 @@ __all__ = [
     "DRAFT_PROMPT",
     "FACT_CHECK_PROMPT",
     "FINAL_OUTPUT_PROMPT",
+    "META_SEO_PROMPT",
     "WRITING_FORMAT_GUIDELINES",
     "WRITING_FORMAT_BLOCK",
     "with_writing_format_guidelines",

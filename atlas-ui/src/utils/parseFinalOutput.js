@@ -2,8 +2,10 @@ import { parseDelimitedFields } from "./parseDelimitedFields";
 
 export const PUBLISHING_METADATA_START = "---PUBLISHING METADATA START---";
 export const PUBLISHING_METADATA_END = "---PUBLISHING METADATA END---";
-export const FINAL_ARTICLE_START = "---FINAL ARTICLE START---";
-export const FINAL_ARTICLE_END = "---FINAL ARTICLE END---";
+export const FINAL_OUTPUT_START = "---FINAL OUTPUT START---";
+export const FINAL_OUTPUT_END = "---FINAL OUTPUT END---";
+export const FINAL_ARTICLE_START = FINAL_OUTPUT_START;
+export const FINAL_ARTICLE_END = FINAL_OUTPUT_END;
 export const FAQ_SCHEMA_START = "---FAQ SCHEMA (JSON-LD) START---";
 export const FAQ_SCHEMA_END = "---FAQ SCHEMA (JSON-LD) END---";
 
@@ -23,51 +25,53 @@ export function extractFaqSchemaScript(text) {
   return text.slice(s + FAQ_SCHEMA_START.length, e).trim();
 }
 
+export function stripPublishingMetadataBlock(text) {
+  if (typeof text !== "string") return "";
+  const start = text.indexOf(PUBLISHING_METADATA_START);
+  const end = text.indexOf(PUBLISHING_METADATA_END);
+  if (start === -1 || end === -1 || end <= start) return text;
+  const before = text.slice(0, start).trimEnd();
+  const after = text.slice(end + PUBLISHING_METADATA_END.length).trimStart();
+  if (before && after) return `${before}\n\n${after}`.trim();
+  return (before || after).trim();
+}
+
 export function extractFinalArticle(text) {
   if (typeof text !== "string") return "";
-  const s = text.indexOf(FINAL_ARTICLE_START);
-  const e = text.indexOf(FINAL_ARTICLE_END);
-  if (s === -1 || e === -1 || e <= s) return "";
-  let body = text.slice(s + FINAL_ARTICLE_START.length, e);
+  const cleaned = stripPublishingMetadataBlock(text);
+  const s = cleaned.indexOf(FINAL_ARTICLE_START);
+  const e = cleaned.indexOf(FINAL_ARTICLE_END);
+  if (s === -1 || e === -1 || e <= s) return cleaned.trim();
+  let body = cleaned.slice(s + FINAL_ARTICLE_START.length, e);
   const schemaAt = body.indexOf(FAQ_SCHEMA_START);
   if (schemaAt !== -1) body = body.slice(0, schemaAt);
   return body.trim();
 }
 
-/** Split final-output artifact into structured metadata + article markdown. */
+/** Split final-output artifact into article markdown (+ optional FAQ JSON-LD). */
 export function splitFinalOutput(text) {
-  const metadataFields = parsePublishingMetadata(text);
-  const articleText = extractFinalArticle(text);
-  const faqSchemaScript = extractFaqSchemaScript(text);
-  const hasStructuredMeta = Boolean(metadataFields?.length);
+  const cleaned = stripPublishingMetadataBlock(text || "");
+  const articleText = extractFinalArticle(cleaned);
+  const faqSchemaScript = extractFaqSchemaScript(cleaned);
   const hasArticle = Boolean(articleText);
   const hasFaqSchema = Boolean(faqSchemaScript?.trim());
 
-  let displayMarkdown = text || "";
-  if (hasArticle) {
-    displayMarkdown = articleText;
-  } else if (hasStructuredMeta) {
-    const metaEnd = text.indexOf(PUBLISHING_METADATA_END);
-    if (metaEnd !== -1) {
-      displayMarkdown = text.slice(metaEnd + PUBLISHING_METADATA_END.length).trim();
-    }
-  }
-
   return {
-    metadataFields,
+    metadataFields: [],
     articleText,
     faqSchemaScript,
-    hasStructuredMeta,
+    hasStructuredMeta: false,
     hasArticle,
     hasFaqSchema,
-    displayMarkdown,
+    displayMarkdown: hasArticle ? articleText : cleaned.trim(),
   };
 }
 
 export function isFinalOutputFormat(text) {
   return (
     typeof text === "string" &&
-    text.includes(PUBLISHING_METADATA_START) &&
-    text.includes(FINAL_ARTICLE_START)
+    (text.includes(FINAL_OUTPUT_START) ||
+      text.includes(FINAL_ARTICLE_START) ||
+      text.includes(PUBLISHING_METADATA_START))
   );
 }

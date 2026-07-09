@@ -619,6 +619,307 @@ def _parse_topic_card_field_map(text: str) -> dict[str, str]:
     return fields
 
 
+META_SEO_START = "---META SEO START---"
+META_SEO_END = "---META SEO END---"
+_DELIMITED_KEY_LINE = re.compile(r"^([A-Z][A-Z0-9 \-]+):\s*(.*)$")
+
+
+def _parse_delimited_field_map(
+    text: str,
+    *,
+    start_marker: str,
+    end_marker: str,
+) -> dict[str, str]:
+    """Parse a delimited block body into uppercase keys → values."""
+    if not (text or "").strip():
+        return {}
+    start = text.find(start_marker)
+    end = text.find(end_marker)
+    if start == -1 or end == -1 or end <= start:
+        return {}
+    body = text[start + len(start_marker) : end].strip()
+    fields: dict[str, str] = {}
+    current_key: str | None = None
+    for line in body.splitlines():
+        m = _DELIMITED_KEY_LINE.match(line)
+        if m:
+            current_key = m.group(1).strip().upper()
+            fields[current_key] = m.group(2).strip()
+        elif current_key and line.strip():
+            fields[current_key] = f"{fields[current_key]}\n{line.strip()}".strip()
+    return fields
+
+
+def _normalize_page_type(raw: str) -> str:
+    text = (raw or "").strip().lower()
+    if not text:
+        return "blog page"
+    if "page" in text:
+        return text
+    if text in ("blog", "article", "guide", "how-to", "how to", "listicle"):
+        return f"{text} page" if text != "article" else "blog page"
+    return f"{text} page"
+
+
+def _first_nonempty(*values: str | None) -> str:
+    for v in values:
+        t = (v or "").strip()
+        if t and not (t.startswith("[") and t.endswith("]")):
+            return t
+    return ""
+
+
+def _trim_content_description(text: str, *, limit: int = 240) -> str:
+    t = re.sub(r"\s+", " ", (text or "").strip())
+    if len(t) <= limit:
+        return t
+    cut = t[:limit].rsplit(" ", 1)[0]
+    return (cut or t[:limit]).strip().rstrip(",.;:")
+
+
+def build_meta_seo_context(
+    *,
+    topic_card: str = "",
+    assignment_brief: str = "",
+    article_source: str = "",
+    final_output: str = "",
+    manual: dict | None = None,
+) -> dict[str, str]:
+    """Build placeholders for meta title / description generation prompts."""
+    source = (article_source or final_output or "").strip()
+    tc = _parse_topic_card_field_map(topic_card)
+    brief = _parse_delimited_field_map(
+        assignment_brief,
+        start_marker="---BRIEF START---",
+        end_marker="---BRIEF END---",
+    )
+    pub = _parse_delimited_field_map(
+        source,
+        start_marker="---PUBLISHING METADATA START---",
+        end_marker="---PUBLISHING METADATA END---",
+    )
+
+    article_h1 = ""
+    if source:
+        from . import faq_schema
+
+        body = faq_schema.extract_corrected_article_body(source) or source
+        h1 = re.search(r"^#\s+(.+)$", body, re.MULTILINE)
+        if h1:
+            article_h1 = h1.group(1).strip()
+
+    manual_seed = ""
+    manual_topic = ""
+    if isinstance(manual, dict):
+        manual_seed = (manual.get("Seed Keyword") or manual.get("seed_keyword") or "").strip()
+        manual_topic = (manual.get("Topic") or manual.get("topic") or "").strip()
+
+    keyword = _first_nonempty(
+        tc.get("PRIMARY KEYWORD"),
+        brief.get("PRIMARY KEYWORD"),
+        pub.get("PRIMARY KEYWORD"),
+        tc.get("SEED KEYWORD"),
+        manual_seed,
+    )
+    if not keyword:
+        keyword = "your target keyword"
+
+    page_type = _normalize_page_type(
+        _first_nonempty(tc.get("CONTENT TYPE"), tc.get("SEARCH INTENT"), "blog")
+    )
+
+    content_description = _trim_content_description(
+        _first_nonempty(
+            tc.get("TOPIC"),
+            brief.get("ARTICLE TITLE"),
+            article_h1,
+            pub.get("H1 TITLE"),
+            manual_topic,
+            tc.get("SUGGESTED ANGLE"),
+            tc.get("PRIMARY KEYWORD"),
+        )
+        or "the main topics covered in this article"
+    )
+
+    meta_title_prompt = (
+        f'Write a meta title for a {page_type} featuring {content_description}. '
+        f'Include my target keyword, "{keyword}," in a natural way. '
+        f"Keep the title to between 50 and 60 characters. Give me 5 options to choose from. "
+        f"Use varied high-CTR patterns where the content supports them — e.g. step-by-step guide, "
+        f"N steps to, how to, best (for list/comparison pieces), or complete guide. "
+        f"Only use real step or list counts from the article; do not invent numbers."
+    )
+    meta_description_prompt = (
+        f"Write a meta description for a {page_type} featuring {content_description}. "
+        f'Include my target keyword, "{keyword}," in a natural way. '
+        f"Keep the description to between 120 and 155 characters. "
+        f"Give me 5 options to choose from."
+    )
+
+    return {
+        "page_type": page_type,
+        "keyword": keyword,
+        "content_description": content_description,
+        "meta_title_prompt": meta_title_prompt,
+        "meta_description_prompt": meta_description_prompt,
+    }
+
+
+_META_SEO_PROMPT_ECHO = re.compile(
+    r"^META (?:TITLE|DESCRIPTION) PROMPT USED:\s*\n(?:.*\n)*?(?=^META (?:TITLE|DESCRIPTION) OPTIONS|\Z)",
+    re.MULTILINE | re.IGNORECASE,
+)
+_META_SEO_CONTENT_SUMMARY = re.compile(
+    r"^CONTENT SUMMARY:.*\n",
+    re.MULTILINE | re.IGNORECASE,
+)
+_META_SEO_MARKERS = re.compile(
+    r"^---?\s*META SEO (?:START|END)\s*---?\s*\n?",
+    re.MULTILINE | re.IGNORECASE,
+)
+
+
+def finalize_meta_seo_output(text: str) -> str:
+    """Clean meta SEO artifact: drop echoed prompts and content summary; keep step delimiters."""
+    if not (text or "").strip():
+        return text
+    cleaned = _META_SEO_PROMPT_ECHO.sub("", text)
+    cleaned = _META_SEO_CONTENT_SUMMARY.sub("", cleaned)
+    cleaned = re.sub(r"\n{3,}", "\n\n", cleaned).strip()
+    from .step_markers import wrap_step_artifact
+
+    return wrap_step_artifact("meta_seo", cleaned)
+
+
+def strip_meta_seo_prompt_echo(text: str) -> str:
+    """Alias for finalize_meta_seo_output."""
+    return finalize_meta_seo_output(text)
+
+
+_META_SEO_OPTION_LINE = re.compile(
+    r"^\s*\d+\.\s+(.+?)(?:\s*\(\d+\s*characters?\))?\s*$",
+    re.MULTILINE | re.IGNORECASE,
+)
+
+
+def _parse_meta_seo_option_list(body: str, section_label: str) -> list[str]:
+    """Extract numbered options under a META * OPTIONS heading."""
+    match = re.search(
+        rf"^{re.escape(section_label)}[^\n]*\n(.*?)(?=^[A-Z][A-Z0-9 \-/]+(?:\s*\([^)]+\))?:\s*|\Z)",
+        body,
+        re.MULTILINE | re.DOTALL | re.IGNORECASE,
+    )
+    if not match:
+        return []
+    options: list[str] = []
+    for line in match.group(1).splitlines():
+        m = _META_SEO_OPTION_LINE.match(line)
+        if m:
+            options.append(m.group(1).strip())
+    return options
+
+
+def parse_meta_seo_artifact(text: str) -> dict[str, str | list[str]]:
+    """Parse meta SEO step output into page type, keyword, and option lists."""
+    cleaned = finalize_meta_seo_output(text or "")
+    field_map: dict[str, str] = {}
+    current_key: str | None = None
+    for line in cleaned.splitlines():
+        m = _DELIMITED_KEY_LINE.match(line)
+        if m:
+            current_key = m.group(1).strip().upper()
+            field_map[current_key] = m.group(2).strip()
+        elif current_key and line.strip() and not _META_SEO_OPTION_LINE.match(line):
+            if "OPTIONS" not in current_key:
+                field_map[current_key] = f"{field_map[current_key]}\n{line.strip()}".strip()
+
+    titles = _parse_meta_seo_option_list(cleaned, "META TITLE OPTIONS")
+    descriptions = _parse_meta_seo_option_list(cleaned, "META DESCRIPTION OPTIONS")
+    return {
+        "page_type": (field_map.get("PAGE TYPE") or "").strip(),
+        "keyword": (field_map.get("TARGET KEYWORD") or "").strip(),
+        "title_options": titles,
+        "description_options": descriptions,
+    }
+
+
+def format_meta_seo_publishing_lines(parsed: dict[str, str | list[str]]) -> str:
+    """Format meta SEO options for the final_output publishing metadata block."""
+    titles = parsed.get("title_options") or []
+    descriptions = parsed.get("description_options") or []
+    if not isinstance(titles, list):
+        titles = []
+    if not isinstance(descriptions, list):
+        descriptions = []
+    lines: list[str] = []
+    if titles:
+        lines.append(f"META TITLE: {titles[0]}")
+        lines.append("META TITLE OPTIONS:")
+        for i, title in enumerate(titles, 1):
+            lines.append(f"  {i}. {title}")
+    if descriptions:
+        lines.append(f"META DESCRIPTION: {descriptions[0]}")
+        lines.append("META DESCRIPTION OPTIONS:")
+        for i, desc in enumerate(descriptions, 1):
+            lines.append(f"  {i}. {desc}")
+    return "\n".join(lines)
+
+
+def inject_meta_seo_into_publishing_metadata(text: str, meta_seo_text: str) -> str:
+    """Insert meta title/description options from the meta_seo step into publishing metadata."""
+    if not (text or "").strip():
+        return text
+    block = format_meta_seo_publishing_lines(parse_meta_seo_artifact(meta_seo_text))
+    if not block:
+        return text
+
+    start = text.find("---PUBLISHING METADATA START---")
+    end = text.find("---PUBLISHING METADATA END---")
+    if start == -1 or end == -1 or end <= start:
+        return text
+
+    head = text[: start + len("---PUBLISHING METADATA START---")]
+    tail = text[end:]
+    body = text[start + len("---PUBLISHING METADATA START---") : end]
+
+    body = re.sub(r"^META TITLE:.*\n", "", body, flags=re.MULTILINE)
+    body = re.sub(
+        r"^META TITLE OPTIONS[^\n]*\n(?:\s+\d+\..*\n)*",
+        "",
+        body,
+        flags=re.MULTILINE,
+    )
+    body = re.sub(r"^META DESCRIPTION:.*\n", "", body, flags=re.MULTILINE)
+    body = re.sub(
+        r"^META DESCRIPTION OPTIONS[^\n]*\n(?:\s+\d+\..*\n)*",
+        "",
+        body,
+        flags=re.MULTILINE,
+    )
+
+    anchor = "H1 WORD COUNT:"
+    if re.search(rf"^{re.escape(anchor)}", body, re.MULTILINE):
+        body = re.sub(
+            rf"^({re.escape(anchor)}.*)$",
+            rf"\1\n{block}",
+            body,
+            count=1,
+            flags=re.MULTILINE,
+        )
+    elif re.search(r"^H1 TITLE:", body, re.MULTILINE):
+        body = re.sub(
+            r"^(H1 TITLE:.*)$",
+            rf"\1\n{block}",
+            body,
+            count=1,
+            flags=re.MULTILINE,
+        )
+    else:
+        body = f"{block}\n{body}"
+
+    return head + body + tail
+
+
 def topic_title_from_topic_card_markdown(text: str) -> str:
     """Human title from a generated topic_card.md (not the START/END markers)."""
     if not (text or "").strip():

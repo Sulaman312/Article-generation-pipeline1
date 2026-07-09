@@ -64,9 +64,6 @@ export const EDITORIAL_FIELD_SPECS = [
   },
 ];
 
-export const SEMRUSH_FIELD_HINT =
-  "Optional. Leave blank if you already filled Seed + Secondary Keywords above — no Semrush API needed.";
-
 export const EMPTY_EDITORIAL_FIELDS = () =>
   Object.fromEntries(
     EDITORIAL_FIELD_SPECS.map((f) => [

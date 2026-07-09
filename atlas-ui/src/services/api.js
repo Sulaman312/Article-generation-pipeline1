@@ -71,205 +71,6 @@ export function describeApiTargetForHumans() {
   return BASE || "same origin";
 }
 
-export function generatedImageUrl(clientId, runId, filename) {
-  return `${BASE}/clients/${encodeURIComponent(clientId)}/runs/${encodeURIComponent(
-    runId
-  )}/images/generated/${encodeURIComponent(filename)}`;
-}
-
-export function formattedImageUrl(clientId, runId, filename, cacheKey) {
-  const base = `${BASE}/clients/${encodeURIComponent(clientId)}/runs/${encodeURIComponent(
-    runId
-  )}/images/formats/${encodeURIComponent(filename)}`;
-  if (cacheKey) {
-    return `${base}?v=${encodeURIComponent(String(cacheKey))}`;
-  }
-  return base;
-}
-
-export function socialTemplateAssetUrl(clientId, filename, templateId = "social_post") {
-  return `${BASE}/clients/${encodeURIComponent(
-    clientId
-  )}/templates/${encodeURIComponent(templateId || "social_post")}/assets/${encodeURIComponent(
-    filename
-  )}`;
-}
-
-/** Force file download (works across React :3000 → API :8000). */
-export async function downloadFormattedImage(clientId, runId, filename, cacheKey) {
-  const url = `${formattedImageUrl(clientId, runId, filename, cacheKey)}${
-    cacheKey ? "&" : "?"
-  }download=1`;
-  const res = await fetch(url);
-  if (!res.ok) {
-    const text = await res.text().catch(() => "");
-    throw new Error(text || `Download failed (${res.status})`);
-  }
-  const blob = await res.blob();
-  const objectUrl = URL.createObjectURL(blob);
-  try {
-    const a = document.createElement("a");
-    a.href = objectUrl;
-    a.download = filename;
-    a.rel = "noopener";
-    document.body.appendChild(a);
-    a.click();
-    a.remove();
-  } finally {
-    URL.revokeObjectURL(objectUrl);
-  }
-}
-
-export async function getFormatsIndex(clientId, runId) {
-  return request(
-    `/clients/${encodeURIComponent(clientId)}/runs/${encodeURIComponent(
-      runId
-    )}/images/formats`
-  );
-}
-
-export async function listRunImages(clientId, runId) {
-  const data = await request(
-    `/clients/${encodeURIComponent(clientId)}/runs/${encodeURIComponent(
-      runId
-    )}/images`
-  );
-  return {
-    images: Array.isArray(data.images) ? data.images : [],
-    selected_primary: data.selected_primary || null,
-    image_meta: data.image_meta && typeof data.image_meta === "object" ? data.image_meta : {},
-  };
-}
-
-export async function regenerateStyleImage(clientId, runId, styleKey) {
-  return request(
-    `/clients/${encodeURIComponent(clientId)}/runs/${encodeURIComponent(
-      runId
-    )}/images/regenerate`,
-    {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ style_key: styleKey }),
-    }
-  );
-}
-
-export async function selectRunImage(clientId, runId, filename) {
-  return request(
-    `/clients/${encodeURIComponent(clientId)}/runs/${encodeURIComponent(
-      runId
-    )}/images/select`,
-    {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ filename }),
-    }
-  );
-}
-
-export async function deleteRunImage(clientId, runId, filename) {
-  return request(
-    `/clients/${encodeURIComponent(clientId)}/runs/${encodeURIComponent(
-      runId
-    )}/images/delete`,
-    {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ filename }),
-    }
-  );
-}
-
-/** Upload a custom image for Step 4; optionally set it as primary (default true). */
-export async function uploadRunImage(clientId, runId, imageBase64, { setPrimary = true } = {}) {
-  return request(
-    `/clients/${encodeURIComponent(clientId)}/runs/${encodeURIComponent(
-      runId
-    )}/images/upload`,
-    {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ image_base64: imageBase64, set_primary: setPrimary }),
-      // Base64 bodies can be large; allow extra time for decode + PNG conversion.
-      timeoutMs: 120000,
-    }
-  );
-}
-
-export async function getImageOverlay(clientId, runId) {
-  const data = await request(
-    `/clients/${encodeURIComponent(clientId)}/runs/${encodeURIComponent(
-      runId
-    )}/images/overlay`
-  );
-  return data.overlay || null;
-}
-
-export async function listImageTemplates(clientId) {
-  const data = await request(`/clients/${encodeURIComponent(clientId)}/templates`);
-  return Array.isArray(data.templates) ? data.templates : [];
-}
-
-export async function getImageTemplate(clientId, runId, templateId) {
-  const q = templateId ? `?template_id=${encodeURIComponent(templateId)}` : "";
-  const data = await request(
-    `/clients/${encodeURIComponent(clientId)}/runs/${encodeURIComponent(
-      runId
-    )}/images/template${q}`
-  );
-  return data.template || null;
-}
-
-export async function saveImageTemplate(clientId, runId, template) {
-  const data = await request(
-    `/clients/${encodeURIComponent(clientId)}/runs/${encodeURIComponent(
-      runId
-    )}/images/template`,
-    {
-      method: "PUT",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(template || {}),
-    }
-  );
-  return data.template || null;
-}
-
-export async function applyImageTemplate(clientId, runId) {
-  return request(
-    `/clients/${encodeURIComponent(clientId)}/runs/${encodeURIComponent(
-      runId
-    )}/images/template/apply`,
-    {
-      method: "POST",
-      timeoutMs: 120000,
-    }
-  );
-}
-
-export async function saveImageOverlay(clientId, runId, overlay) {
-  const data = await request(
-    `/clients/${encodeURIComponent(clientId)}/runs/${encodeURIComponent(
-      runId
-    )}/images/overlay`,
-    {
-      method: "PUT",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ overlay }),
-    }
-  );
-  return data.overlay;
-}
-
-export async function suggestOverlayText(clientId, runId) {
-  const data = await request(
-    `/clients/${encodeURIComponent(clientId)}/runs/${encodeURIComponent(
-      runId
-    )}/images/overlay/suggest-text`,
-    { method: "POST" }
-  );
-  return data.text || "";
-}
-
 /** Flask-style `detail` (string | object | ValidationError-ish list). */
 function formatDetail(detail) {
   if (detail == null) return null;
@@ -479,21 +280,6 @@ export async function archiveRun(clientId, runId) {
   return runArticleAction(clientId, runId, "archive");
 }
 
-/** Update social run post idea + additional details; recomputes display topic. */
-export async function updateSocialRunManualInputs(clientId, runId, manual_inputs) {
-  return request(
-    `/clients/${encodeURIComponent(clientId)}/runs/${encodeURIComponent(runId)}`,
-    {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        action: "update_manual_inputs",
-        manual_inputs,
-      }),
-    }
-  );
-}
-
 export async function unarchiveRun(clientId, runId) {
   return runArticleAction(clientId, runId, "unarchive");
 }
@@ -654,6 +440,14 @@ export async function getContextSummary(clientId) {
   return data.summary ?? "";
 }
 
+export async function updateClient(clientId, { display_name }) {
+  return request(`/clients/${encodeURIComponent(clientId)}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ display_name }),
+  });
+}
+
 export async function deleteClient(clientId) {
   return request(`/clients/${encodeURIComponent(clientId)}`, {
     method: "DELETE",
@@ -720,4 +514,9 @@ export async function deleteWorkspaceArtifact(clientId, filename) {
 export async function getContextFilesCatalog() {
   const data = await request("/context-files/catalog");
   return Array.isArray(data.files) ? data.files : [];
+}
+
+/** Canonical article pipeline steps (order + labels). */
+export async function getPipelineSteps() {
+  return request("/pipeline/steps");
 }

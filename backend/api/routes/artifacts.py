@@ -39,6 +39,12 @@ def get_artifact(client_id: str, run_id: str, step_name: str):
                 )
                 text = repaired
 
+    if step_name == "meta_seo" and (text or "").strip():
+        repaired = editorial_input.finalize_meta_seo_output(text)
+        if repaired != text:
+            artifacts.save_artifact(client_id, run_id, step_name, repaired)
+            text = repaired
+
     if step_name == "final_output" and (text or "").strip():
         repaired = final_output_enforce.enforce_final_output(
             text, client_id, run_id, allow_llm_repair=False

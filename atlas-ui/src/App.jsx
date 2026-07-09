@@ -9,7 +9,9 @@ import ContentPipelineBoard from "./components/workspace/ContentPipelineBoard";
 import { ToastProvider } from "./context/ToastContext";
 import { CONTENTFLOW_LOGO } from "./constants/brand";
 import { appProductMeta } from "./constants/appProject";
+import { hydratePipelineSteps } from "./constants/pipelineRegistry";
 import { readStoredSidebarWidth } from "./hooks/useSidebarResize";
+import * as api from "./services/api";
 
 const PRODUCT = appProductMeta();
 
@@ -22,6 +24,21 @@ function App() {
   const [artifactFilename, setArtifactFilename] = useState(null);
   const [logoVersions, setLogoVersions] = useState({});
   const [stepStatusOverrides, setStepStatusOverrides] = useState({});
+  const [pipelineReady, setPipelineReady] = useState(false);
+
+  useEffect(() => {
+    if (process.env.NODE_ENV === "test") {
+      setPipelineReady(true);
+      return undefined;
+    }
+    let cancelled = false;
+    hydratePipelineSteps(api).finally(() => {
+      if (!cancelled) setPipelineReady(true);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const [sidebarCollapsed, setSidebarCollapsed] = useState(() => {
     try {
@@ -125,6 +142,18 @@ function App() {
     setRunId(null);
     setWorkspaceView("artifacts");
     setArtifactFilename(null);
+  }
+
+  if (!pipelineReady) {
+    return (
+      <div className="layout-flat">
+        <main className="layout-main">
+          <p style={{ textAlign: "center", padding: "2rem", color: "#64748b" }}>
+            Loading pipeline…
+          </p>
+        </main>
+      </div>
+    );
   }
 
   if (!client) {

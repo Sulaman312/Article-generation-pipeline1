@@ -1,6 +1,7 @@
 """Registered pipeline steps shared by HTTP API (mirrors runner / manifest order)."""
 
 from . import steps
+from .pipeline_steps import ARTICLE_STEP_ORDER
 
 STEP_RUNNERS = {
     "topic_card": steps.run_step_1,
@@ -11,15 +12,7 @@ STEP_RUNNERS = {
     "draft": steps.run_step_5,
     "fact_check": steps.run_step_6,
     "final_output": steps.run_step_7,
+    "meta_seo": steps.run_meta_seo,
 }
 
-STEP_ORDER = [
-    "topic_card",
-    "serp_research",
-    "research",
-    "assignment_brief",
-    "outline",
-    "draft",
-    "fact_check",
-    "final_output",
-]
+STEP_ORDER = list(ARTICLE_STEP_ORDER)

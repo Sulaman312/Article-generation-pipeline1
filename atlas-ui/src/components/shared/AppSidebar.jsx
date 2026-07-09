@@ -9,12 +9,6 @@ import {
 } from "../../hooks/useSidebarResize";
 import { formatWorkspaceLabel } from "../../utils/formatWorkspaceLabel";
 import {
-  isSocialPipeline,
-  socialAdditionalDetails,
-  socialPostParagraph,
-  socialRunTitle,
-} from "../../utils/socialRunTopic";
-import {
   formatStepStatusWithDuration,
   resolveStepTiming,
 } from "../../utils/formatStepDuration";
@@ -555,7 +549,7 @@ export default function AppSidebar({
 
       <div className="sb-foot">
         {!collapsed ? (
-          <span>ContentFlow • 8 steps</span>
+          <span>ContentFlow • 9 steps</span>
         ) : runId ? null : (
           <span className="sb-foot-expand-hint" title="Expand sidebar" aria-hidden>
             ···
@@ -696,15 +690,8 @@ function RunNavSection({
   const statuses = { ...serverStatuses, ...statusOverrides };
   const storedTopic = run?.topic || "";
   const pipelineId = run?.pipeline_id || "article";
-  const isSocial = isSocialPipeline(pipelineId);
-  const topic = isSocial
-    ? socialRunTitle(run?.manual_inputs, storedTopic)
-    : storedTopic;
-  const topicTooltip = isSocial
-    ? [socialPostParagraph(run?.manual_inputs), socialAdditionalDetails(run?.manual_inputs)]
-        .filter(Boolean)
-        .join("\n\n") || topic
-    : storedTopic;
+  const topic = storedTopic;
+  const topicTooltip = storedTopic;
   const STEPS = stepsForPipeline(pipelineId);
   const stepTimings = run?.step_timings || {};
 

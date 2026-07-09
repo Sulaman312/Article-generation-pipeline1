@@ -57,10 +57,12 @@ class FakeBucket:
 
 class MongoStorageTests(unittest.TestCase):
     def setUp(self):
-        self.temp = tempfile.TemporaryDirectory()
+        self.temp = tempfile.TemporaryDirectory(ignore_cleanup_errors=True)
         self.original_uri = config.MONGODB_URI
         self.original_dir = config.CLIENTS_DIR
+        self.original_db = config.MONGODB_DB
         config.MONGODB_URI = "mongodb://test.invalid"
+        config.MONGODB_DB = "article_generation_pipeline"
         config.CLIENTS_DIR = Path(self.temp.name) / "cache"
         self.files = FakeFilesCollection()
         self.bucket = FakeBucket()
@@ -73,6 +75,7 @@ class MongoStorageTests(unittest.TestCase):
     def tearDown(self):
         config.MONGODB_URI = self.original_uri
         config.CLIENTS_DIR = self.original_dir
+        config.MONGODB_DB = self.original_db
         mongo_storage._client = None
         mongo_storage._db = None
         mongo_storage._files = None
@@ -82,6 +85,7 @@ class MongoStorageTests(unittest.TestCase):
         self.temp.cleanup()
 
     def test_sync_replaces_and_deletes_binary_file(self):
+        mongo_storage._write_cache_metadata()
         image = config.CLIENTS_DIR / "client-a/runs/run-a/images/generated/image.png"
         image.parent.mkdir(parents=True)
         image.write_bytes(b"first-image")
@@ -104,7 +108,7 @@ class MongoStorageTests(unittest.TestCase):
         self.assertEqual(self.bucket.blobs[second_id], b"second-image-content")
 
         image.unlink()
-        result = mongo_storage.sync_cache()
+        result = mongo_storage.sync_cache(delete_missing=True)
         self.assertEqual(result["deleted"], 1)
         self.assertFalse(self.files.docs)
         self.assertFalse(self.bucket.blobs)
@@ -131,6 +135,37 @@ class MongoStorageTests(unittest.TestCase):
         self.assertEqual(
             (config.CLIENTS_DIR / "client-a/logo.png").read_bytes(), b"png-data"
         )
+        meta = mongo_storage._read_cache_metadata()
+        self.assertEqual(meta["database"], config.MONGODB_DB)
+        self.assertIn("hydrated_at", meta)
+
+    def test_sync_refuses_mismatched_cache_database(self):
+        mongo_storage._write_cache_metadata()
+        config.MONGODB_DB = "other_database"
+        with self.assertRaises(RuntimeError):
+            mongo_storage.sync_cache()
+
+    def test_initialize_runtime_cache_refuses_mismatched_cache_database(self):
+        config.CLIENTS_DIR.mkdir(parents=True, exist_ok=True)
+        (config.CLIENTS_DIR / mongo_storage.CACHE_METADATA_FILENAME).write_text(
+            '{"database": "post_generation_pipeline", "hydrated_at": "2026-01-01T00:00:00+00:00"}',
+            encoding="utf-8",
+        )
+        with self.assertRaises(RuntimeError):
+            mongo_storage.initialize_runtime_cache()
+
+    def test_default_sync_does_not_delete_missing_files(self):
+        mongo_storage._write_cache_metadata()
+        image = config.CLIENTS_DIR / "client-a/logo.png"
+        image.parent.mkdir(parents=True)
+        image.write_bytes(b"logo")
+        mongo_storage.sync_cache()
+        mongo_storage._known_paths.add("client-a/logo.png")
+
+        image.unlink()
+        result = mongo_storage.sync_cache()
+        self.assertEqual(result["deleted"], 0)
+        self.assertIn("client-a/logo.png", self.files.docs)
 
     def test_startup_hydration_retries_transient_connection_failure(self):
         with (
@@ -213,7 +248,10 @@ class MongoStorageTests(unittest.TestCase):
             deadline = time.time() + 3
             while time.time() < deadline:
                 completed = artifacts.read_run_manifest("client-a", "run-a")
-                if completed["statuses"]["topic_card"] == "done":
+                if (
+                    completed["statuses"]["topic_card"] == "done"
+                    and "client-a/runs/run-a/topic_card.md" in self.files.docs
+                ):
                     break
                 time.sleep(0.02)
             self.assertEqual(completed["statuses"]["topic_card"], "done")
@@ -259,7 +297,10 @@ class MongoStorageTests(unittest.TestCase):
     def test_template_metadata_supports_mongo_cache_outside_repo(self):
         import json
 
-        from backend import image_templates
+        try:
+            from backend import image_templates
+        except ImportError:
+            self.skipTest("image_templates module not shipped in article-only repo")
 
         source = (
             config.CLIENTS_DIR

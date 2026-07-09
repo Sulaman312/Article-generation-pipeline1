@@ -74,7 +74,7 @@ def create_app() -> Flask:
         if not mongo_storage.runtime_ready():
             return response
         try:
-            mongo_storage.sync_cache()
+            mongo_storage.sync_cache(delete_missing=True)
         except Exception:
             logger.exception(
                 "MongoDB persistence failed after %s %s",

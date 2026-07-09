@@ -3,12 +3,19 @@ from flask import Response, jsonify, request
 from backend import config
 from backend import mongo_storage
 from backend.api.blueprint import api_bp
+from backend.pipeline_metadata import article_pipeline_steps
 
 
 @api_bp.get("/context-files/catalog")
 def context_files_catalog():
     """Single source of truth for allowed context filenames + UI labels."""
     return jsonify(files=config.CONTEXT_FILES_CATALOG)
+
+
+@api_bp.get("/pipeline/steps")
+def pipeline_steps():
+    """Canonical article pipeline step order + UI labels."""
+    return jsonify(pipeline_id="article", steps=article_pipeline_steps())
 
 
 @api_bp.get("/health")
@@ -54,4 +61,5 @@ def api_root():
         ui="http://localhost:3000 (run npm start in atlas-ui/)",
         health="/health",
         clients="/clients",
+        pipeline_steps="/pipeline/steps",
     )

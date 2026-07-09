@@ -560,7 +560,7 @@ def enforce_final_output(
     word_target = editorial_input.word_count_target_from_manifest(manifest)
     topic = (manifest.get("topic") or manual.get("Topic") or "").strip()
 
-    article = faq_schema.extract_final_article_body(text) or text
+    article = faq_schema.extract_final_article_body(text) or faq_schema.strip_publishing_metadata_block(text) or text
     urls = _load_source_urls(client_id, run_id)
 
     from .context_extractor import extract_for_step_7
@@ -596,10 +596,19 @@ def enforce_final_output(
 
     article = _preserve_faq_from_prior_steps(article, client_id, run_id)
 
-    if faq_schema.FINAL_ARTICLE_START in text:
+    if faq_schema.FINAL_OUTPUT_START in text:
+        text = faq_schema.replace_final_article_body(text, article)
+    elif faq_schema.FINAL_ARTICLE_START in text:
         text = faq_schema.replace_final_article_body(text, article)
     elif article.strip():
-        text = article
+        text = faq_schema.wrap_final_article(article)
 
-    text = _update_metadata_counts(text, article, word_target)
+    text = faq_schema.strip_publishing_metadata_block(text)
+    if (
+        faq_schema.FINAL_OUTPUT_START not in text
+        and faq_schema.FINAL_ARTICLE_START not in text
+        and article.strip()
+    ):
+        text = faq_schema.wrap_final_article(article)
+
     return faq_schema.ensure_faq_schema_block(text)

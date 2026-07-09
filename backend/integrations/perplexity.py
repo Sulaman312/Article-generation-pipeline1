@@ -12,11 +12,13 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 from typing import Any
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
 from .. import config
+from ..step_markers import wrap_step_artifact
 
 logger = logging.getLogger(__name__)
 
@@ -39,6 +41,7 @@ Rules:
 - Include notable SERP features if inferable (PAA-style questions, listicles vs long guides, etc.).
 - Do NOT invent specific ranking positions or traffic numbers.
 - Prefer structured sections with clear headings using plain markdown (## and ###).
+- Do **not** open with a document title, cover line, or "research summary" banner — start with the first substantive ## section.
 - End with a section `## Citable sources` — **5–10 bullets**. Each bullet must include:
   **Publisher or site name** — why it is authoritative for this topic — a **full `https://` URL**
   when available from search (no bare domains without scheme). These URLs will be used as outbound
@@ -105,19 +108,41 @@ def build_serp_user_message(topic_card_text: str) -> str:
     )
 
 
+_SERP_PREAMBLE_RE = re.compile(
+    r"^(?:#{1,3}\s+|\*\*)?SERP[- ]Oriented Research Summary\s*:[^\n]*\n+",
+    re.IGNORECASE | re.MULTILINE,
+)
+
+_FACTCHECK_PREAMBLE_RE = re.compile(
+    r"^(?:#{1,3}\s+|\*\*)?Web[- ]Grounded Fact[- ]Check Scan\s*:[^\n]*\n+",
+    re.IGNORECASE | re.MULTILINE,
+)
+
+
+def _strip_serp_display_preamble(text: str) -> str:
+    """Drop redundant Perplexity title lines from SERP artifact bodies."""
+    cleaned = _SERP_PREAMBLE_RE.sub("", (text or "").strip(), count=1)
+    return cleaned.strip()
+
+
+def _strip_factcheck_display_preamble(text: str) -> str:
+    """Drop redundant Perplexity title lines from fact-check scan bodies."""
+    cleaned = _FACTCHECK_PREAMBLE_RE.sub("", (text or "").strip(), count=1)
+    return cleaned.strip()
+
+
 def manual_serp_placeholder() -> str:
     """Saved when no API key — user pastes Perplexity output in the Run UI and saves."""
-    return (
-        "---SERP RESEARCH LAYER---\n"
+    body = (
         "SOURCE: **MANUAL** (Perplexity API key not configured on the server)\n\n"
         "Add `PERPLEXITY_API_KEY` to your `.env` (see `env.example`) to auto-generate this step.\n\n"
         "**What to do now:**\n"
         "1. In Perplexity (or your tool), run a SERP-focused research query using the same topic card "
         "you used in Step 1.\n"
-        "2. Paste the full answer **below** the line.\n"
-        "3. Click **Edit output** on this step, paste, save — then run **Step 3 (SERP analysis & gaps)**.\n\n"
-        "---PASTE PERPLEXITY / SERP RESEARCH BELOW---\n\n"
+        "2. Paste the full answer below.\n"
+        "3. Click **Edit output** on this step, paste, save — then run **Step 3 (SERP analysis & gaps)**.\n"
     )
+    return wrap_step_artifact("serp_research", body)
 
 
 def run_sonar_serp(topic_card_text: str) -> str:
@@ -157,7 +182,7 @@ def run_sonar_serp(topic_card_text: str) -> str:
     except URLError as e:
         raise ValueError(f"Perplexity network error: {e}") from e
 
-    text = _extract_message_text(data)
+    text = _strip_serp_display_preamble(_extract_message_text(data))
     if not text:
         raise ValueError("Perplexity returned empty content")
 
@@ -175,20 +200,14 @@ def run_sonar_serp(topic_card_text: str) -> str:
             if isinstance(q, str) and q.strip():
                 rq_lines.append(q.strip())
 
-    out: list[str] = [
-        "---SERP RESEARCH (PERPLEXITY)---",
-        f"MODEL: {model}",
-        "",
-        "---MAIN RESPONSE---",
-        text,
-    ]
+    out: list[str] = [text]
     if cit_lines:
-        out.extend(["", "---CITATION URLS (from API)---"])
+        out.extend(["", "## Citable sources (API)"])
         out.extend(f"- {u}" for u in cit_lines[:40])
     if rq_lines:
-        out.extend(["", "---RELATED QUESTIONS (from API)---"])
+        out.extend(["", "## Related questions (API)"])
         out.extend(f"- {q}" for q in rq_lines[:25])
-    return "\n".join(out) + "\n"
+    return wrap_step_artifact("serp_research", "\n".join(out) + "\n")
 
 
 FACTCHECK_DRAFT_CHAR_LIMIT = 48_000
@@ -202,6 +221,7 @@ The user message contains a **draft article** (not instructions). Support a huma
   leave **unclear** — neutrally. Reference the draft with short quoted phrases, not long excerpts.
 - Use markdown sections: ## Priority claims to verify, ## Possible conflicts or outdated framing,
   ## Suggested source types (not long pasted text).
+- Do **not** open with a document title, cover line, or "fact-check scan/report" banner — start with the first substantive ## section.
 - Do **not** rewrite the article. Do **not** present web snippets as legal or medical advice.
 - If the draft is mostly opinion or generic guidance, say so briefly and list at most a few verify items.
 """
@@ -261,7 +281,7 @@ def run_sonar_draft_factcheck(draft_markdown: str) -> str:
     except URLError as e:
         raise ValueError(f"Perplexity network error: {e}") from e
 
-    text = _extract_message_text(data)
+    text = _strip_factcheck_display_preamble(_extract_message_text(data))
     if not text:
         raise ValueError("Perplexity returned empty content")
 
@@ -272,14 +292,8 @@ def run_sonar_draft_factcheck(draft_markdown: str) -> str:
             if isinstance(c, str) and c.strip():
                 cit_lines.append(c.strip())
 
-    out: list[str] = [
-        "---DRAFT FACT-CHECK SCAN (PERPLEXITY)---",
-        f"MODEL: {model}",
-        "",
-        "---MAIN RESPONSE---",
-        text,
-    ]
+    out: list[str] = [text]
     if cit_lines:
-        out.extend(["", "---CITATION URLS (from API)---"])
+        out.extend(["", "## Citable sources (API)"])
         out.extend(f"- {u}" for u in cit_lines[:35])
     return "\n".join(out) + "\n"

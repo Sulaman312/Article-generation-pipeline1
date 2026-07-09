@@ -21,6 +21,7 @@ export default function MarkdownArtifactPanel({
   textareaRows = 18,
   textareaPlaceholder = "",
   showCopy = false,
+  stepKey = null,
   /** When false, parent renders Edit/Cancel (e.g. workspace artifact card header). */
   showEditInToolbar = true,
   /** When set, copy this markdown instead of raw content (e.g. final article only). */
@@ -112,7 +113,11 @@ export default function MarkdownArtifactPanel({
           />
         ) : (
           previewNode ?? (
-            <Markdown text={content} className={PIPELINE_MARKDOWN_CLASS} />
+            <Markdown
+              text={content}
+              className={PIPELINE_MARKDOWN_CLASS}
+              stepKey={stepKey}
+            />
           )
         )}
       </div>

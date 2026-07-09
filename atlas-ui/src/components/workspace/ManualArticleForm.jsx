@@ -3,7 +3,6 @@ import * as api from "../../services/api";
 import {
   EMPTY_EDITORIAL_FIELDS,
   EDITORIAL_FIELD_SPECS,
-  SEMRUSH_FIELD_HINT,
   buildManualInputsPayload,
   hasRequiredTopic,
 } from "../../utils/editorialFields";
@@ -11,7 +10,6 @@ import "./ManualArticleForm.css";
 
 export default function ManualArticleForm({ client, onOpenRun, onCreated }) {
   const [fields, setFields] = useState(EMPTY_EDITORIAL_FIELDS);
-  const [semrushNotes, setSemrushNotes] = useState("");
   const [creating, setCreating] = useState(false);
   const [error, setError] = useState(null);
 
@@ -24,18 +22,11 @@ export default function ManualArticleForm({ client, onOpenRun, onCreated }) {
     if (!hasRequiredTopic(fields) || creating) return;
     setCreating(true);
     setError(null);
-    const { manual_inputs, semrush_notes } = buildManualInputsPayload(
-      fields,
-      semrushNotes
-    );
+    const { manual_inputs } = buildManualInputsPayload(fields);
     try {
-      const result = await api.createRun(client, null, {
-        manual_inputs,
-        semrush_notes,
-      });
+      const result = await api.createRun(client, null, { manual_inputs });
       const newId = result?.run_id;
       setFields(EMPTY_EDITORIAL_FIELDS());
-      setSemrushNotes("");
       onCreated?.();
       if (newId) onOpenRun?.(newId);
     } catch (err) {
@@ -84,22 +75,6 @@ export default function ManualArticleForm({ client, onOpenRun, onCreated }) {
             )}
           </div>
         ))}
-      </div>
-
-      <div className="manual-article-field manual-article-field--wide">
-        <label className="label" htmlFor="maf-semrush">
-          Optional: keyword tool paste
-        </label>
-        <p className="manual-article-field-hint">{SEMRUSH_FIELD_HINT}</p>
-        <textarea
-          id="maf-semrush"
-          className="textarea"
-          rows={5}
-          placeholder="Paste Keyword Overview, related terms, KD, volumes, SERP notes…"
-          value={semrushNotes}
-          onChange={(e) => setSemrushNotes(e.target.value)}
-          disabled={creating}
-        />
       </div>
 
       <div className="manual-article-actions">

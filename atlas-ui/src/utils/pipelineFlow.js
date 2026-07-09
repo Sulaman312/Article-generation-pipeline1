@@ -1,11 +1,10 @@
-import { PIPELINE_STEP_KEYS as ARTICLE_KEYS } from "../constants/pipeline";
 import { stepKeysForPipeline } from "../constants/pipelines";
 
 /** @typedef {{ kind: 'artifact', stepKey: string } | { kind: 'topic' } | { kind: 'blocked' }} InputSource */
 
 /** @param {string} stepKey @param {Record<string, string>} statuses @returns {InputSource} */
 export function inputSourceForStep(stepKey, statuses, pipelineId = null) {
-  const keys = pipelineId ? stepKeysForPipeline(pipelineId) : ARTICLE_KEYS;
+  const keys = stepKeysForPipeline(pipelineId);
   const idx = keys.indexOf(stepKey);
   if (idx < 0) return { kind: "blocked" };
 

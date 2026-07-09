@@ -11,6 +11,7 @@ from pathlib import Path
 
 from . import config
 from . import editorial_input
+from .pipeline_steps import ARTICLE_STEP_ORDER
 
 logger = logging.getLogger(__name__)
 
@@ -25,17 +26,8 @@ ARTIFACTS_INDEX_FILENAME = "artifacts_index.json"
 _MAX_RUN_LOGO_BYTES = 2 * 1024 * 1024
 _RUN_LOGO_EXTS = frozenset({".png", ".jpg", ".jpeg", ".webp", ".gif", ".svg"})
 
-# Keep a local copy of the legacy/article pipeline order to avoid import cycles.
-_ARTICLE_STEP_ORDER = [
-    "topic_card",
-    "serp_research",
-    "research",
-    "assignment_brief",
-    "outline",
-    "draft",
-    "fact_check",
-    "final_output",
-]
+# Article step order — see `backend/pipeline_steps.py`.
+_ARTICLE_STEP_ORDER = ARTICLE_STEP_ORDER
 
 _BUILTIN_SPECS: list[dict[str, str]] = [
     {
@@ -66,12 +58,6 @@ _BUILTIN_SPECS: list[dict[str, str]] = [
             "## Preferred words\n"
             "- …\n"
         ),
-    },
-    {
-        "filename": "image_style.md",
-        "title": "Image style guide",
-        "description": "Client-specific visual rules for AI image prompt generation.",
-        "placeholder": "# Image Style Guide\n",
     },
 ]
 

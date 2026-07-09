@@ -170,22 +170,20 @@ WRITING STANDARDS — non-negotiable:
    - Bold only for terms or actions that genuinely need emphasis — maximum 2–3 per section
    - Do not bold entire sentences
 
-OUTPUT:
-- Full article in clean markdown
-- **Length is mandatory:** when the user message includes a form **Word Count** (e.g. 1800), the
-  **body prose** (everything except the FAQ block) must be within **±100 words** of that number.
-  FAQ is extra. Do not submit 800–1,100 word bodies when the target is 2,000.
-- If the outline total is below the form target, ignore the outline total and write to the
-  **form target** — expand every H2 with examples, steps, and scenarios until you reach it.
-- Before submitting, count words in the body **excluding** the FAQ section. If under the minimum,
-  add depth — do not submit short.
-- End with a topical closing H2 (never "Conclusion", "Final thoughts", or "In summary"). Placeholder CTAs may use `[CTA-SOFT: …]` markers; final_output will convert to three-line markdown blocks.
+OUTPUT FORMAT — follow exactly:
+
+---DRAFT START---
+[Full article in clean markdown — including FAQ when required]
+---DRAFT END---
 
 RULES:
+- **Length is mandatory:** when the user message includes a form **Word Count**, the body prose
+  (everything except the FAQ block) must be within **±100 words** of that number.
+- End with a topical closing H2 (never "Conclusion", "Final thoughts", or "In summary").
 - Do NOT fabricate statistics or URLs — if Research Doc flagged [VERIFY], either generalize the claim or omit it
 - Do NOT mention the company or product unless Company Context is provided and the outline flags it
 - If you deviate from the outline structure for a legitimate reason, add a note at the end: [DRAFT NOTE: what changed and why]
-- Output ONLY the article in markdown. No preamble. No meta-commentary after.
+- Output ONLY the article between the delimiters. No preamble. No meta-commentary after.
 - You have the client's brand voice in your context above — follow it, not generic B2B voice
 - If the client's banned words list differs from the universal list, prioritize the client's list
 - The draft should sound like it was written by someone who works at {client_name}, not by a generic AI
