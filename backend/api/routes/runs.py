@@ -9,10 +9,16 @@ from flask import jsonify, request, send_from_directory
 from backend import artifacts
 from backend import config
 from backend import editorial_input
+from backend import job_control
 from backend import mongo_storage
 from backend import pipeline_flow
 from backend.api.blueprint import api_bp
-from backend.api.helpers import load_manifest, reject_client, reject_run_id
+from backend.api.helpers import (
+    load_manifest,
+    reject_client,
+    reject_run_id,
+    reject_step_name,
+)
 from backend.pipelines import get_pipeline, resolve_pipeline_id
 
 logger = logging.getLogger(__name__)
@@ -29,6 +35,37 @@ def _run_has_active_job(client_id: str, run_id: str) -> bool:
         )
 
 
+def _step_job_alive(client_id: str, run_id: str, step_name: str) -> bool:
+    with _STEP_JOBS_LOCK:
+        thread = _STEP_JOBS.get((client_id, run_id, step_name))
+        return bool(thread and thread.is_alive())
+
+
+def _reconcile_stale_running_manifest(client_id: str, run_id: str, data: dict) -> dict:
+    """Reset steps stuck as running after a server restart or crash."""
+    statuses = dict(data.get("statuses") or {})
+    timings = dict(data.get("step_timings") or {})
+    stale_steps = [
+        name
+        for name, status in statuses.items()
+        if status == "running" and not _step_job_alive(client_id, run_id, name)
+    ]
+    if not stale_steps:
+        return data
+    for name in stale_steps:
+        statuses[name] = "pending"
+        timings.pop(name, None)
+    artifacts.save_run_manifest(
+        client_id,
+        run_id,
+        data.get("topic") or "untitled",
+        statuses,
+        step_timings=timings,
+        step_errors=data.get("step_errors") or {},
+    )
+    return load_manifest(client_id, run_id)
+
+
 def _run_step_job(
     *,
     key: tuple[str, str, str],
@@ -38,28 +75,41 @@ def _run_step_job(
     previous_artifact: str,
     runner_fn,
 ) -> None:
+    cancel_event = job_control.get_or_create_event(key)
     try:
-        runner_fn(client_id, run_id, previous_artifact)
-        with _STEP_JOBS_LOCK:
-            manifest = load_manifest(client_id, run_id)
-            statuses = dict(manifest.get("statuses") or {})
-            # A user may have cancelled while the provider request was in progress.
-            if statuses.get(step_name) == "running":
-                statuses[step_name] = "done"
-                timings = artifacts.record_step_finished(
-                    client_id, run_id, step_name, "done"
-                )
-                errors = dict(manifest.get("step_errors") or {})
-                errors.pop(step_name, None)
-                artifacts.save_run_manifest(
-                    client_id,
-                    run_id,
-                    manifest.get("topic") or "untitled",
-                    statuses,
-                    step_timings=timings,
-                    step_errors=errors,
-                )
+        with job_control.bind_cancel(cancel_event):
+            if cancel_event.is_set():
+                return
+            try:
+                runner_fn(client_id, run_id, previous_artifact)
+            except job_control.JobCancelled:
+                _discard_cancelled_artifact(client_id, run_id, step_name)
+                return
+            if cancel_event.is_set():
+                _discard_cancelled_artifact(client_id, run_id, step_name)
+                return
+            with _STEP_JOBS_LOCK:
+                manifest = load_manifest(client_id, run_id)
+                statuses = dict(manifest.get("statuses") or {})
+                if statuses.get(step_name) == "running":
+                    statuses[step_name] = "done"
+                    timings = artifacts.record_step_finished(
+                        client_id, run_id, step_name, "done"
+                    )
+                    errors = dict(manifest.get("step_errors") or {})
+                    errors.pop(step_name, None)
+                    artifacts.save_run_manifest(
+                        client_id,
+                        run_id,
+                        manifest.get("topic") or "untitled",
+                        statuses,
+                        step_timings=timings,
+                        step_errors=errors,
+                    )
     except Exception as exc:
+        if cancel_event.is_set() or isinstance(exc, job_control.JobCancelled):
+            _discard_cancelled_artifact(client_id, run_id, step_name)
+            return
         logger.exception(
             "Background pipeline step failed: %s/%s/%s",
             client_id,
@@ -96,10 +146,49 @@ def _run_step_job(
             )
         with _STEP_JOBS_LOCK:
             _STEP_JOBS.pop(key, None)
+        job_control.clear_event(key)
+
+
+def _discard_cancelled_artifact(
+    client_id: str, run_id: str, step_name: str
+) -> None:
+    try:
+        path = (
+            config.CLIENTS_DIR
+            / client_id
+            / "runs"
+            / run_id
+            / f"{step_name}.md"
+        )
+        if path.is_file():
+            path.unlink()
+            try:
+                from backend import mongo_storage
+
+                mongo_storage.flush_missing_relative_path(
+                    f"{client_id}/runs/{run_id}/{step_name}.md"
+                )
+            except Exception:
+                logger.exception(
+                    "Could not flush cancelled artifact delete %s/%s/%s",
+                    client_id,
+                    run_id,
+                    step_name,
+                )
+    except OSError:
+        logger.exception(
+            "Could not discard cancelled artifact %s/%s/%s",
+            client_id,
+            run_id,
+            step_name,
+        )
 
 
 @api_bp.get("/clients/<client_id>/runs")
 def list_runs(client_id: str):
+    bad = reject_client(client_id)
+    if bad:
+        return bad
     runs_root = Path(config.CLIENTS_DIR) / client_id / "runs"
     if not runs_root.is_dir():
         return jsonify(runs=[])
@@ -161,6 +250,9 @@ def list_runs(client_id: str):
 
 @api_bp.post("/clients/<client_id>/runs")
 def create_run(client_id: str):
+    bad = reject_client(client_id)
+    if bad:
+        return bad
     body = request.get_json(silent=True) or {}
     manual = editorial_input.sanitize_manual_inputs(body.get("manual_inputs"))
     semrush = (body.get("semrush_notes") or "").strip()
@@ -240,6 +332,9 @@ def _cancel_pipeline_step(client_id: str, run_id: str, step_name: str):
         if st not in ("running", "error"):
             return jsonify(detail="Step is not running or in error"), 400
 
+        cancel_key = (client_id, run_id, step_name)
+        job_control.request_cancel(cancel_key)
+
         statuses[step_name] = "pending"
         timings = dict(manifest.get("step_timings") or {})
         timings.pop(step_name, None)
@@ -252,6 +347,15 @@ def _cancel_pipeline_step(client_id: str, run_id: str, step_name: str):
             statuses,
             step_timings=timings,
             step_errors=errors,
+        )
+    try:
+        mongo_storage.sync_cache(delete_missing=True)
+    except Exception:
+        logger.exception(
+            "Could not sync Mongo after cancel %s/%s/%s",
+            client_id,
+            run_id,
+            step_name,
         )
     return jsonify(cancelled=True, step_name=step_name)
 
@@ -287,6 +391,9 @@ def patch_run(client_id: str, run_id: str):
         step_name = (body.get("step_name") or "").strip()
         if not step_name:
             return jsonify(detail="step_name is required for cancel_step"), 400
+        bad_step = reject_step_name(step_name)
+        if bad_step:
+            return bad_step
         return _cancel_pipeline_step(client_id, run_id, step_name)
 
     return jsonify(
@@ -347,6 +454,7 @@ def get_run(client_id: str, run_id: str):
     if not run_dir.is_dir():
         return jsonify(detail="run not found"), 404
     data = load_manifest(client_id, run_id)
+    data = _reconcile_stale_running_manifest(client_id, run_id, data)
     display_timings = artifacts.step_timings_for_display(client_id, run_id, data)
     wc = data.get("target_word_count")
     if wc is None and isinstance(data.get("manual_inputs"), dict):
@@ -388,7 +496,9 @@ def get_run_logo(client_id: str, run_id: str):
     path = run_dir / logo_file
     if not path.is_file():
         return jsonify(detail="logo not found"), 404
-    return send_from_directory(run_dir, logo_file)
+    resp = send_from_directory(run_dir, logo_file)
+    resp.headers["Cache-Control"] = "public, max-age=31536000, immutable"
+    return resp
 
 
 @api_bp.post("/clients/<client_id>/runs/<run_id>/steps/<step_name>")
@@ -399,6 +509,9 @@ def run_single_step(client_id: str, run_id: str, step_name: str):
     bad_run = reject_run_id(run_id)
     if bad_run:
         return bad_run
+    bad_step = reject_step_name(step_name)
+    if bad_step:
+        return bad_step
     body = request.get_json(silent=True) or {}
     previous_artifact = (body.get("previous_artifact") or "").strip()
 
@@ -414,6 +527,18 @@ def run_single_step(client_id: str, run_id: str, step_name: str):
         return jsonify(detail=f"Unknown step_name: {step_name!r}"), 400
 
     topic = manifest.get("topic") or ""
+    statuses_check = dict(manifest.get("statuses") or {})
+    for name in pipeline.step_order:
+        statuses_check.setdefault(name, "pending")
+    has_topic = bool(topic.strip())
+    if not pipeline_flow.can_run_step(
+        step_name,
+        statuses_check,
+        has_topic=has_topic,
+        step_order=pipeline.step_order,
+    ):
+        return jsonify(detail="Step prerequisites not met"), 409
+
     if pipeline.pipeline_id == "article" and step_name == "topic_card":
         manual = manifest.get("manual_inputs")
         if isinstance(manual, dict):
@@ -441,6 +566,13 @@ def run_single_step(client_id: str, run_id: str, step_name: str):
         statuses = dict(latest.get("statuses") or {})
         for name in pipeline.step_order:
             statuses.setdefault(name, "pending")
+        if not pipeline_flow.can_run_step(
+            step_name,
+            statuses,
+            has_topic=bool((latest.get("topic") or topic or "").strip()),
+            step_order=pipeline.step_order,
+        ):
+            return jsonify(detail="Step prerequisites not met"), 409
         existing = _STEP_JOBS.get(key)
         thread_alive = bool(existing and existing.is_alive())
         step_status = statuses.get(step_name, "pending")
@@ -472,6 +604,8 @@ def run_single_step(client_id: str, run_id: str, step_name: str):
             step_timings=timings,
             step_errors=errors,
         )
+        event = job_control.get_or_create_event(key)
+        event.clear()
         _STEP_JOBS[key] = thread
     thread.start()
     return jsonify(accepted=True, step_name=step_name, status="running"), 202
@@ -509,4 +643,7 @@ def cancel_step(client_id: str, run_id: str, step_name: str):
     bad_run = reject_run_id(run_id)
     if bad_run:
         return bad_run
+    bad_step = reject_step_name(step_name)
+    if bad_step:
+        return bad_step
     return _cancel_pipeline_step(client_id, run_id, step_name)

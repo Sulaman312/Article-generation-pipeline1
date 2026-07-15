@@ -1,12 +1,10 @@
 """Anthropic Claude API — editorial pipeline LLM steps.
 
-Environment (see repo `env.example`):
+Environment (see repo `.env.example`):
   ANTHROPIC_API_KEY — required for all Claude-powered steps
   CLAUDE_MODEL       — default `claude-sonnet-4-6`
-  MAX_TOKENS         — max output tokens per step (config.py)
-  TEMPERATURE        — sampling temperature (config.py)
 
-Docs: https://docs.anthropic.com/en/api/messages
+Supports cooperative cancel via ``backend.job_control`` (streaming + chunk checks).
 """
 
 from __future__ import annotations
@@ -15,6 +13,7 @@ import logging
 import time
 
 from .. import config
+from .. import job_control
 
 logger = logging.getLogger(__name__)
 
@@ -26,7 +25,6 @@ def _safe_error_detail(exc: Exception) -> str:
     detail = str(exc).strip() or type(exc).__name__
     if config.ANTHROPIC_API_KEY:
         detail = detail.replace(config.ANTHROPIC_API_KEY, "[REDACTED]")
-    # Provider responses can be unexpectedly large; keep API/UI errors readable.
     return detail[:1000]
 
 
@@ -55,7 +53,10 @@ def chat_complete(
     max_tokens: int | None = None,
     temperature: float | None = None,
 ) -> str:
-    """Call Claude with system + user messages; retry once after 3s on failure."""
+    """Call Claude with system + user messages; retry once after 3s on failure.
+
+    Uses streaming so cooperative cancel can close the HTTP body promptly.
+    """
     client = _get_client()
     model = config.CLAUDE_MODEL
     max_tok = max_tokens if max_tokens is not None else config.MAX_TOKENS
@@ -63,22 +64,37 @@ def chat_complete(
 
     last_exc: Exception | None = None
     for attempt in range(2):
+        job_control.raise_if_cancelled()
         try:
-            response = client.messages.create(
+            parts: list[str] = []
+            with client.messages.stream(
                 model=model,
                 max_tokens=max_tok,
                 temperature=temp,
                 system=system_msg,
                 messages=[{"role": "user", "content": user_msg}],
-            )
-            parts: list[str] = []
-            for block in response.content:
-                if getattr(block, "type", None) == "text":
-                    parts.append(block.text)
+            ) as stream:
+                for text in stream.text_stream:
+                    if job_control.is_cancelled():
+                        try:
+                            stream.close()
+                        except Exception:
+                            logger.debug(
+                                "%s: stream close after cancel raised",
+                                step_label,
+                                exc_info=True,
+                            )
+                        raise job_control.JobCancelled(
+                            "Pipeline step cancelled by user"
+                        )
+                    parts.append(text)
             raw = "".join(parts).strip()
             if not raw:
                 raise ValueError("Claude returned empty content")
+            job_control.raise_if_cancelled()
             return raw
+        except job_control.JobCancelled:
+            raise
         except Exception as e:
             last_exc = e
             detail = _safe_error_detail(e)
@@ -90,6 +106,10 @@ def chat_complete(
                 detail,
             )
             if attempt == 0:
+                if job_control.is_cancelled():
+                    raise job_control.JobCancelled(
+                        "Pipeline step cancelled by user"
+                    )
                 time.sleep(3)
             else:
                 raise RuntimeError(

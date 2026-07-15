@@ -57,24 +57,39 @@ def _validated_model() -> str:
 
 
 def _post_json(url: str, headers: dict[str, str], payload: dict[str, Any]) -> dict[str, Any]:
+    from concurrent.futures import ThreadPoolExecutor, wait
+
+    from backend import job_control
+
+    job_control.raise_if_cancelled()
     body = json.dumps(payload).encode("utf-8")
-    req = Request(
-        url,
-        data=body,
-        headers=headers,
-        method="POST",
-    )
-    with urlopen(req, timeout=120) as resp:
-        raw = resp.read().decode("utf-8", errors="replace")
-    try:
-        data = json.loads(raw)
-    except json.JSONDecodeError as e:
-        raise ValueError(
-            f"Perplexity returned non-JSON (starts: {raw[:120]!r})"
-        ) from e
-    if not isinstance(data, dict):
-        raise ValueError("Perplexity returned unexpected JSON root type")
-    return data
+
+    def _do_request() -> dict[str, Any]:
+        req = Request(
+            url,
+            data=body,
+            headers=headers,
+            method="POST",
+        )
+        with urlopen(req, timeout=120) as resp:
+            raw = resp.read().decode("utf-8", errors="replace")
+        try:
+            data = json.loads(raw)
+        except json.JSONDecodeError as e:
+            raise ValueError(
+                f"Perplexity returned non-JSON (starts: {raw[:120]!r})"
+            ) from e
+        if not isinstance(data, dict):
+            raise ValueError("Perplexity returned unexpected JSON root type")
+        return data
+
+    with ThreadPoolExecutor(max_workers=1) as pool:
+        future = pool.submit(_do_request)
+        while True:
+            job_control.raise_if_cancelled()
+            done, _ = wait([future], timeout=0.4)
+            if done:
+                return future.result()
 
 
 def _extract_message_text(data: dict[str, Any]) -> str:

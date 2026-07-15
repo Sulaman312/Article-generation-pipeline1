@@ -11,14 +11,15 @@ from backend import config
 from backend.pipeline import STEP_ORDER
 from backend.pipelines import resolve_pipeline_id, upgrade_manifest
 
-_RUN_ID_PATTERN = re.compile(r"^[a-zA-Z0-9._-]+$")
+_ID_PATTERN = re.compile(r"^[a-zA-Z0-9._-]+$")
+_STEP_NAME_PATTERN = re.compile(r"^[a-zA-Z0-9_-]+$")
 
 
 def safe_run_id(run_id: str):
     if not run_id or not str(run_id).strip():
         return False, ("run_id is required", 400)
     rid = str(run_id).strip()
-    if ".." in rid or not _RUN_ID_PATTERN.match(rid):
+    if ".." in rid or not _ID_PATTERN.match(rid):
         return False, ("invalid run_id", 400)
     return True, None
 
@@ -31,17 +32,34 @@ def reject_run_id(run_id: str):
 
 
 def safe_client_id(client_id: str):
-    if not client_id or not client_id.strip():
+    if not client_id or not str(client_id).strip():
         return False, ("client_id is required", 400)
-    if "/" in client_id or "\\" in client_id or ".." in client_id:
+    cid = str(client_id).strip()
+    if "/" in cid or "\\" in cid or ".." in cid:
         return False, ("invalid client_id", 400)
-    if client_id.strip().startswith("_"):
+    if cid.startswith("_") or not _ID_PATTERN.match(cid):
         return False, ("invalid client_id", 400)
     return True, None
 
 
 def reject_client(client_id: str):
     ok, err = safe_client_id(client_id)
+    if not ok:
+        return jsonify(detail=err[0]), err[1]
+    return None
+
+
+def safe_step_name(step_name: str):
+    if not step_name or not str(step_name).strip():
+        return False, ("step_name is required", 400)
+    name = str(step_name).strip()
+    if ".." in name or "/" in name or "\\" in name or not _STEP_NAME_PATTERN.match(name):
+        return False, ("invalid step_name", 400)
+    return True, None
+
+
+def reject_step_name(step_name: str):
+    ok, err = safe_step_name(step_name)
     if not ok:
         return jsonify(detail=err[0]), err[1]
     return None

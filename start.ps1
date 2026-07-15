@@ -21,7 +21,6 @@ python main.py
 Start-Process powershell -ArgumentList "-NoExit", "-Command", $backendCmd
 
 Set-Location (Join-Path $Root "atlas-ui")
-$env:PORT = "$uiPort"
-$env:REACT_APP_API_URL = "http://localhost:$apiPort"
-$env:REACT_APP_PROJECT_MODE = "article"
+$env:VITE_API_URL = "http://localhost:$apiPort"
+$env:VITE_PROJECT_MODE = "article"
 npm start

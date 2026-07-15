@@ -362,28 +362,27 @@ def inject_faq_template(article: str, topic: str = "") -> str:
 
 
 def _trim_article_llm(article_md: str, target: int, topic: str) -> str:
+    """Section-preserving backup trim (prefer draft-time length control)."""
+    from . import word_count_enforce
+
     low, high = editorial_input.word_count_bounds(target)
     current = editorial_input.count_article_words(article_md)
     if current <= high:
         return article_md
-    user = (
-        f"Topic: {topic or 'article'}\n"
-        f"Body prose (FAQ excluded) is {current:,} words. Editor target: {target:,} "
-        f"(acceptable {low:,}–{high:,} — do not exceed {high:,}).\n\n"
-        f"Shorten main sections only; keep all H2 headings except you may tighten prose. "
-        f"Keep the FAQ section and inline links (external [words](https://…), "
-        f"internal [words](INTERNAL:…)). FAQ does not count toward the limit.\n"
-        f"Keep **every** H3 question under ## Frequently Asked Questions from the input. "
-        f"Do not drop or merge FAQ items.\n"
-        f"Output ONLY the full markdown article.\n\n---ARTICLE---\n{article_md.strip()}\n"
+    logger.info(
+        "final_output section trim: %s words -> target %s (%s–%s) topic=%r",
+        current,
+        target,
+        low,
+        high,
+        (topic or "")[:80],
     )
-    return claude.chat_complete(
-        "You are a publishing editor trimming articles to an exact word budget.",
-        user,
-        step_label="Final output trim",
-        max_tokens=8192,
-        temperature=0.35,
-    ).strip()
+    return word_count_enforce.trim_article_by_sections(
+        article_md,
+        target,
+        step_label="Final output section trim",
+        max_passes=3,
+    )
 
 
 def _repair_article_with_llm(

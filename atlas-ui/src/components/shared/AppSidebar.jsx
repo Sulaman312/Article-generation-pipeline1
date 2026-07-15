@@ -11,10 +11,12 @@ import { formatWorkspaceLabel } from "../../utils/formatWorkspaceLabel";
 import {
   formatStepStatusWithDuration,
   resolveStepTiming,
+  stepStatusBaseLabel,
 } from "../../utils/formatStepDuration";
 import { canRunStep } from "../../utils/pipelineFlow";
 import { executeRunStep } from "../../utils/runStepAction";
 import WorkspaceLogo from "../workspace/WorkspaceLogo";
+import { IconLogout } from "./icons";
 
 function IconEditorial(props) {
   return (
@@ -70,24 +72,6 @@ function IconMatrix(props) {
       <rect x="14" y="3" width="7" height="7" rx="1" />
       <rect x="3" y="14" width="7" height="7" rx="1" />
       <rect x="14" y="14" width="7" height="7" rx="1" />
-    </svg>
-  );
-}
-
-function IconPipelines(props) {
-  return (
-    <svg
-      className="sb-nav-icon"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.9"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      aria-hidden
-      {...props}
-    >
-      <path d="M4 6h6v4H4zM14 6h6v4h-6zM4 14h6v4H4zM14 14h6v4h-6z" />
     </svg>
   );
 }
@@ -169,32 +153,6 @@ function SidebarSection({ collapsed, title, children, className = "" }) {
   );
 }
 
-function WorkspaceHomeNav({
-  collapsed,
-  workspaceView,
-  onGoToPipeline,
-  onGoToArtifacts,
-}) {
-  return (
-    <SidebarSection collapsed={collapsed} title="Workspace">
-      <NavItem
-        collapsed={collapsed}
-        icon={<IconPipelines />}
-        label="Pipeline"
-        active={workspaceView !== "artifacts"}
-        onClick={onGoToPipeline}
-      />
-      <NavItem
-        collapsed={collapsed}
-        icon={<IconArtifacts />}
-        label="Artifacts"
-        active={workspaceView === "artifacts"}
-        onClick={onGoToArtifacts}
-      />
-    </SidebarSection>
-  );
-}
-
 function ContentPipelineNav({
   collapsed,
   workspaceView,
@@ -230,58 +188,6 @@ function ContentPipelineNav({
       />
     </SidebarSection>
   );
-}
-
-function SocialPipelineNav({
-  collapsed,
-  workspaceView,
-  activePipeline,
-  onGoToPipeline,
-  onGoToSocialBoard,
-  onGoToSocialMatrix,
-  onGoToArtifacts,
-}) {
-  const inSocial = activePipeline === "social";
-  return (
-    <SidebarSection collapsed={collapsed} title="Social pipeline">
-      <NavItem
-        collapsed={collapsed}
-        icon={<IconPipelines />}
-        label="Pipeline"
-        active={activePipeline === null && workspaceView !== "artifacts"}
-        onClick={onGoToPipeline}
-      />
-      <NavItem
-        collapsed={collapsed}
-        icon={<IconEditorial />}
-        label="New post"
-        active={inSocial && workspaceView === "overview"}
-        onClick={onGoToSocialBoard}
-      />
-      <NavItem
-        collapsed={collapsed}
-        icon={<IconMatrix />}
-        label="Step matrix"
-        active={inSocial && workspaceView === "matrix"}
-        onClick={onGoToSocialMatrix}
-      />
-      <NavItem
-        collapsed={collapsed}
-        icon={<IconArtifacts />}
-        label="Artifacts"
-        active={inSocial && workspaceView === "artifacts"}
-        onClick={onGoToArtifacts}
-      />
-    </SidebarSection>
-  );
-}
-
-function statusLabel(s) {
-  if (s === "done") return "Done";
-  if (s === "running") return "Running";
-  if (s === "error") return "Error";
-  if (s === "skipped") return "Skipped";
-  return "Pending";
 }
 
 /** Numbered node for the collapsed pipeline rail. */
@@ -449,15 +355,14 @@ export default function AppSidebar({
   onWorkspaceViewChange,
   onGoToEditorial,
   onGoToMatrix,
-  onGoToSocialBoard,
-  onGoToSocialMatrix,
   onGoToArtifacts,
-  onGoToPipeline,
-  activePipeline = null,
-  lockedPipeline = null,
   logoVersion = 0,
   onPatchStepStatus,
   stepStatusOverrides = {},
+  run = null,
+  refreshRun,
+  onSignOut,
+  authUsername,
 }) {
   const handleWidthChange = useCallback(
     (w) => onSidebarWidthChange?.(w),
@@ -519,17 +424,11 @@ export default function AppSidebar({
       <div className="sb-scroll">
         {!runId ? (
           <ClientNavSection
-            client={client}
             collapsed={collapsed}
             workspaceView={workspaceView}
-            activePipeline={activePipeline}
-            lockedPipeline={lockedPipeline}
             onGoToEditorial={onGoToEditorial}
             onGoToMatrix={onGoToMatrix}
-            onGoToSocialBoard={onGoToSocialBoard}
-            onGoToSocialMatrix={onGoToSocialMatrix}
             onGoToArtifacts={onGoToArtifacts}
-            onGoToPipeline={onGoToPipeline}
           />
         ) : (
           <RunNavSection
@@ -540,16 +439,30 @@ export default function AppSidebar({
             onSelectStep={onSelectStep}
             onClearRun={onClearRun}
             onGoToMatrix={onGoToMatrix}
-            onGoToSocialMatrix={onGoToSocialMatrix}
             onPatchStepStatus={onPatchStepStatus}
             statusOverrides={stepStatusOverrides}
+            run={run}
+            refreshRun={refreshRun}
           />
         )}
       </div>
 
       <div className="sb-foot">
         {!collapsed ? (
-          <span>ContentFlow • 9 steps</span>
+          <div className="sb-foot-stack">
+            <span>ContentFlow • 9 steps</span>
+            {onSignOut ? (
+              <button
+                type="button"
+                className="btn-logout btn-logout--sidebar"
+                onClick={onSignOut}
+                title={authUsername ? `Signed in as ${authUsername}` : "Log out"}
+              >
+                <IconLogout />
+                <span>Log out</span>
+              </button>
+            ) : null}
+          </div>
         ) : runId ? null : (
           <span className="sb-foot-expand-hint" title="Expand sidebar" aria-hidden>
             ···
@@ -574,45 +487,15 @@ export default function AppSidebar({
 function ClientNavSection({
   collapsed,
   workspaceView,
-  activePipeline,
-  lockedPipeline = null,
   onGoToEditorial,
   onGoToMatrix,
-  onGoToSocialBoard,
-  onGoToSocialMatrix,
   onGoToArtifacts,
-  onGoToPipeline,
 }) {
-  const navPipeline = activePipeline ?? lockedPipeline;
-
-  if (navPipeline === null) {
-    return (
-      <WorkspaceHomeNav
-        collapsed={collapsed}
-        workspaceView={workspaceView}
-        onGoToPipeline={onGoToPipeline}
-        onGoToArtifacts={onGoToArtifacts}
-      />
-    );
-  }
-  if (navPipeline === "social") {
-    return (
-      <SocialPipelineNav
-        collapsed={collapsed}
-        workspaceView={workspaceView}
-        activePipeline={activePipeline}
-        onGoToPipeline={onGoToPipeline}
-        onGoToSocialBoard={onGoToSocialBoard}
-        onGoToSocialMatrix={onGoToSocialMatrix}
-        onGoToArtifacts={onGoToArtifacts}
-      />
-    );
-  }
   return (
     <ContentPipelineNav
       collapsed={collapsed}
       workspaceView={workspaceView}
-      activePipeline={activePipeline}
+      activePipeline="content"
       onGoToEditorial={onGoToEditorial}
       onGoToMatrix={onGoToMatrix}
       onGoToArtifacts={onGoToArtifacts}
@@ -628,18 +511,20 @@ function RunNavSection({
   onSelectStep,
   onClearRun,
   onGoToMatrix,
-  onGoToSocialMatrix,
   onPatchStepStatus,
   statusOverrides = {},
+  run: sharedRun = null,
+  refreshRun: sharedRefreshRun,
 }) {
   const { toast } = useToast();
-  const [run, setRun] = useState(null);
+  const [localRun, setLocalRun] = useState(null);
   const [runningStepKey, setRunningStepKey] = useState(null);
   const [hoveredStepKey, setHoveredStepKey] = useState(null);
   const [clockTick, setClockTick] = useState(0);
   const [clientStepDurations, setClientStepDurations] = useState({});
   const runAbortRef = useRef(null);
   const stepRunStartRef = useRef({});
+  const usesSharedRun = sharedRefreshRun != null;
 
   function reconcileStatusOverrides(serverStatuses) {
     for (const stepKey of Object.keys(statusOverrides)) {
@@ -659,11 +544,19 @@ function RunNavSection({
   async function loadRun() {
     try {
       const r = await api.getRun(client, runId);
-      setRun(r);
+      setLocalRun(r);
       reconcileStatusOverrides(r.statuses || {});
     } catch {
       /* ignore */
     }
+  }
+
+  async function refreshRun() {
+    if (usesSharedRun) {
+      await sharedRefreshRun?.();
+      return;
+    }
+    await loadRun();
   }
 
   function markStepPending(stepKey) {
@@ -673,18 +566,47 @@ function RunNavSection({
   }
 
   useEffect(() => {
+    if (usesSharedRun) return undefined;
     let cancelled = false;
-    async function load() {
-      if (cancelled) return;
-      await loadRun();
+    let timerId = null;
+
+    async function tick() {
+      if (cancelled || document.visibilityState === "hidden") return;
+      await refreshRun();
     }
-    load();
-    const id = setInterval(load, 2000);
+
+    function schedule(running) {
+      if (timerId != null) {
+        window.clearInterval(timerId);
+        timerId = null;
+      }
+      if (document.visibilityState === "hidden") return;
+      const ms = running ? 2500 : 30000;
+      timerId = window.setInterval(tick, ms);
+    }
+
+    tick();
+    schedule(false);
+
+    function onVisibilityChange() {
+      if (document.visibilityState === "visible") {
+        tick();
+        schedule(false);
+      } else if (timerId != null) {
+        window.clearInterval(timerId);
+        timerId = null;
+      }
+    }
+
+    document.addEventListener("visibilitychange", onVisibilityChange);
     return () => {
       cancelled = true;
-      clearInterval(id);
+      if (timerId != null) window.clearInterval(timerId);
+      document.removeEventListener("visibilitychange", onVisibilityChange);
     };
-  }, [client, runId]);
+  }, [client, runId, usesSharedRun]);
+
+  const run = usesSharedRun ? sharedRun : localRun;
 
   const serverStatuses = run?.statuses || {};
   const statuses = { ...serverStatuses, ...statusOverrides };
@@ -718,6 +640,12 @@ function RunNavSection({
     setRunningStepKey(stepKey);
     const runStartedAt = Date.now();
     stepRunStartRef.current[stepKey] = runStartedAt;
+    setClientStepDurations((prev) => {
+      if (!(stepKey in prev)) return prev;
+      const next = { ...prev };
+      delete next[stepKey];
+      return next;
+    });
     try {
       const ran = await executeRunStep(
         api,
@@ -734,7 +662,7 @@ function RunNavSection({
         ...prev,
         [stepKey]: elapsedMs,
       }));
-      await loadRun();
+      await refreshRun();
       onSelectStep(stepKey);
       window.dispatchEvent(
         new CustomEvent("cf:run-step-complete", {
@@ -750,7 +678,7 @@ function RunNavSection({
       if (msg === "Stopped by user.") {
         markStepPending(stepKey);
         const cancelled = await tryCancelOnServer(stepKey);
-        await loadRun();
+        await refreshRun();
         toast(
           cancelled
             ? "Step paused."
@@ -782,7 +710,7 @@ function RunNavSection({
       ac.abort();
       markStepPending(stepKey);
       const cancelled = await tryCancelOnServer(stepKey);
-      await loadRun();
+      await refreshRun();
       toast(
         cancelled
           ? "Step paused."
@@ -805,8 +733,7 @@ function RunNavSection({
 
   function handleBack() {
     onClearRun?.();
-    if ((run?.pipeline_id || "article") === "social_media") onGoToSocialMatrix?.();
-    else onGoToMatrix?.();
+    onGoToMatrix?.();
   }
 
   return (
@@ -873,24 +800,24 @@ function RunNavSection({
             const pausable =
               isRunningThis &&
               (runningStepKey === step.key || s === "running");
+            const effectiveStatus = isRunningThis ? "running" : s;
             let resolvedTiming = resolveStepTiming(
               step.key,
               stepTimings,
-              clientStepDurations
+              clientStepDurations,
+              effectiveStatus
             );
             const localStart = stepRunStartRef.current[step.key];
-            if (
-              (isRunningThis || runningStepKey === step.key) &&
-              localStart &&
-              !resolvedTiming?.duration_ms
-            ) {
+            if (isRunningThis && localStart) {
               resolvedTiming = {
-                ...resolvedTiming,
                 started_at: new Date(localStart).toISOString(),
+                finished_at: null,
+                duration_ms: null,
+                status: "running",
               };
             }
             const statusText = formatStepStatusWithDuration(
-              s,
+              effectiveStatus,
               resolvedTiming,
               Date.now()
             );
@@ -1006,7 +933,7 @@ function RunNavSection({
                   }
                   data-tip={
                     collapsed
-                      ? `${step.label} · ${statusLabel(s)}`
+                      ? `${step.label} · ${stepStatusBaseLabel(s)}`
                       : undefined
                   }
                 >

@@ -187,6 +187,14 @@ def _connect():
     return _files, _bucket
 
 
+def get_database():
+    """Return the configured MongoDB database (requires MONGODB_URI)."""
+    _connect()
+    if _db is None:
+        raise RuntimeError("MongoDB database is not available")
+    return _db
+
+
 def _relative_files(root: Path) -> dict[str, Path]:
     if not root.is_dir():
         return {}
@@ -346,6 +354,60 @@ def sync_cache(*, force: bool = False, delete_missing: bool = False) -> dict[str
         }
 
 
+def flush_local_path(path: Path) -> bool:
+    """Immediately mirror one local cache file to GridFS (under the sync lock).
+
+    Prefer this after critical writes (manifests, step artifacts, cancels) so
+    concurrent readers hitting Mongo see the update without waiting for a full
+    ``sync_cache`` pass.
+    """
+    if not enabled() or not runtime_ready():
+        return False
+    path = Path(path)
+    root = Path(config.CLIENTS_DIR).resolve()
+    try:
+        resolved = path.resolve()
+        rel = resolved.relative_to(root).as_posix()
+    except (OSError, ValueError):
+        return False
+    if not rel or rel.startswith("/") or ".." in Path(rel).parts:
+        return False
+
+    with _LOCK:
+        if not resolved.is_file():
+            return flush_missing_relative_path(rel)
+        _assert_cache_database_matches(root=root)
+        files, bucket = _connect()
+        _upload_file(rel, resolved, files, bucket)
+        stat = resolved.stat()
+        _snapshot[rel] = (stat.st_mtime_ns, stat.st_size)
+        _known_paths.add(rel)
+        return True
+
+
+def flush_missing_relative_path(rel: str) -> bool:
+    """Delete a path from Mongo/GridFS when the local cache file was removed."""
+    if not enabled() or not runtime_ready():
+        return False
+    rel = str(rel or "").replace("\\", "/").strip().lstrip("/")
+    if not rel or ".." in Path(rel).parts:
+        return False
+    with _LOCK:
+        files, bucket = _connect()
+        doc = files.find_one_and_delete({"path": rel})
+        _snapshot.pop(rel, None)
+        _known_paths.discard(rel)
+        if not doc:
+            return False
+        blob_id = doc.get("gridfs_id")
+        if blob_id:
+            try:
+                bucket.delete(blob_id)
+            except Exception:
+                logger.warning("Could not remove GridFS blob %s for %s", blob_id, rel)
+        return True
+
+
 def seed_from_directory(
     source: Path,
     *,
@@ -404,6 +466,12 @@ def initialize_runtime_cache() -> int:
                         raise _cache_database_mismatch_error(root)
             _set_startup_state("running", attempt=attempt)
             hydrated = hydrate_cache(clear=True)
+            try:
+                from backend import auth_store
+
+                auth_store.ensure_default_admin()
+            except Exception:
+                logger.exception("Failed to seed auth admin user after hydration")
             _set_startup_state(
                 "ready",
                 attempt=attempt,
@@ -465,6 +533,9 @@ def initialize_runtime_cache_background() -> None:
             _set_startup_state("running", attempt=attempt)
             try:
                 hydrated = hydrate_cache(clear=True)
+                from backend import auth_store
+
+                auth_store.ensure_default_admin()
             except Exception as exc:
                 _reset_connection()
                 detail = f"{type(exc).__name__}: {exc}"

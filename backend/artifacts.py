@@ -21,10 +21,21 @@ def _write_json_atomic(path: Path, payload: dict) -> None:
     temp = path.with_name(f".{path.name}.{threading.get_ident()}.tmp")
     temp.write_text(json.dumps(payload, indent=2), encoding="utf-8")
     os.replace(temp, path)
+    _flush_mongo_path(path)
+
+
+def _flush_mongo_path(path: Path) -> None:
+    try:
+        from . import mongo_storage
+
+        mongo_storage.flush_local_path(path)
+    except Exception:
+        logger.exception("Mongo flush failed for %s", path)
+
 
 ARTIFACTS_INDEX_FILENAME = "artifacts_index.json"
 _MAX_RUN_LOGO_BYTES = 2 * 1024 * 1024
-_RUN_LOGO_EXTS = frozenset({".png", ".jpg", ".jpeg", ".webp", ".gif", ".svg"})
+_RUN_LOGO_EXTS = frozenset({".png", ".jpg", ".jpeg", ".webp", ".gif"})
 
 # Article step order — see `backend/pipeline_steps.py`.
 _ARTICLE_STEP_ORDER = ARTICLE_STEP_ORDER
@@ -237,6 +248,7 @@ def write_context_file(client_id: str, filename: str, content: str) -> Path:
     path = _context_file_path(client_id, filename)
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(content, encoding="utf-8")
+    invalidate_context_cache(client_id)
     return path
 
 
@@ -246,6 +258,7 @@ def delete_client_workspace(client_id: str) -> bool:
     if not base.is_dir():
         return False
     shutil.rmtree(base)
+    invalidate_context_cache(client_id)
     return True
 
 
@@ -360,20 +373,69 @@ def set_run_logo_file(client_id: str, run_id: str, logo_file: str) -> None:
     _write_json_atomic(manifest_path, data)
 
 
+_STEP_NAME_RE = re.compile(r"^[a-zA-Z0-9_-]+$")
+
+
+def _validate_step_name(step_name: str) -> str:
+    name = str(step_name or "").strip()
+    if (
+        not name
+        or ".." in name
+        or "/" in name
+        or "\\" in name
+        or not _STEP_NAME_RE.match(name)
+    ):
+        raise ValueError(f"invalid step_name: {step_name!r}")
+    return name
+
+
 def save_artifact(client_id: str, run_id: str, step_name: str, content: str) -> Path:
+    from .step_markers import STEP_MARKER_LABELS, ensure_step_markers
+
+    step_name = _validate_step_name(step_name)
+    if step_name in STEP_MARKER_LABELS:
+        content = ensure_step_markers(step_name, content)
     path = get_run_dir(client_id, run_id) / f"{step_name}.md"
     path.write_text(content, encoding="utf-8")
     logger.info("artifact saved %s", path)
+    _flush_mongo_path(path)
     return path
 
 
 def load_artifact(client_id: str, run_id: str, step_name: str) -> str:
+    step_name = _validate_step_name(step_name)
     path = config.CLIENTS_DIR / client_id / "runs" / run_id / f"{step_name}.md"
     if not path.is_file():
         raise FileNotFoundError(
             f"Artifact not found at expected path: {path}"
         )
     return path.read_text(encoding="utf-8")
+
+
+_context_text_cache: dict[tuple[str, str], tuple[int, str]] = {}
+
+
+def invalidate_context_cache(client_id: str | None = None) -> None:
+    """Drop cached context file text (one client or all)."""
+    if client_id is None:
+        _context_text_cache.clear()
+        return
+    doomed = [key for key in _context_text_cache if key[0] == client_id]
+    for key in doomed:
+        _context_text_cache.pop(key, None)
+
+
+def _read_context_file_cached(client_id: str, filename: str, path: Path) -> str | None:
+    if not path.is_file():
+        return None
+    mtime_ns = path.stat().st_mtime_ns
+    key = (client_id, filename)
+    hit = _context_text_cache.get(key)
+    if hit and hit[0] == mtime_ns:
+        return hit[1]
+    text = path.read_text(encoding="utf-8")
+    _context_text_cache[key] = (mtime_ns, text)
+    return text
 
 
 def load_context(client_id: str, step_name: str) -> str:
@@ -387,8 +449,9 @@ def load_context(client_id: str, step_name: str) -> str:
     for filename in filenames:
         path = context_root / filename
         header = f"=== {filename} ==="
-        if path.is_file():
-            parts.append(f"{header}\n{path.read_text(encoding='utf-8')}")
+        text = _read_context_file_cached(client_id, filename, path)
+        if text is not None:
+            parts.append(f"{header}\n{text}")
         else:
             parts.append(f"{header} [NOT YET PROVIDED]")
 
@@ -411,15 +474,27 @@ def load_context_debug(client_id: str, step_name: str) -> str:
 
 
 def _now_iso() -> str:
-    return datetime.now().isoformat(timespec="milliseconds")
+    from datetime import timezone
+
+    return (
+        datetime.now(timezone.utc)
+        .isoformat(timespec="milliseconds")
+        .replace("+00:00", "Z")
+    )
+
+
+def _parse_iso(ts: str) -> datetime:
+    if ts.endswith("Z"):
+        ts = ts[:-1] + "+00:00"
+    return datetime.fromisoformat(ts)
 
 
 def _duration_ms(started_at: str | None, finished_at: str | None) -> int | None:
     if not started_at or not finished_at:
         return None
     try:
-        start = datetime.fromisoformat(started_at)
-        end = datetime.fromisoformat(finished_at)
+        start = _parse_iso(started_at)
+        end = _parse_iso(finished_at)
     except ValueError:
         return None
     delta = int((end - start).total_seconds() * 1000)

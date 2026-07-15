@@ -39,8 +39,10 @@ $env:API_PORT=8000; python main.py
 
 # Terminal 2
 cd atlas-ui
-$env:PORT=3000; npm start
+npm start
 ```
+
+Pipeline step jobs run **in-process** (single Gunicorn worker). Cancel signals abort Claude streaming and interrupt waiting on Perplexity; active in-memory jobs are lost on restart.
 
 ## Push to GitHub
 

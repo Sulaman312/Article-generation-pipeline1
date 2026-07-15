@@ -18,6 +18,30 @@ class FaqSchemaTests(unittest.TestCase):
         text = _sample_with_faqs(6)
         self.assertEqual(len(faq_schema.extract_faq_pairs(text)), 6)
 
+    def test_extract_french_faq_heading(self):
+        text = (
+            "## Intro\n\nBody.\n\n"
+            "## Questions fréquentes\n\n"
+            "### Puis-je numériser des dossiers très anciens?\n\n"
+            "Oui, avec précautions.\n\n"
+            "### Comment gérer la résistance?\n\n"
+            "Par la formation.\n"
+        )
+        pairs = faq_schema.extract_faq_pairs(text)
+        self.assertEqual(len(pairs), 2)
+        self.assertIn("numériser", pairs[0][0])
+
+    def test_extract_bold_questions_under_faq(self):
+        text = (
+            "## FAQ\n\n"
+            "**Can I digitize old records?**\n\n"
+            "Yes, with care.\n\n"
+            "**How to train the team?**\n\n"
+            "Use phased training.\n"
+        )
+        pairs = faq_schema.extract_faq_pairs(text)
+        self.assertEqual(len(pairs), 2)
+
     def test_ensure_faq_from_reference_restores_dropped_items(self):
         reference = _sample_with_faqs(6)
         reduced = _sample_with_faqs(2)

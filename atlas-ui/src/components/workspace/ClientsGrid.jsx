@@ -4,12 +4,13 @@ import PageHeader from "../shared/PageHeader";
 import WorkspaceLogo from "./WorkspaceLogo";
 import LogoFitImage from "./LogoFitImage";
 import EditWorkspaceModal from "./EditWorkspaceModal";
-import { isImageFile, readImageFileAsBase64 } from "../../utils/readImageFile";
+import { isImageFile, readImageFileAsBase64, LOGO_ACCEPT } from "../../utils/readImageFile";
 import {
   CONTEXT_FILE_LABELS,
   PIPELINE_CONTEXT_FILES_ORDERED,
 } from "../../constants/contextFiles";
 import { workspaceDisplayName } from "../../utils/formatWorkspaceLabel";
+import { ClientsSkeleton } from "../shared/Skeletons";
 import "./ManualArticleForm.css";
 import "./ClientsGrid.css";
 
@@ -274,7 +275,7 @@ export default function ClientsGrid({
                   id="new-client-logo"
                   type="file"
                   className="manual-article-logo-input"
-                  accept="image/png,image/jpeg,image/webp,image/gif,image/svg+xml"
+                  accept={LOGO_ACCEPT}
                   onChange={handleLogoChange}
                   disabled={creating}
                 />
@@ -383,9 +384,7 @@ export default function ClientsGrid({
       ) : null}
 
       {loading ? (
-        <div className="empty-state">
-          <span className="spinner" /> &nbsp; loading clients…
-        </div>
+        <ClientsSkeleton cards={6} />
       ) : clients.length === 0 ? (
         <div
           className="card"

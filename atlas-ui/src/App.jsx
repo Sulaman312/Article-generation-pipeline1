@@ -1,44 +1,95 @@
-import { useEffect, useState } from "react";
+import { lazy, Suspense, useCallback, useEffect, useState } from "react";
 import "./App.css";
+import LoginPage from "./components/auth/LoginPage";
+import { IconLogout } from "./components/shared/icons";
 import AppSidebar from "./components/shared/AppSidebar";
 import ClientsGrid from "./components/workspace/ClientsGrid";
-import ClientHome from "./components/workspace/ClientHome";
-import RunView from "./components/run/RunView";
-import StepMatrixScreen from "./components/run/StepMatrixScreen";
-import ContentPipelineBoard from "./components/workspace/ContentPipelineBoard";
+import WorkspaceSyncBanner from "./components/shared/WorkspaceSyncBanner";
+import { MatrixSkeleton } from "./components/shared/Skeletons";
+import { AuthProvider, useAuth } from "./context/AuthContext";
 import { ToastProvider } from "./context/ToastContext";
 import { CONTENTFLOW_LOGO } from "./constants/brand";
 import { appProductMeta } from "./constants/appProject";
 import { hydratePipelineSteps } from "./constants/pipelineRegistry";
 import { readStoredSidebarWidth } from "./hooks/useSidebarResize";
+import { useRun } from "./hooks/useRun";
+import {
+  parseAppPath,
+  pushAppPath,
+  replaceAppPath,
+} from "./utils/appNavigation";
+import { preloadRunChunks } from "./utils/preloadRunChunks";
 import * as api from "./services/api";
+
+const RunView = lazy(() => import("./components/run/RunView"));
+const StepMatrixScreen = lazy(() => import("./components/run/StepMatrixScreen"));
+const ContentPipelineBoard = lazy(() =>
+  import("./components/workspace/ContentPipelineBoard")
+);
+const ClientHome = lazy(() => import("./components/workspace/ClientHome"));
+
+function ViewFallback() {
+  return (
+    <div className="layout-main" style={{ padding: "1.5rem" }}>
+      <MatrixSkeleton rows={4} />
+    </div>
+  );
+}
 
 const PRODUCT = appProductMeta();
 
+function clientIdOf(c) {
+  if (!c) return null;
+  return typeof c === "string" ? c : c.id || null;
+}
+
 function App() {
-  const [client, setClient] = useState(null);
-  const [runId, setRunId] = useState(null);
+  const { ready: authReady, signedIn, user, signOut } = useAuth();
+  const initialRoute =
+    typeof window !== "undefined" ? parseAppPath() : { clientId: null, runId: null, view: "matrix" };
+  const [client, setClient] = useState(initialRoute.clientId);
+  const [runId, setRunId] = useState(initialRoute.runId);
   const [activeStepKey, setActiveStepKey] = useState("topic_card");
   const [clientsRefresh, setClientsRefresh] = useState(0);
-  const [workspaceView, setWorkspaceView] = useState("matrix");
+  const [workspaceView, setWorkspaceView] = useState(initialRoute.view || "matrix");
   const [artifactFilename, setArtifactFilename] = useState(null);
   const [logoVersions, setLogoVersions] = useState({});
   const [stepStatusOverrides, setStepStatusOverrides] = useState({});
-  const [pipelineReady, setPipelineReady] = useState(false);
 
   useEffect(() => {
-    if (process.env.NODE_ENV === "test") {
-      setPipelineReady(true);
-      return undefined;
-    }
-    let cancelled = false;
-    hydratePipelineSteps(api).finally(() => {
-      if (!cancelled) setPipelineReady(true);
+    if (!signedIn) return undefined;
+    if (import.meta.env.MODE === "test") return undefined;
+    hydratePipelineSteps(api).catch(() => {
+      /* fallback steps already loaded */
     });
-    return () => {
-      cancelled = true;
-    };
+    return undefined;
+  }, [signedIn]);
+
+  useEffect(() => {
+    function onPopState() {
+      const route = parseAppPath();
+      setClient(route.clientId);
+      setRunId(route.runId);
+      setWorkspaceView(route.view || "matrix");
+      setArtifactFilename(null);
+      setStepStatusOverrides({});
+      if (route.runId) setActiveStepKey("topic_card");
+    }
+    window.addEventListener("popstate", onPopState);
+    return () => window.removeEventListener("popstate", onPopState);
   }, []);
+
+  useEffect(() => {
+    if (!signedIn) {
+      replaceAppPath({});
+      return;
+    }
+    replaceAppPath({
+      clientId: clientIdOf(client),
+      runId,
+      view: workspaceView,
+    });
+  }, [signedIn, client, runId, workspaceView]);
 
   const [sidebarCollapsed, setSidebarCollapsed] = useState(() => {
     try {
@@ -75,6 +126,12 @@ function App() {
     setRunId(null);
     setWorkspaceView("matrix");
     setArtifactFilename(null);
+    pushAppPath({});
+  }
+
+  async function handleSignOut() {
+    goHome();
+    await signOut();
   }
 
   function handleClientDeleted() {
@@ -87,16 +144,24 @@ function App() {
   }
 
   function openClient(c) {
-    setClient(c);
+    const id = clientIdOf(c);
+    setClient(id);
     setRunId(null);
     setWorkspaceView("matrix");
     setArtifactFilename(null);
+    pushAppPath({ clientId: id, view: "matrix" });
   }
 
   function openRun(id) {
+    preloadRunChunks();
     setRunId(id);
     setActiveStepKey("topic_card");
     setStepStatusOverrides({});
+    pushAppPath({
+      clientId: clientIdOf(client),
+      runId: id,
+      view: "matrix",
+    });
   }
 
   function patchStepStatus(stepKey, status) {
@@ -115,50 +180,97 @@ function App() {
     });
   }
 
+  const reconcileStatusOverrides = useCallback(
+    (serverStatuses) => {
+      for (const stepKey of Object.keys(stepStatusOverrides)) {
+        const server = serverStatuses[stepKey] ?? "pending";
+        const override = stepStatusOverrides[stepKey];
+        if (server === override) {
+          patchStepStatus(stepKey, null);
+          continue;
+        }
+        if (override === "pending" && server === "running") {
+          continue;
+        }
+        patchStepStatus(stepKey, null);
+      }
+    },
+    [stepStatusOverrides]
+  );
+
+  const { run, refreshRun } = useRun(client, runId, {
+    onSuccess: (r) => reconcileStatusOverrides(r.statuses || {}),
+  });
+
   function closeRun() {
     setRunId(null);
     setStepStatusOverrides({});
     setWorkspaceView("matrix");
+    pushAppPath({
+      clientId: clientIdOf(client),
+      view: "matrix",
+    });
   }
 
   function handleWorkspaceViewChange(view) {
     setWorkspaceView(view);
     setArtifactFilename(null);
+    pushAppPath({
+      clientId: clientIdOf(client),
+      view,
+    });
   }
 
   function goToEditorial() {
     setRunId(null);
     setWorkspaceView("overview");
     setArtifactFilename(null);
+    pushAppPath({
+      clientId: clientIdOf(client),
+      view: "overview",
+    });
   }
 
   function goToMatrix() {
     setRunId(null);
     setWorkspaceView("matrix");
     setArtifactFilename(null);
+    pushAppPath({
+      clientId: clientIdOf(client),
+      view: "matrix",
+    });
   }
 
   function goToArtifacts() {
     setRunId(null);
     setWorkspaceView("artifacts");
     setArtifactFilename(null);
+    pushAppPath({
+      clientId: clientIdOf(client),
+      view: "artifacts",
+    });
   }
 
-  if (!pipelineReady) {
+  if (!authReady && !signedIn) {
     return (
       <div className="layout-flat">
         <main className="layout-main">
           <p style={{ textAlign: "center", padding: "2rem", color: "#64748b" }}>
-            Loading pipeline…
+            Checking session…
           </p>
         </main>
       </div>
     );
   }
 
+  if (!signedIn) {
+    return <LoginPage />;
+  }
+
   if (!client) {
     return (
       <div className="layout-flat">
+        <WorkspaceSyncBanner />
         <header className="topbar">
           <div className="topbar-brand" onClick={goHome}>
             <img
@@ -172,6 +284,22 @@ function App() {
               {PRODUCT.name}
               <span className="topbar-meta">{PRODUCT.workspaceTagline}</span>
             </div>
+          </div>
+          <div className="topbar-actions">
+            <span className="topbar-user" title="Signed in">
+              <span className="topbar-user-avatar" aria-hidden>
+                {(user?.username || "?").slice(0, 1).toUpperCase()}
+              </span>
+              {user?.username}
+            </span>
+            <button
+              type="button"
+              className="btn-logout"
+              onClick={handleSignOut}
+            >
+              <IconLogout />
+              <span>Log out</span>
+            </button>
           </div>
         </header>
         <main className="layout-main">
@@ -195,6 +323,7 @@ function App() {
           : { "--sidebar-w": `${sidebarWidth}px` }
       }
     >
+      <WorkspaceSyncBanner />
       <AppSidebar
         client={client}
         runId={runId}
@@ -212,18 +341,20 @@ function App() {
         onGoToMatrix={goToMatrix}
         onGoToArtifacts={goToArtifacts}
         activePipeline="content"
-        lockedPipeline="content"
         logoVersion={logoVersions[client] || 0}
         onPatchStepStatus={patchStepStatus}
         stepStatusOverrides={stepStatusOverrides}
+        run={run}
+        refreshRun={refreshRun}
+        onSignOut={handleSignOut}
+        authUsername={user?.username}
       />
       <main className="layout-main">
+        <Suspense fallback={<ViewFallback />}>
         {!runId && workspaceView === "artifacts" ? (
           <ClientHome
             client={client}
-            onOpenRun={openRun}
             onClientDeleted={handleClientDeleted}
-            workspaceView={workspaceView}
             artifactFilename={artifactFilename}
             onArtifactFilenameChange={setArtifactFilename}
           />
@@ -232,7 +363,13 @@ function App() {
             client={client}
             onOpenRun={openRun}
             onClientDeleted={handleClientDeleted}
-            onBackToBoard={() => setWorkspaceView("overview")}
+            onBackToBoard={() => {
+              setWorkspaceView("overview");
+              pushAppPath({
+                clientId: clientIdOf(client),
+                view: "overview",
+              });
+            }}
           />
         ) : !runId && workspaceView === "overview" ? (
           <ContentPipelineBoard
@@ -243,9 +380,7 @@ function App() {
         ) : !runId ? (
           <ClientHome
             client={client}
-            onOpenRun={openRun}
             onClientDeleted={handleClientDeleted}
-            workspaceView={workspaceView}
             artifactFilename={artifactFilename}
             onArtifactFilenameChange={setArtifactFilename}
           />
@@ -256,12 +391,14 @@ function App() {
             activeStepKey={activeStepKey}
             statusOverrides={stepStatusOverrides}
             onSelectStep={setActiveStepKey}
+            run={run}
+            refreshRun={refreshRun}
             onBack={() => {
               closeRun();
-              setWorkspaceView("matrix");
             }}
           />
         )}
+        </Suspense>
       </main>
     </div>
   );
@@ -270,7 +407,9 @@ function App() {
 export default function AppWithToast() {
   return (
     <ToastProvider>
-      <App />
+      <AuthProvider>
+        <App />
+      </AuthProvider>
     </ToastProvider>
   );
 }

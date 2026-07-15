@@ -92,8 +92,13 @@ export default function MarkdownArtifactPanel({
                   type="button"
                   className="btn btn-sm btn-edit-artifact"
                   onClick={startEdit}
+                  title={
+                    previewNode
+                      ? "Edit the raw markdown for this step"
+                      : "Edit this artifact"
+                  }
                 >
-                  Edit
+                  {previewNode ? "Edit raw" : "Edit"}
                 </button>
               )
             ) : null}

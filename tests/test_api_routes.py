@@ -6,7 +6,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from backend import artifacts, config
+from backend import artifacts, auth_store, config
 from backend.app import create_app
 
 
@@ -18,12 +18,20 @@ class ApiRouteTests(unittest.TestCase):
         config.MONGODB_URI = None
         config.CLIENTS_DIR = Path(self.temp.name) / "clients"
         config.CLIENTS_DIR.mkdir(parents=True, exist_ok=True)
+        auth_store.reset_memory_store_for_tests()
         with patch("backend.mongo_storage.initialize_runtime_cache", return_value=0):
             self.app = create_app()
+        login = self.app.test_client().post(
+            "/auth/login",
+            json={"username": "admin", "password": "admin123"},
+        )
+        self.token = login.get_json()["token"]
+        self.headers = {"Authorization": f"Bearer {self.token}"}
 
     def tearDown(self):
         config.CLIENTS_DIR = self.original_dir
         config.MONGODB_URI = self.original_mongo_uri
+        auth_store.reset_memory_store_for_tests()
         self.temp.cleanup()
 
     def test_health_returns_ok(self):
@@ -34,12 +42,14 @@ class ApiRouteTests(unittest.TestCase):
         self.assertEqual(payload["service"], "ContentFlow API")
 
     def test_list_clients_empty_workspace(self):
-        response = self.app.test_client().get("/clients")
+        response = self.app.test_client().get("/clients", headers=self.headers)
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.get_json()["clients"], [])
 
     def test_pipeline_steps_endpoint(self):
-        response = self.app.test_client().get("/pipeline/steps")
+        response = self.app.test_client().get(
+            "/pipeline/steps", headers=self.headers
+        )
         self.assertEqual(response.status_code, 200)
         payload = response.get_json()
         self.assertEqual(payload["pipeline_id"], "article")
@@ -80,6 +90,7 @@ class ApiRouteTests(unittest.TestCase):
             response = self.app.test_client().post(
                 "/clients/client-a/runs/run-stale/steps/topic_card",
                 json={"previous_artifact": "Test topic"},
+                headers=self.headers,
             )
             self.assertEqual(response.status_code, 202)
             self.assertTrue(started.wait(timeout=1))

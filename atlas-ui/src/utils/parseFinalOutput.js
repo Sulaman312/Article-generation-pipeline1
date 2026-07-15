@@ -1,4 +1,5 @@
 import { parseDelimitedFields } from "./parseDelimitedFields";
+import { buildFaqPageSchemaScript, extractFaqPairs } from "./faqSchema";
 
 export const PUBLISHING_METADATA_START = "---PUBLISHING METADATA START---";
 export const PUBLISHING_METADATA_END = "---PUBLISHING METADATA END---";
@@ -52,7 +53,12 @@ export function extractFinalArticle(text) {
 export function splitFinalOutput(text) {
   const cleaned = stripPublishingMetadataBlock(text || "");
   const articleText = extractFinalArticle(cleaned);
-  const faqSchemaScript = extractFaqSchemaScript(cleaned);
+  let faqSchemaScript = extractFaqSchemaScript(cleaned);
+  // Synthesize JSON-LD when the article has an FAQ but the artifact was saved
+  // before FR/locale headings were recognized.
+  if (!faqSchemaScript?.trim() && articleText) {
+    faqSchemaScript = buildFaqPageSchemaScript(extractFaqPairs(articleText));
+  }
   const hasArticle = Boolean(articleText);
   const hasFaqSchema = Boolean(faqSchemaScript?.trim());
 

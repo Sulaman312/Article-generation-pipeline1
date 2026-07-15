@@ -18,10 +18,19 @@ CORRECTED_ARTICLE_END = "---CORRECTED ARTICLE END---"
 MIN_FAQ_QUESTIONS = 5
 
 _FAQ_HEADING = re.compile(
-    r"^##\s+.*\b(faq|frequently\s+asked\s+questions)\b.*$",
+    r"^##\s+.*\b("
+    r"faq|"
+    r"frequently\s+asked\s+questions|"
+    r"questions?\s+fr[ée]quentes?|"
+    r"foire\s+aux\s+questions|"
+    r"preguntas?\s+frecuentes?|"
+    r"domande?\s+frequenti|"
+    r"h[aä]ufige?\s+fragen"
+    r")\b.*$",
     re.IGNORECASE,
 )
 _H3 = re.compile(r"^###\s+(.+)$")
+_BOLD_QUESTION = re.compile(r"^\*\*(.+?\?)\*\*\s*$")
 
 
 def extract_corrected_article_body(text: str) -> str:
@@ -120,7 +129,10 @@ def extract_faq_pairs(markdown: str) -> list[tuple[str, str]]:
         answer_lines = []
 
     for line in section_lines:
-        m = _H3.match(line.strip())
+        stripped = line.strip()
+        m = _H3.match(stripped)
+        if not m:
+            m = _BOLD_QUESTION.match(stripped)
         if m:
             flush()
             question = m.group(1).strip()

@@ -8,6 +8,10 @@ from backend import runner
 from backend.api.blueprint import api_bp
 from backend.api.helpers import list_workspace_dir_names, reject_client
 
+_LOGO_CACHE_HEADERS = {
+    "Cache-Control": "public, max-age=31536000, immutable",
+}
+
 
 @api_bp.get("/clients")
 def list_clients():
@@ -52,7 +56,9 @@ def get_client_logo(client_id: str):
     path = artifacts.client_logo_path(client_id)
     if not path:
         return jsonify(detail="no logo"), 404
-    return send_from_directory(path.parent, path.name)
+    resp = send_from_directory(path.parent, path.name)
+    resp.headers.update(_LOGO_CACHE_HEADERS)
+    return resp
 
 
 @api_bp.put("/clients/<client_id>/logo")

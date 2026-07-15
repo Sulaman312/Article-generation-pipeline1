@@ -30,6 +30,28 @@ def health():
     )
 
 
+@api_bp.get("/ready")
+def ready():
+    """Readiness probe — 503 while MongoDB workspace hydration is incomplete."""
+    hydration = mongo_storage.startup_status()
+    if mongo_storage.runtime_ready():
+        return jsonify(
+            ok=True,
+            service="ContentFlow API",
+            hydration=hydration,
+            jobs="in_process",
+            workers_required=1,
+        )
+    return (
+        jsonify(
+            ok=False,
+            detail="Waiting for MongoDB hydration to complete.",
+            hydration=hydration,
+        ),
+        503,
+    )
+
+
 @api_bp.get("/api")
 def api_root():
     """Browser-friendly hint — the React UI runs on port 3000, not here."""

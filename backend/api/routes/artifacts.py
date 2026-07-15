@@ -1,72 +1,29 @@
 from flask import jsonify, request
 
 from backend import artifacts
-from backend import editorial_input
 from backend import final_output_enforce
 from backend.api.blueprint import api_bp
-from backend.api.helpers import reject_client, reject_run_id
+from backend.api.helpers import reject_client, reject_run_id, reject_step_name
 
 
 @api_bp.get("/clients/<client_id>/runs/<run_id>/artifacts/<step_name>")
 def get_artifact(client_id: str, run_id: str, step_name: str):
+    """Read-only artifact fetch — no enforce/save side effects on GET."""
     bad = reject_client(client_id)
     if bad:
         return bad
     bad_run = reject_run_id(run_id)
     if bad_run:
         return bad_run
+    bad_step = reject_step_name(step_name)
+    if bad_step:
+        return bad_step
     try:
         text = artifacts.load_artifact(client_id, run_id, step_name)
     except FileNotFoundError:
         return jsonify(content="")
-
-    manifest = artifacts.read_run_manifest(client_id, run_id) or {}
-    wc = editorial_input.word_count_target_from_manifest(manifest)
-
-    if step_name == "topic_card" and (text or "").strip():
-        manual = manifest.get("manual_inputs")
-        if isinstance(manual, dict):
-            repaired = editorial_input.apply_manual_keywords_topic_card(
-                text, manual, semrush_notes=""
-            )
-            if wc:
-                repaired = editorial_input.enforce_word_count_in_topic_card(
-                    repaired, wc
-                )
-            if repaired != text:
-                artifacts.save_artifact(
-                    client_id, run_id, step_name, repaired
-                )
-                text = repaired
-
-    if step_name == "meta_seo" and (text or "").strip():
-        repaired = editorial_input.finalize_meta_seo_output(text)
-        if repaired != text:
-            artifacts.save_artifact(client_id, run_id, step_name, repaired)
-            text = repaired
-
-    if step_name == "final_output" and (text or "").strip():
-        repaired = final_output_enforce.enforce_final_output(
-            text, client_id, run_id, allow_llm_repair=False
-        )
-        # Fast path: FAQ, external links, JSON-LD (no LLM trim on load)
-        if repaired != text:
-            artifacts.save_artifact(client_id, run_id, step_name, repaired)
-            text = repaired
-
-    if wc and (text or "").strip():
-        if step_name == "assignment_brief":
-            repaired = editorial_input.enforce_word_count_in_brief(text, wc)
-        elif step_name == "outline":
-            repaired = editorial_input.enforce_outline_section_word_counts(
-                text, wc
-            )
-        else:
-            repaired = text
-        if repaired != text:
-            artifacts.save_artifact(client_id, run_id, step_name, repaired)
-            text = repaired
-
+    except ValueError as e:
+        return jsonify(detail=str(e)), 400
     return jsonify(content=text)
 
 
@@ -101,6 +58,9 @@ def put_artifact(client_id: str, run_id: str, step_name: str):
     bad_run = reject_run_id(run_id)
     if bad_run:
         return bad_run
+    bad_step = reject_step_name(step_name)
+    if bad_step:
+        return bad_step
 
     repair_flag = request.args.get("repair", "").lower() in ("1", "true", "yes")
     if step_name == "final_output" and repair_flag:

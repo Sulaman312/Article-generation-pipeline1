@@ -2,8 +2,8 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import Markdown from "../shared/Markdown";
 import { splitFinalOutput } from "../../utils/parseFinalOutput";
 import { computeTextStats, wordCountBounds } from "../../utils/textStats";
-import PublishingMetadataStructured from "./PublishingMetadataStructured";
 import FaqJsonLdPanel from "./FaqJsonLdPanel";
+import FinalOutputMetadataPanel from "./FinalOutputMetadataPanel";
 import {
   insertHorizontalRule,
   insertLink,
@@ -37,6 +37,7 @@ export default function FinalOutputDocEditor({
   onChange,
   readOnly = false,
   targetWordCount = null,
+  metaSeoText = "",
   onRequestEdit,
   toolbarExtra = null,
 }) {
@@ -44,19 +45,19 @@ export default function FinalOutputDocEditor({
   const [viewMode, setViewMode] = useState("preview");
   const [contentTab, setContentTab] = useState("article");
   const split = useMemo(() => splitFinalOutput(value), [value]);
-  const isMetadataView =
-    contentTab === "metadata" && split.hasStructuredMeta;
+  const isMetadataView = contentTab === "metadata";
   const isJsonLdView = contentTab === "jsonld";
   const isAuxView = isMetadataView || isJsonLdView;
-  const showContentTabs =
-    split.hasStructuredMeta || split.hasArticle || Boolean(value?.trim());
+  const showContentTabs = split.hasArticle || Boolean(value?.trim());
   const stats = useMemo(
     () => computeTextStats(split.displayMarkdown || value),
     [split.displayMarkdown, value]
   );
   const wordTarget = Number(targetWordCount) > 0 ? Number(targetWordCount) : null;
-  const [, wordHigh] = wordTarget ? wordCountBounds(wordTarget) : [0, 0];
+  const [wordLow, wordHigh] = wordTarget ? wordCountBounds(wordTarget) : [0, 0];
   const wordOverCap = wordTarget && stats.words > wordHigh;
+  const wordUnderFloor = wordTarget && stats.words < wordLow;
+  const wordOutOfRange = wordOverCap || wordUnderFloor;
 
   useEffect(() => {
     if (readOnly) setViewMode("preview");
@@ -100,17 +101,15 @@ export default function FinalOutputDocEditor({
       >
         Article
       </button>
-      {split.hasStructuredMeta ? (
-        <button
-          type="button"
-          role="tab"
-          aria-selected={contentTab === "metadata"}
-          className={`fod-content-tab${contentTab === "metadata" ? " active" : ""}`}
-          onClick={() => setContentTab("metadata")}
-        >
-          Publishing info
-        </button>
-      ) : null}
+      <button
+        type="button"
+        role="tab"
+        aria-selected={contentTab === "metadata"}
+        className={`fod-content-tab${contentTab === "metadata" ? " active" : ""}`}
+        onClick={() => setContentTab("metadata")}
+      >
+        Metadata
+      </button>
       <button
         type="button"
         role="tab"
@@ -160,10 +159,13 @@ export default function FinalOutputDocEditor({
       <div className="fod-toolbar" role="toolbar" aria-label="Final output">
         <div className="fod-toolbar-primary">
           <div className="fod-stats-inline" aria-live="polite">
-            <span className={wordOverCap ? "fod-stats-warn" : undefined}>
+            <span className={wordOutOfRange ? "fod-stats-warn" : undefined}>
               <strong>{stats.words}</strong>w
               {wordTarget ? (
-                <span className="fod-stats-target"> / {wordTarget}</span>
+                <span className="fod-stats-target">
+                  {" "}
+                  / {wordLow}–{wordHigh}
+                </span>
               ) : null}
             </span>
             <span aria-hidden>·</span>
@@ -308,7 +310,11 @@ export default function FinalOutputDocEditor({
         {showPreview ? (
           <div className="fod-pane fod-pane--preview">
             {isMetadataView ? (
-              <PublishingMetadataStructured fields={split.metadataFields} />
+              <FinalOutputMetadataPanel
+                articleMarkdown={split.displayMarkdown || value}
+                metaSeoText={metaSeoText}
+                targetWordCount={targetWordCount}
+              />
             ) : isJsonLdView ? (
               <FaqJsonLdPanel schemaScript={split.faqSchemaScript} />
             ) : (
@@ -318,7 +324,7 @@ export default function FinalOutputDocEditor({
                     text={split.displayMarkdown}
                     className="md md--article-site"
                   />
-                ) : value?.trim() && !split.hasStructuredMeta ? (
+                ) : value?.trim() ? (
                   <Markdown text={value} className="md md--article-site" />
                 ) : (
                   <p className="fod-preview-empty">Nothing to preview yet.</p>

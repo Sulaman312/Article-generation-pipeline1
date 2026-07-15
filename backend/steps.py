@@ -129,46 +129,25 @@ def _draft_max_tokens(target: int | None) -> int | None:
     return min(8192, max(6000, int(target * 2.2) + 1200))
 
 
-def _trim_draft_word_count(
-    draft: str,
+def _trim_article_by_sections(
+    article: str,
     target: int,
     *,
     system_msg: str,
+    outline: str = "",
+    step_label: str = "section trim",
+    max_passes: int = 3,
 ) -> str:
-    """Trim an over-long draft to the form target window."""
-    low, high = editorial_input.word_count_bounds(target)
-    text = (draft or "").strip()
-    current = editorial_input.count_article_words(text)
-    if current <= high:
-        return text
-    trim_user = (
-        f"The draft below is TOO LONG and must be shortened.\n"
-        f"- Current word count: {current:,}\n"
-        f"- Editor form target: {target:,} words\n"
-        f"- Acceptable range: {low:,}–{high:,} words (hard maximum {high:,})\n\n"
-        f"Rules:\n"
-        f"- Keep the same H1 and H2 section headings (you may shorten section prose).\n"
-        f"- Preserve the FAQ section (it does not count toward the word target) and inline "
-        f"links: external [2–3 words](https://…) and internal [2–3 words](INTERNAL: cluster) "
-        f"if present.\n"
-        f"- Count only body prose toward the {high:,}-word maximum (exclude FAQ headings/answers).\n"
-        f"- Remove redundancy, repeated examples, and filler — not entire sections.\n"
-        f"- Output ONLY the full trimmed article in markdown.\n\n"
-        f"---DRAFT TO TRIM---\n{text}\n"
-    )
-    logger.info(
-        "draft trim: %s words -> target %s (max %s)",
-        current,
+    from . import word_count_enforce
+
+    return word_count_enforce.trim_article_by_sections(
+        article,
         target,
-        high,
+        system_msg=system_msg,
+        outline=outline,
+        step_label=step_label,
+        max_passes=max_passes,
     )
-    return _chat_complete(
-        system_msg,
-        trim_user,
-        f"Step {_step_num('draft') or '?'} (draft trim)",
-        max_tokens=_draft_max_tokens(target),
-        temperature=0.4,
-    ).strip()
 
 
 def _ensure_draft_word_count(
@@ -179,18 +158,21 @@ def _ensure_draft_word_count(
     outline: str,
     max_rounds: int = 3,
 ) -> str:
-    """Expand or trim draft until it sits within the form word-count window."""
+    """Expand or section-trim draft until it sits within the form word-count window."""
     low, high = editorial_input.word_count_bounds(target)
     text = (draft or "").strip()
     current = editorial_input.count_article_words(text)
     if low <= current <= high:
         return text
     if current > high:
-        for _ in range(2):
-            text = _trim_draft_word_count(text, target, system_msg=system_msg)
-            current = editorial_input.count_article_words(text)
-            if current <= high:
-                break
+        text = _trim_article_by_sections(
+            text,
+            target,
+            system_msg=system_msg,
+            outline=outline,
+            step_label=f"Step {_step_num('draft') or '?'} (section trim)",
+        )
+        current = editorial_input.count_article_words(text)
         if low <= current <= high:
             return text
 
@@ -208,6 +190,7 @@ def _ensure_draft_word_count(
             f"Rules:\n"
             f"- Keep the same H1/H2 structure and markdown format.\n"
             f"- Expand every major section with examples, steps, and detail.\n"
+            f"- Stay under {high:,} body words after expansion.\n"
             f"- Do not add filler, repetition, or meta-commentary.\n"
             f"- Output ONLY the full expanded article in markdown.\n\n"
             f"---OUTLINE (structure reference)---\n{outline_excerpt}\n\n"
@@ -228,6 +211,15 @@ def _ensure_draft_word_count(
             temperature=0.5,
         )
         current = editorial_input.count_article_words(text)
+        if current > high:
+            text = _trim_article_by_sections(
+                text,
+                target,
+                system_msg=system_msg,
+                outline=outline,
+                step_label=f"Step {_step_num('draft') or '?'} (post-expand trim)",
+            )
+            current = editorial_input.count_article_words(text)
 
     if current < low:
         logger.warning(
@@ -236,6 +228,13 @@ def _ensure_draft_word_count(
             current,
             target,
             low,
+        )
+    elif current > high:
+        logger.warning(
+            "draft still long after section trim: %s words (target %s, max %s)",
+            current,
+            target,
+            high,
         )
     return text
 
@@ -466,6 +465,9 @@ Instead of generic corporate language, use:
     if wc_target:
         user_msg += editorial_input.mandatory_word_count_notice(wc_target)
         user_msg += editorial_input.draft_word_count_requirement(wc_target)
+        user_msg += editorial_input.draft_section_budget_guidance(
+            previous_artifact, wc_target
+        )
     user_msg = _with_word_count_user(user_msg, wc_target)
     output = _chat_complete(
         system_msg,
@@ -484,13 +486,26 @@ Instead of generic corporate language, use:
         )
         words = editorial_input.count_article_words(output)
         logger.info(
-            "draft word count %s (target %s)",
+            "draft word count after generation enforce %s (target %s)",
             words,
             wc_target,
         )
     output = writing_format_enforce.enforce_article(
         output, stage="draft", allow_llm_repair=True
     )
+    # Format repair can inflate length — re-assert the generation window.
+    if wc_target:
+        low, high = editorial_input.word_count_bounds(wc_target)
+        words = editorial_input.count_article_words(output)
+        if words < low or words > high:
+            output = _ensure_draft_word_count(
+                output,
+                wc_target,
+                system_msg=system_msg,
+                outline=previous_artifact,
+            )
+            words = editorial_input.count_article_words(output)
+        logger.info("draft final word count %s (target %s)", words, wc_target)
     output = wrap_step_artifact(step_name, output)
     artifacts.save_artifact(client_id, run_id, step_name, output)
     logger.info("step complete %s", step_name)
@@ -523,13 +538,50 @@ def run_step_6(client_id: str, run_id: str, previous_artifact: str = "") -> str:
             "to run an automatic web scan before the editor fact-check.]"
         )
 
+    wc_target = _word_count_target_for_run(client_id, run_id)
     user_msg = (
         f"---ARTICLE DRAFT (PIPELINE STEP {draft_step})---\n"
         f"{draft}\n\n"
         "---PERPLEXITY WEB FACT-CHECK (raw signals — verify independently)---\n"
         f"{ppx_block}\n"
     )
+    if wc_target:
+        low, high = editorial_input.word_count_bounds(wc_target)
+        draft_words = editorial_input.count_article_words(draft)
+        user_msg += (
+            f"\n\n=== LENGTH PRESERVATION (NON-NEGOTIABLE) ===\n"
+            f"The draft body is already written to length "
+            f"({draft_words:,} words; form target {wc_target:,}, band {low:,}–{high:,}).\n"
+            f"In ---CORRECTED ARTICLE--- keep nearly the same body length. "
+            f"Fix facts/clarity; do NOT expand into a longer rewrite. "
+            f"FAQ may stay as-is (it does not count toward the band).\n"
+        )
     claude_out = _chat_complete(system_msg, user_msg, step_label)
+    # Keep corrected article inside the generation band when possible.
+    if wc_target:
+        corrected = faq_schema.extract_corrected_article_body(claude_out)
+        if corrected:
+            low, high = editorial_input.word_count_bounds(wc_target)
+            words = editorial_input.count_article_words(corrected)
+            if words > high:
+                outline = _load_prior_artifact(client_id, run_id, "outline")
+                trimmed = _trim_article_by_sections(
+                    corrected,
+                    wc_target,
+                    system_msg=system_msg,
+                    outline=outline,
+                    step_label=f"Step {_step_num('fact_check') or '?'} (section trim)",
+                )
+                start = claude_out.find(faq_schema.CORRECTED_ARTICLE_START)
+                end = claude_out.find(faq_schema.CORRECTED_ARTICLE_END)
+                if start != -1 and end != -1 and end > start:
+                    claude_out = (
+                        claude_out[: start + len(faq_schema.CORRECTED_ARTICLE_START)]
+                        + "\n"
+                        + trimmed.strip()
+                        + "\n"
+                        + claude_out[end:]
+                    )
     claude_out = wrap_step_artifact(step_name, claude_out)
     combined = (
         "---PERPLEXITY WEB FACT-CHECK (raw audit trail)---\n"
@@ -583,6 +635,12 @@ CTA Philosophy: {extracted['cta_philosophy']}
     if wc_target:
         user_msg += editorial_input.mandatory_word_count_notice(wc_target)
         user_msg += editorial_input.draft_word_count_requirement(wc_target)
+        user_msg += (
+            "\n=== FINAL OUTPUT LENGTH ===\n"
+            "The corrected article was written to the form word band. "
+            "Publish with nearly the same body length — do not expand. "
+            "Use section budgets from the outline; FAQ stays extra (not counted).\n"
+        )
     user_msg = _with_word_count_user(user_msg, wc_target)
     output = _chat_complete(
         system_msg,

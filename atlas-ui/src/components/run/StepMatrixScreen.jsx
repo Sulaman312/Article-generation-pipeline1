@@ -6,6 +6,7 @@ import ArticleStepMatrix from "./ArticleStepMatrix";
 import DeleteWorkspaceButton from "../shared/DeleteWorkspaceButton";
 import MatrixRunActions from "./MatrixRunActions";
 import PageHeader from "../shared/PageHeader";
+import { MatrixSkeleton } from "../shared/Skeletons";
 import "./StepMatrixScreen.css";
 
 function IconSort() {
@@ -50,23 +51,70 @@ export default function StepMatrixScreen({
   const [editMenuOpen, setEditMenuOpen] = useState(false);
   const editMenuRef = useRef(null);
 
-  const loadRuns = useCallback(async () => {
-    setLoading(true);
+  const loadRuns = useCallback(async ({ silent = false } = {}) => {
+    if (!silent) setLoading(true);
     try {
       const list = await api.getRuns(client);
-      setRuns((list || []).filter((r) => (r.pipeline_id || "article") !== "social_media"));
+      setRuns((list || []).filter(Boolean));
     } catch {
-      setRuns([]);
+      if (!silent) setRuns([]);
     } finally {
-      setLoading(false);
+      if (!silent) setLoading(false);
     }
   }, [client]);
 
+  const hasRunningRun = useMemo(
+    () =>
+      runs.some((r) =>
+        Object.values(r.statuses || {}).some((s) => s === "running")
+      ),
+    [runs]
+  );
+
   useEffect(() => {
-    loadRuns();
-    const id = setInterval(loadRuns, 3500);
-    return () => clearInterval(id);
+    loadRuns({ silent: false });
   }, [loadRuns]);
+
+  useEffect(() => {
+    let timerId = null;
+
+    function clearTimer() {
+      if (timerId != null) {
+        window.clearInterval(timerId);
+        timerId = null;
+      }
+    }
+
+    function tick() {
+      if (document.visibilityState === "hidden") return;
+      loadRuns({ silent: true });
+    }
+
+    function schedule() {
+      clearTimer();
+      if (document.visibilityState === "hidden") return;
+      // Fast only while something is running; otherwise back off hard.
+      const ms = hasRunningRun ? 4000 : 30000;
+      timerId = window.setInterval(tick, ms);
+    }
+
+    schedule();
+
+    function onVisibilityChange() {
+      if (document.visibilityState === "visible") {
+        tick();
+        schedule();
+      } else {
+        clearTimer();
+      }
+    }
+
+    document.addEventListener("visibilitychange", onVisibilityChange);
+    return () => {
+      clearTimer();
+      document.removeEventListener("visibilitychange", onVisibilityChange);
+    };
+  }, [loadRuns, hasRunningRun]);
 
   useEffect(() => {
     if (!editMenuOpen) return undefined;
@@ -123,8 +171,20 @@ export default function StepMatrixScreen({
   async function handleArchive(runId) {
     const run = runs.find((r) => r.run_id === runId);
     const title = run?.topic?.trim() || runId;
+    const wasArchived = Boolean(run?.archived);
+    const nextArchived = view === "archived" || wasArchived ? false : true;
+
+    // Optimistic list update
+    setRuns((prev) =>
+      prev.map((r) =>
+        r.run_id === runId ? { ...r, archived: nextArchived } : r
+      )
+    );
+    if (selectedRunId === runId) setSelectedRunId(null);
+    setEditMenuOpen(false);
+
     try {
-      if (view === "archived" || run?.archived) {
+      if (!nextArchived) {
         await api.unarchiveRun(client, runId);
         toast(`Restored “${title}” to Active.`, { duration: 4000 });
       } else {
@@ -133,10 +193,14 @@ export default function StepMatrixScreen({
           duration: 5000,
         });
       }
-      if (selectedRunId === runId) setSelectedRunId(null);
-      setEditMenuOpen(false);
-      await loadRuns();
+      await loadRuns({ silent: true });
     } catch (e) {
+      // Rollback
+      setRuns((prev) =>
+        prev.map((r) =>
+          r.run_id === runId ? { ...r, archived: wasArchived } : r
+        )
+      );
       const msg = e?.message || String(e);
       const hint = msg.includes("Could not reach API")
         ? msg
@@ -154,13 +218,18 @@ export default function StepMatrixScreen({
       `Delete “${title}”?\n\nThis permanently removes the run and all step outputs. This cannot be undone.`
     );
     if (!ok) return;
+
+    const snapshot = runs;
+    setRuns((prev) => prev.filter((r) => r.run_id !== runId));
+    if (selectedRunId === runId) setSelectedRunId(null);
+    setEditMenuOpen(false);
+
     try {
       await api.deleteRun(client, runId);
       toast(`Deleted “${title}”.`, { duration: 4000 });
-      if (selectedRunId === runId) setSelectedRunId(null);
-      setEditMenuOpen(false);
-      await loadRuns();
+      await loadRuns({ silent: true });
     } catch (e) {
+      setRuns(snapshot);
       const msg = e?.message || String(e);
       toast(
         msg.includes("(404)")
@@ -285,9 +354,7 @@ export default function StepMatrixScreen({
 
       <section className="step-matrix-panel" aria-label="Article step matrix">
         {loading && runs.length === 0 ? (
-          <div className="step-matrix-loading">
-            <span className="spinner" /> Loading runs…
-          </div>
+          <MatrixSkeleton rows={6} />
         ) : (
           <ArticleStepMatrix
             runs={filteredRuns}

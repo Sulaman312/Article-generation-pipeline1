@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import * as api from "../../services/api";
 import { useToast } from "../../context/ToastContext";
-import { isImageFile, readImageFileAsBase64 } from "../../utils/readImageFile";
+import { isImageFile, readImageFileAsBase64, LOGO_ACCEPT } from "../../utils/readImageFile";
 import WorkspaceLogo from "./WorkspaceLogo";
 import LogoFitImage from "./LogoFitImage";
 import "./ManualArticleForm.css";
@@ -177,7 +177,7 @@ export default function EditWorkspaceModal({
                   id="ws-edit-logo"
                   type="file"
                   className="manual-article-logo-input"
-                  accept="image/png,image/jpeg,image/webp,image/gif,image/svg+xml"
+                  accept={LOGO_ACCEPT}
                   onChange={handleLogoChange}
                   disabled={saving}
                 />

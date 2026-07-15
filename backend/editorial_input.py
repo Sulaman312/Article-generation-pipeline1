@@ -112,6 +112,154 @@ def count_article_words(text: str) -> int:
     return len(tokens)
 
 
+_OUTLINE_H2_BLOCK = re.compile(
+    r"^H2:\s*(.+?)\s*$\n(?:.*?\n)*?^[ \t]*WORD COUNT:\s*(\d+)(?:\s*[–-]\s*(\d+))?",
+    re.MULTILINE | re.IGNORECASE,
+)
+
+
+def parse_outline_section_budgets(outline: str) -> list[tuple[str, int]]:
+    """Return (H2 title, target words) from outline WORD COUNT lines."""
+    out: list[tuple[str, int]] = []
+    for m in _OUTLINE_H2_BLOCK.finditer(outline or ""):
+        title = m.group(1).strip()
+        lo = int(m.group(2))
+        hi = int(m.group(3)) if m.group(3) else lo
+        mid = max(40, (lo + hi) // 2)
+        out.append((title, mid))
+    return out
+
+
+def draft_section_budget_guidance(outline: str, target: int) -> str:
+    """Instruct the drafter to hit per-H2 budgets that sum near the form target."""
+    low, high = word_count_bounds(target)
+    budgets = parse_outline_section_budgets(outline)
+    lines = [
+        "\n\n=== SECTION WORD BUDGETS (WRITE TO THESE — DO NOT OVERSHOOT) ===\n",
+        f"Total body prose (FAQ excluded) must land in **{low:,}–{high:,}** words ",
+        f"(form target **{target:,}**).\n",
+        "Write each H2 section to roughly the budget below. Prefer slightly under on each ",
+        "section over blowing past the total max.\n",
+    ]
+    if budgets:
+        for title, words in budgets:
+            lines.append(f"- H2 «{title}»: ~{words:,} words of body prose\n")
+        planned = sum(w for _, w in budgets)
+        lines.append(
+            f"Outline section budgets sum to ~{planned:,} words "
+            f"(adjust slightly so the full body stays ≤ {high:,}).\n"
+        )
+    else:
+        lines.append(
+            "Outline has no per-H2 WORD COUNT lines — estimate even section lengths "
+            f"so the full body stays in {low:,}–{high:,}.\n"
+        )
+    lines.append(
+        "FAQ (## Frequently Asked Questions / Questions fréquentes) is EXTRA and "
+        "does not count toward this budget.\n"
+    )
+    return "".join(lines)
+
+
+def split_article_h2_sections(markdown: str) -> list[dict]:
+    """Split article into preamble + H2 sections for structure-preserving edits."""
+    text = (markdown or "").replace("\r\n", "\n")
+    if not text.strip():
+        return []
+    lines = text.split("\n")
+    sections: list[dict] = []
+    buf: list[str] = []
+    heading = ""
+
+    def flush() -> None:
+        nonlocal buf, heading
+        body = "\n".join(buf).strip("\n")
+        raw = (heading + ("\n" + body if body else "")).strip()
+        if not raw and not heading:
+            buf = []
+            return
+        is_faq = bool(heading and faq_schema._FAQ_HEADING.match(heading.strip()))
+        words = 0 if is_faq else count_article_words(body if body else raw)
+        sections.append(
+            {
+                "heading": heading,
+                "body": body,
+                "is_faq": is_faq,
+                "words": words,
+            }
+        )
+        buf = []
+
+    for line in lines:
+        if line.startswith("## ") and not line.startswith("### "):
+            flush()
+            heading = line
+            continue
+        buf.append(line)
+    flush()
+    return sections
+
+
+def reassemble_h2_sections(sections: list[dict]) -> str:
+    parts: list[str] = []
+    for sec in sections:
+        heading = (sec.get("heading") or "").rstrip()
+        body = (sec.get("body") or "").strip("\n")
+        if heading and body:
+            parts.append(f"{heading}\n{body}")
+        elif heading:
+            parts.append(heading)
+        elif body:
+            parts.append(body)
+    return "\n\n".join(parts).strip() + "\n"
+
+
+def allocate_section_word_caps(
+    sections: list[dict],
+    target: int,
+    *,
+    outline: str = "",
+) -> list[int]:
+    """Per-section body word caps totaling ≤ high; FAQ sections get 0 (ignored)."""
+    _low, high = word_count_bounds(target)
+    budgets = parse_outline_section_budgets(outline)
+    non_faq = [i for i, s in enumerate(sections) if not s.get("is_faq")]
+    caps = [0] * len(sections)
+    if not non_faq:
+        return caps
+
+    used_budget: set[int] = set()
+    outline_caps: dict[int, int] = {}
+    for i in non_faq:
+        heading = re.sub(r"^##\s+", "", sections[i].get("heading") or "").strip()
+        if not heading:
+            continue
+        for bi, (title, words) in enumerate(budgets):
+            if bi in used_budget:
+                continue
+            if title.lower() in heading.lower() or heading.lower() in title.lower():
+                outline_caps[i] = words
+                used_budget.add(bi)
+                break
+
+    if len(outline_caps) >= max(1, len(non_faq) // 2):
+        for i in non_faq:
+            caps[i] = outline_caps.get(
+                i, max(60, high // max(1, len(non_faq)))
+            )
+    else:
+        total_words = sum(max(1, sections[i]["words"]) for i in non_faq) or 1
+        for i in non_faq:
+            share = sections[i]["words"] / total_words
+            caps[i] = max(60, int(high * share))
+
+    sum_caps = sum(caps[i] for i in non_faq) or 1
+    scale = (high * 0.98) / sum_caps
+    for i in non_faq:
+        caps[i] = max(50, int(caps[i] * scale))
+    return caps
+
+
 def word_count_target_from_manifest(manifest: dict | None) -> int | None:
     """Resolve numeric target from manifest (stored field or manual_inputs)."""
     if not isinstance(manifest, dict):
@@ -278,10 +426,11 @@ def external_links_editorial_notice() -> str:
 def draft_word_count_requirement(target: int) -> str:
     low, high = word_count_bounds(target)
     return (
-        f"\n\n=== DRAFT LENGTH (NON-NEGOTIABLE) ===\n"
+        f"\n\n=== DRAFT LENGTH (NON-NEGOTIABLE — ENFORCED AT GENERATION) ===\n"
         f"Editor form Word Count: **{target:,}**.\n"
-        f"Write at least **{low:,}** words of body prose; aim for **{target:,}** "
-        f"(max **{high:,}**). FAQ is additional and does not count. Short body drafts are invalid.\n"
+        f"Body prose MUST land in **{low:,}–{high:,}** words (FAQ excluded).\n"
+        f"Aim for **{target:,}**. Going above **{high:,}** is invalid.\n"
+        f"Hit the length while writing — do not plan to 'fix later' by deleting sections.\n"
     )
 
 

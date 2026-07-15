@@ -1,25 +1,83 @@
 /** HTTP client for the ArticleGen Flask API.
  *
  * In production, the React build is served by Flask, so API calls use the same origin.
- * Override with `REACT_APP_API_URL` (no trailing slash) for local dev or split deployments.
+ * Override with `VITE_API_URL` (no trailing slash) for local dev or split deployments.
  */
 
 const DEFAULT_BASE = "";
 
-const envUrlRaw =
-  typeof process !== "undefined"
-    ? (process.env.REACT_APP_API_URL || "").trim()
-    : "";
+const envUrlRaw = String(import.meta.env.VITE_API_URL || "").trim();
 
 function resolveApiBase() {
   if (envUrlRaw) return envUrlRaw.replace(/\/$/, "");
-  if (process.env.NODE_ENV === "development") {
+  if (import.meta.env.DEV) {
     return "http://127.0.0.1:8000";
   }
   return DEFAULT_BASE;
 }
 
 const BASE = resolveApiBase();
+
+const AUTH_TOKEN_KEY = "cf-auth-token";
+const AUTH_USER_KEY = "cf-auth-user";
+
+export function getAuthToken() {
+  try {
+    return (localStorage.getItem(AUTH_TOKEN_KEY) || "").trim() || null;
+  } catch {
+    return null;
+  }
+}
+
+export function getCachedAuthUser() {
+  try {
+    const raw = localStorage.getItem(AUTH_USER_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    if (parsed && typeof parsed.username === "string") return parsed;
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+export function setAuthToken(token, user = null) {
+  try {
+    if (token) {
+      localStorage.setItem(AUTH_TOKEN_KEY, token);
+      if (user?.username) {
+        localStorage.setItem(
+          AUTH_USER_KEY,
+          JSON.stringify({
+            username: user.username,
+            role: user.role || "user",
+          })
+        );
+      }
+    } else {
+      localStorage.removeItem(AUTH_TOKEN_KEY);
+      localStorage.removeItem(AUTH_USER_KEY);
+    }
+  } catch {
+    /* ignore */
+  }
+}
+
+export function clearAuthToken() {
+  setAuthToken(null);
+}
+
+function authHeaders() {
+  const token = getAuthToken();
+  return token ? { Authorization: `Bearer ${token}` } : {};
+}
+
+function withAuthQuery(url) {
+  const token = getAuthToken();
+  if (!token) return url;
+  const join = url.includes("?") ? "&" : "?";
+  return `${url}${join}token=${encodeURIComponent(token)}`;
+}
 
 function isLocalBrowser() {
   if (typeof window === "undefined") return false;
@@ -59,14 +117,7 @@ function delay(ms, signal) {
 
 export const DEV_FLASK_ORIGIN = BASE;
 
-/** URL for a run's optional logo image (404 if none). */
-export function runLogoUrl(clientId, runId) {
-  return `${BASE}/clients/${encodeURIComponent(clientId)}/runs/${encodeURIComponent(
-    runId
-  )}/logo`;
-}
-
-/** Human-readable target (for UI error banners). */
+/** Human-readable API target (for UI error banners). */
 export function describeApiTargetForHumans() {
   return BASE || "same origin";
 }
@@ -125,19 +176,28 @@ async function request(path, options = {}) {
       signal: controller.signal,
       headers: {
         Accept: "application/json",
+        ...authHeaders(),
         ...(fetchOptions.headers || {}),
       },
     });
     const bodyText = await res.text().catch(() => "");
 
+    if (res.status === 401 && path !== "/auth/login") {
+      clearAuthToken();
+      if (typeof window !== "undefined") {
+        window.dispatchEvent(new CustomEvent("cf:auth-required"));
+      }
+    }
+
     if (!res.ok) {
       const verb = fetchOptions.method || "GET";
       const prefix = `${verb} ${path} failed (${res.status})`;
       let message = `${prefix}`;
+      let parsed = null;
       try {
         const t = bodyText.trimStart();
         if (t.startsWith("{")) {
-          const parsed = JSON.parse(bodyText);
+          parsed = JSON.parse(bodyText);
           const d = formatDetail(parsed.detail);
           if (d) message = d;
           else message = `${prefix}. ${bodyText.slice(0, 400)}`;
@@ -145,7 +205,23 @@ async function request(path, options = {}) {
       } catch {
         message = `${prefix}. ${bodyText.slice(0, 400)}`;
       }
-      throw new Error(message.trim());
+
+      if (
+        res.status === 503 &&
+        typeof window !== "undefined" &&
+        (/hydrat|mongodb|workspace sync/i.test(message) ||
+          parsed?.hydration)
+      ) {
+        window.dispatchEvent(
+          new CustomEvent("cf:workspace-syncing", {
+            detail: { message: "Workspace syncing…" },
+          })
+        );
+      }
+
+      const err = new Error(message.trim());
+      err.status = res.status;
+      throw err;
     }
     if (res.status === 204 || bodyText.trim() === "") return null;
 
@@ -200,6 +276,45 @@ export async function getClients() {
   });
 }
 
+export async function login(username, password) {
+  const data = await request("/auth/login", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ username, password }),
+  });
+  if (data?.token) {
+    setAuthToken(data.token, {
+      username: data.username,
+      role: data.role,
+    });
+  }
+  return data;
+}
+
+export async function logout() {
+  try {
+    await request("/auth/logout", { method: "POST" });
+  } catch {
+    /* token may already be invalid */
+  } finally {
+    clearAuthToken();
+  }
+}
+
+export async function getMe() {
+  return request("/auth/me");
+}
+
+/** Public liveness + Mongo hydration status (no auth required). */
+export async function getHealth() {
+  return request("/health");
+}
+
+/** Strict readiness — 503 while Mongo is hydrating. */
+export async function getReady() {
+  return request("/ready");
+}
+
 export async function createClient(clientId, options = null) {
   const body =
     options && typeof options === "object"
@@ -221,8 +336,14 @@ export async function createClient(clientId, options = null) {
 }
 
 /** URL for a workspace logo (404 if none). */
-export function clientLogoUrl(clientId) {
-  return `${BASE}/clients/${encodeURIComponent(clientId)}/logo`;
+export function clientLogoUrl(clientId, cacheKey = null) {
+  let url = withAuthQuery(
+    `${BASE}/clients/${encodeURIComponent(clientId)}/logo`
+  );
+  if (cacheKey != null && cacheKey !== 0) {
+    url += `${url.includes("?") ? "&" : "?"}v=${encodeURIComponent(String(cacheKey))}`;
+  }
+  return url;
 }
 
 export async function uploadClientLogo(clientId, logoBase64, logoFilename) {
@@ -387,22 +508,36 @@ export async function runStep(
   previousArtifact,
   signal
 ) {
-  const result = await request(
-    `/clients/${encodeURIComponent(clientId)}/runs/${encodeURIComponent(
-      runId
-    )}/steps/${encodeURIComponent(stepName)}`,
-    {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ previous_artifact: previousArtifact }),
-      signal,
-      timeoutMs: STEP_REQUEST_TIMEOUT_MS,
+  const path = `/clients/${encodeURIComponent(clientId)}/runs/${encodeURIComponent(
+    runId
+  )}/steps/${encodeURIComponent(stepName)}`;
+  const maxAttempts = 10;
+
+  for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
+    try {
+      const result = await request(path, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ previous_artifact: previousArtifact }),
+        signal,
+        timeoutMs: STEP_REQUEST_TIMEOUT_MS,
+      });
+      if (result?.accepted) {
+        await waitForStep(clientId, runId, stepName, signal);
+      }
+      return result;
+    } catch (e) {
+      const msg = e?.message || String(e);
+      const retryable =
+        msg.includes("still finishing on the server") ||
+        msg.includes("already running");
+      if (!retryable || attempt >= maxAttempts - 1 || signal?.aborted) {
+        throw e;
+      }
+      await delay(1500, signal);
     }
-  );
-  if (result?.accepted) {
-    await waitForStep(clientId, runId, stepName, signal);
   }
-  return result;
+  throw new Error(`Could not start step ${stepName}.`);
 }
 
 export async function cancelStep(clientId, runId, stepName) {

@@ -13,27 +13,41 @@ export function formatStepDurationMs(ms) {
   return remMin > 0 ? `${hr}h ${remMin}m` : `${hr}h`;
 }
 
+/** Parse ISO timestamps from the API (UTC with `Z`, or legacy naive local). */
+export function parseIsoTimestamp(iso) {
+  if (!iso) return null;
+  const s = String(iso).trim();
+  const t = Date.parse(s);
+  return Number.isNaN(t) ? null : t;
+}
+
 function elapsedMsFromStartedAt(startedAt, nowMs = Date.now()) {
-  if (!startedAt) return null;
-  const t = Date.parse(startedAt);
-  if (Number.isNaN(t)) return null;
+  const t = parseIsoTimestamp(startedAt);
+  if (t == null) return null;
   return Math.max(0, nowMs - t);
 }
 
+function isActiveRunTiming(timing) {
+  if (!timing?.started_at) return false;
+  if (timing.finished_at) return false;
+  if (timing.duration_ms != null && timing.duration_ms > 0) return false;
+  return timing.status == null || timing.status === "running";
+}
+
+/** Short status label for pills and matrix titles. */
+export function stepStatusBaseLabel(status) {
+  if (status === "done") return "Done";
+  if (status === "running") return "Running";
+  if (status === "error") return "Failed";
+  if (status === "skipped") return "Skipped";
+  return "Queued";
+}
+
 /**
- * Status label plus duration for pipeline sidebar (e.g. `Done · 2m 15s`).
+ * Status label plus duration (e.g. `Running · 2m 15s`, `Done · 45s`).
  */
 export function formatStepStatusWithDuration(status, timing, nowMs = Date.now()) {
-  const base =
-    status === "done"
-      ? "Done"
-      : status === "running"
-        ? "Running"
-        : status === "error"
-          ? "Error"
-          : status === "skipped"
-            ? "Skipped"
-            : "Pending";
+  const base = stepStatusBaseLabel(status);
 
   if (!timing) return base;
 
@@ -51,9 +65,30 @@ export function formatStepStatusWithDuration(status, timing, nowMs = Date.now())
   return `${base} · ${prefix}${duration}`;
 }
 
-/** Merge server timings with a client-measured duration (fallback when API is stale). */
-export function resolveStepTiming(stepKey, serverTimings, clientDurations) {
+/**
+ * Resolve timing for a step. Running steps only use an in-flight record so a
+ * prior completion does not leak an old `started_at` into the live clock.
+ */
+export function resolveStepTiming(
+  stepKey,
+  serverTimings,
+  clientDurations,
+  stepStatus
+) {
   const server = serverTimings?.[stepKey];
+
+  if (stepStatus === "running") {
+    if (isActiveRunTiming(server)) {
+      return {
+        started_at: server.started_at,
+        finished_at: null,
+        duration_ms: null,
+        status: "running",
+      };
+    }
+    return null;
+  }
+
   if (server?.duration_ms != null && server.duration_ms > 0) {
     return server;
   }

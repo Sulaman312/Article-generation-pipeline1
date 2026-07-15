@@ -29,6 +29,16 @@ MONGODB_DB = (
     os.getenv("MONGODB_DB") or "article_generation_pipeline"
 ).strip() or "article_generation_pipeline"
 
+# Login — default admin is seeded into MongoDB `users` on startup (hashed).
+AUTH_DEFAULT_USERNAME = (os.getenv("AUTH_DEFAULT_USERNAME") or "admin").strip() or "admin"
+AUTH_DEFAULT_PASSWORD = (
+    os.getenv("AUTH_DEFAULT_PASSWORD") or "admin123"
+).strip() or "admin123"
+try:
+    AUTH_SESSION_DAYS = int(os.getenv("AUTH_SESSION_DAYS") or "14")
+except ValueError:
+    AUTH_SESSION_DAYS = 14
+
 _clients_override = (os.getenv("CLIENTS_DATA_DIR") or "").strip()
 _mongo_cache_override = (os.getenv("MONGODB_CACHE_DIR") or "").strip()
 if MONGODB_URI:

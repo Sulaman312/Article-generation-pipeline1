@@ -1,9 +1,12 @@
-import { Fragment } from "react";
+import { Fragment, useDeferredValue, useMemo } from "react";
 import { parseBlocks } from "../../utils/markdownBlocks";
 import {
   normalizePipelineMarkdown,
   normalizeStepArtifactMarkdown,
+  isStepBoundaryMarker,
+  formatStepBoundaryLabel,
 } from "../../constants/markdownPreview";
+import { sanitizeHref } from "../../utils/safeHref";
 
 const INLINE_TOKEN =
   /(`[^`\n]+`)|(\*\*[^*\n]+\*\*)|(__[^_\n]+__)|(\*[^*\n]+\*)|(_[^_\n]+_)|(\[[^\]]+\]\([^)\s]+\))/g;
@@ -36,16 +39,21 @@ function renderInline(text, keyPrefix = "i") {
     } else if (tok.startsWith("[")) {
       const lm = tok.match(/^\[([^\]]+)\]\(([^)\s]+)\)$/);
       if (lm) {
-        parts.push(
-          <a
-            key={k}
-            href={lm[2]}
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            {lm[1]}
-          </a>
-        );
+        const href = sanitizeHref(lm[2]);
+        if (href) {
+          parts.push(
+            <a
+              key={k}
+              href={href}
+              target="_blank"
+              rel="noopener noreferrer"
+            >
+              {lm[1]}
+            </a>
+          );
+        } else {
+          parts.push(<span key={k}>{lm[1]}</span>);
+        }
       } else {
         parts.push(tok);
       }
@@ -63,8 +71,18 @@ function isSystemMetaKey(key) {
 }
 
 function isHiddenPipelineBanner(label) {
+  if (isStepBoundaryMarker(label)) return false;
   const t = String(label || "").trim();
-  if (/^META SEO (?:START|END)$/i.test(t)) return true;
+  if (/^META SEO (?:START|END)$/i.test(t)) return false;
+  if (/^SERP RESEARCH (?:START|END)$/i.test(t)) return false;
+  if (/^SERP ANALYSIS (?:START|END)$/i.test(t)) return false;
+  if (/^FACT CHECK (?:START|END)$/i.test(t)) return false;
+  if (/^TOPIC CARD (?:START|END)$/i.test(t)) return false;
+  if (/^BRIEF (?:START|END)$/i.test(t)) return false;
+  if (/^OUTLINE (?:START|END)$/i.test(t)) return false;
+  if (/^DRAFT (?:START|END)$/i.test(t)) return false;
+  if (/^FINAL OUTPUT (?:START|END)$/i.test(t)) return false;
+  if (/^FINAL ARTICLE (?:START|END)$/i.test(t)) return false;
   if (/^SERP RESEARCH/i.test(t)) return true;
   if (/^SERP ANALYSIS/i.test(t)) return true;
   if (/^FACT CHECK REPORT/i.test(t)) return true;
@@ -158,6 +176,21 @@ function renderDelimiterHeading(text, key) {
     <h2 key={key} className="md-section-heading md-section-heading--major">
       {text}
     </h2>
+  );
+}
+
+function renderStepBoundary(label, key) {
+  const display = formatStepBoundaryLabel(label);
+  const isStart = /\bSTART$/i.test(display);
+  return (
+    <div
+      key={key}
+      className={`md-step-boundary md-step-boundary--${isStart ? "start" : "end"}`}
+      role="separator"
+      aria-label={display}
+    >
+      <span className="md-step-boundary-label">{display}</span>
+    </div>
   );
 }
 
@@ -322,6 +355,9 @@ function renderParagraphBlock(block, key) {
   const banner = trimmed.match(/^---(.+?)---$/);
   if (banner) {
     const label = banner[1].trim();
+    if (isStepBoundaryMarker(label)) {
+      return renderStepBoundary(label, key);
+    }
     if (isHiddenPipelineBanner(label)) return null;
     return renderDelimiterHeading(label, key);
   }
@@ -480,7 +516,11 @@ function renderBlock(block, idx) {
 }
 
 export default function Markdown({ text, className = "md", stepKey = null }) {
-  const blocks = parseBlocks(normalizeStepArtifactMarkdown(text || "", stepKey));
+  const deferredText = useDeferredValue(text || "");
+  const blocks = useMemo(
+    () => parseBlocks(normalizeStepArtifactMarkdown(deferredText, stepKey)),
+    [deferredText, stepKey]
+  );
   if (blocks.length === 0) {
     return <div className="empty-state">empty artifact</div>;
   }

@@ -20,7 +20,7 @@ BEFORE YOU OUTPUT — do this thinking first (do not include in output):
 
 OUTPUT FORMAT — follow exactly:
 
----RESEARCH START---
+---SERP ANALYSIS START---
 ## Snapshot
 [3–5 bullets — what “winning” content in this cluster looks like right now. Tie to the digest; no invented rankings.]
 
@@ -52,7 +52,7 @@ OUTPUT FORMAT — follow exactly:
 
 ## External sources to cite
 [List 5–8 bullets — each: **Source name** — what claim or section it supports — **full URL** from the SERP digest when present. If the digest has no URLs, list publisher names and mark URL as VERIFY. Do not invent https links.]
----RESEARCH END---
+---SERP ANALYSIS END---
 
 RULES:
 - Do **not** fabricate statistics, rankings, or named studies. If the digest uses numbers, treat them as **unverified** unless clearly sourced there — prefer “digest claims X — verify”.
