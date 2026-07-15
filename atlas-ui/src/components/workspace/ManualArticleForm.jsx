@@ -9,7 +9,7 @@ import {
 import "./ManualArticleForm.css";
 
 export default function ManualArticleForm({ client, onOpenRun, onCreated }) {
-  const [fields, setFields] = useState(EMPTY_EDITORIAL_FIELDS);
+  const [fields, setFields] = useState(() => EMPTY_EDITORIAL_FIELDS());
   const [creating, setCreating] = useState(false);
   const [error, setError] = useState(null);
 

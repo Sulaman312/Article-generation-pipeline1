@@ -61,6 +61,30 @@ class AuthApiTests(unittest.TestCase):
         self.assertEqual(clients.status_code, 200)
         self.assertEqual(clients.get_json()["clients"], [])
 
+    def test_spa_shell_deep_links_are_public_html(self):
+        """Deep links like /w/Client/overview must serve index.html, not 401 JSON."""
+        ui_index = (
+            Path(__file__).resolve().parent.parent / "atlas-ui" / "build" / "index.html"
+        )
+        if not ui_index.is_file():
+            self.skipTest("atlas-ui/build/index.html missing — run npm run build")
+
+        for path in (
+            "/w/Digimidi.ch/overview",
+            "/w/Digimidi.ch/matrix",
+            "/w/Acme/artifacts",
+            "/w/Acme/runs/run_abc",
+        ):
+            with self.subTest(path=path):
+                response = self.client.get(path)
+                self.assertEqual(response.status_code, 200, path)
+                self.assertIn("text/html", response.content_type, path)
+                self.assertIn(b"<!DOCTYPE html>", response.data[:200], path)
+
+        # API routes stay protected
+        api = self.client.get("/clients")
+        self.assertEqual(api.status_code, 401)
+
     def test_logout_revokes_token(self):
         ok = self.client.post(
             "/auth/login",

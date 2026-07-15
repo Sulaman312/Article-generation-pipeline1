@@ -14,6 +14,8 @@ logger = logging.getLogger(__name__)
 
 _PUBLIC_EXACT = {"/health", "/ready", "/auth/login", "/"}
 _PUBLIC_PREFIXES = ("/static/", "/assets/")
+# Client-side app routes must return index.html without API auth; React logs in itself.
+_SPA_SHELL_PREFIXES = ("/w/",)
 _ASSET_SUFFIXES = (
     ".js",
     ".css",
@@ -41,12 +43,21 @@ def _request_can_change_workspace() -> bool:
     return request.path.endswith("/images/template")
 
 
+def _is_spa_shell_path(path: str) -> bool:
+    """Browser document routes for the React app (not JSON API endpoints)."""
+    if path == "/":
+        return True
+    return any(path.startswith(prefix) for prefix in _SPA_SHELL_PREFIXES)
+
+
 def _is_public_path(path: str, method: str) -> bool:
     if method == "OPTIONS":
         return True
     if path in _PUBLIC_EXACT:
         return True
     if any(path.startswith(prefix) for prefix in _PUBLIC_PREFIXES):
+        return True
+    if method in {"GET", "HEAD"} and _is_spa_shell_path(path):
         return True
     if method in {"GET", "HEAD"} and path.endswith(_ASSET_SUFFIXES):
         return True
@@ -103,6 +114,9 @@ def create_app() -> Flask:
         if path in {"/", "/health", "/ready", "/auth/login"} or path.startswith(
             ("/static/", "/assets/")
         ):
+            return None
+        # Always allow the SPA shell so deep links (e.g. /w/Client/overview) load HTML.
+        if request.method in {"GET", "HEAD"} and _is_spa_shell_path(path):
             return None
         if path.startswith("/auth/"):
             return None
