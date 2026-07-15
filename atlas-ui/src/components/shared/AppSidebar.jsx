@@ -519,7 +519,6 @@ function RunNavSection({
   const { toast } = useToast();
   const [localRun, setLocalRun] = useState(null);
   const [runningStepKey, setRunningStepKey] = useState(null);
-  const [hoveredStepKey, setHoveredStepKey] = useState(null);
   const [clockTick, setClockTick] = useState(0);
   const [clientStepDurations, setClientStepDurations] = useState({});
   const runAbortRef = useRef(null);
@@ -535,6 +534,9 @@ function RunNavSection({
         continue;
       }
       if (override === "pending" && server === "running") {
+        continue;
+      }
+      if (override === "running" && (server === "pending" || server === "running")) {
         continue;
       }
       onPatchStepStatus?.(stepKey, null);
@@ -635,6 +637,7 @@ function RunNavSection({
     if (!canRunStep(stepKey, statuses, topic, pipelineId) && st !== "done") return;
 
     onSelectStep(stepKey);
+    onPatchStepStatus?.(stepKey, "running");
     const ac = new AbortController();
     runAbortRef.current = ac;
     setRunningStepKey(stepKey);
@@ -686,6 +689,7 @@ function RunNavSection({
           { variant: "success", duration: cancelled ? 3500 : 6000 }
         );
       } else {
+        onPatchStepStatus?.(stepKey, null);
         toast(msg, { variant: "error", duration: 12000 });
       }
     } finally {
@@ -789,17 +793,14 @@ function RunNavSection({
             const s = statuses[step.key] || "pending";
             const active = step.key === activeStepKey;
             const isLast = stepIdx === STEPS.length - 1;
+            const isRunningThis =
+              s === "running" || runningStepKey === step.key;
+            const pausable = isRunningThis;
             const runnable =
-              s !== "running" &&
+              !isRunningThis &&
               (s === "done" ||
                 s === "skipped" ||
                 canRunStep(step.key, statuses, topic, pipelineId));
-            const isRunningThis =
-              (s === "running" || runningStepKey === step.key) &&
-              s !== "pending";
-            const pausable =
-              isRunningThis &&
-              (runningStepKey === step.key || s === "running");
             const effectiveStatus = isRunningThis ? "running" : s;
             let resolvedTiming = resolveStepTiming(
               step.key,
@@ -850,17 +851,11 @@ function RunNavSection({
             ]
               .filter(Boolean)
               .join(" ");
-            const showRailAction =
-              !collapsed &&
-              (active || hoveredStepKey === step.key) &&
-              Boolean(pausable || runnable);
 
             return (
               <div
                 key={step.key}
                 className={rowCls}
-                onMouseEnter={() => setHoveredStepKey(step.key)}
-                onMouseLeave={() => setHoveredStepKey(null)}
               >
                 <div className="sb-step-card">
                 {!collapsed ? (
@@ -876,7 +871,7 @@ function RunNavSection({
                         >
                           <IconPauseStep />
                         </button>
-                      ) : showRailAction && runnable ? (
+                      ) : runnable ? (
                         <button
                           type="button"
                           className={`sb-step-rail-btn${
@@ -951,7 +946,7 @@ function RunNavSection({
                         <span className="sb-step-name">{step.label}</span>
                       </div>
                       <div className="sb-step-meta" title={timingTitle}>
-                        <span className={`sb-step-badge sb-step-badge--${s}`}>
+                        <span className={`sb-step-badge sb-step-badge--${effectiveStatus}`}>
                           {stepStatusText}
                         </span>
                         {statusDetail ? (

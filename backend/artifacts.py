@@ -6,7 +6,7 @@ import os
 import re
 import shutil
 import threading
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 
 from . import config
@@ -474,19 +474,44 @@ def load_context_debug(client_id: str, step_name: str) -> str:
 
 
 def _now_iso() -> str:
-    from datetime import timezone
+    return _format_iso_utc(datetime.now(timezone.utc))
 
-    return (
-        datetime.now(timezone.utc)
-        .isoformat(timespec="milliseconds")
-        .replace("+00:00", "Z")
-    )
+
+def _format_iso_utc(dt: datetime) -> str:
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    else:
+        dt = dt.astimezone(timezone.utc)
+    return dt.isoformat(timespec="milliseconds").replace("+00:00", "Z")
+
+
+def _epoch_iso(ts: float) -> str:
+    return _format_iso_utc(datetime.fromtimestamp(ts, tz=timezone.utc))
 
 
 def _parse_iso(ts: str) -> datetime:
-    if ts.endswith("Z"):
-        ts = ts[:-1] + "+00:00"
-    return datetime.fromisoformat(ts)
+    s = str(ts).strip()
+    if s.endswith("Z"):
+        s = s[:-1] + "+00:00"
+    dt = datetime.fromisoformat(s)
+    if dt.tzinfo is None:
+        # Naive timestamps are UTC (never server-local wall clock).
+        dt = dt.replace(tzinfo=timezone.utc)
+    return dt
+
+
+def _normalize_step_timing(entry: dict) -> dict:
+    if not isinstance(entry, dict):
+        return entry
+    out = dict(entry)
+    for key in ("started_at", "finished_at"):
+        raw = out.get(key)
+        if isinstance(raw, str) and raw.strip():
+            try:
+                out[key] = _format_iso_utc(_parse_iso(raw))
+            except ValueError:
+                pass
+    return out
 
 
 def _duration_ms(started_at: str | None, finished_at: str | None) -> int | None:
@@ -589,8 +614,8 @@ def infer_step_timings_from_artifacts(
             continue
         mtime = path.stat().st_mtime
         duration_ms = max(0, int((mtime - prev_ts) * 1000))
-        finished_at = datetime.fromtimestamp(mtime).isoformat(timespec="milliseconds")
-        started_at = datetime.fromtimestamp(prev_ts).isoformat(timespec="milliseconds")
+        finished_at = _epoch_iso(mtime)
+        started_at = _epoch_iso(prev_ts)
         inferred[name] = {
             "started_at": started_at,
             "finished_at": finished_at,
@@ -611,9 +636,9 @@ def step_timings_for_display(client_id: str, run_id: str, manifest: dict) -> dic
     order = list(statuses.keys()) if isinstance(statuses, dict) and statuses else _ARTICLE_STEP_ORDER
     for name in order:
         if name in recorded:
-            out[name] = recorded[name]
+            out[name] = _normalize_step_timing(recorded[name])
         elif name in inferred:
-            out[name] = inferred[name]
+            out[name] = _normalize_step_timing(inferred[name])
     return out
 
 

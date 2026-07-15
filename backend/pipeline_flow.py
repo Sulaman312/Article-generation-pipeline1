@@ -4,6 +4,15 @@ from __future__ import annotations
 
 from .pipeline import STEP_ORDER as _DEFAULT_STEP_ORDER
 
+# Publishing sidecars — surface in Final Output Metadata, not article LLM input.
+_PUBLISHING_SIDECAR_STEPS = frozenset({"meta_seo"})
+
+
+def _is_article_input_for_step(step_name: str, candidate: str) -> bool:
+    if step_name == "final_output" and candidate in _PUBLISHING_SIDECAR_STEPS:
+        return False
+    return True
+
 
 def input_source_for_step(
     step_name: str,
@@ -19,6 +28,8 @@ def input_source_for_step(
 
     for i in range(idx - 1, -1, -1):
         prev = order[i]
+        if not _is_article_input_for_step(step_name, prev):
+            continue
         st = statuses.get(prev, "pending")
         if st == "done":
             return prev, "artifact"

@@ -43,7 +43,7 @@ function MatrixCell({ status }) {
     );
   }
   return (
-    <td className="matrix-cell matrix-cell--pending" title="Queued">
+    <td className="matrix-cell matrix-cell--pending" title="Pending">
       <span className="matrix-dash" aria-hidden>
         —
       </span>

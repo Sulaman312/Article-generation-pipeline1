@@ -192,6 +192,9 @@ function App() {
         if (override === "pending" && server === "running") {
           continue;
         }
+        if (override === "running" && (server === "pending" || server === "running")) {
+          continue;
+        }
         patchStepStatus(stepKey, null);
       }
     },

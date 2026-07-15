@@ -3,6 +3,7 @@ import {
   formatStepStatusWithDuration,
   parseIsoTimestamp,
   resolveStepTiming,
+  stepStatusBaseLabel,
 } from "./formatStepDuration";
 
 describe("formatStepDurationMs", () => {
@@ -52,6 +53,17 @@ describe("resolveStepTiming", () => {
   });
 });
 
+describe("stepStatusBaseLabel", () => {
+  test("maps pipeline statuses to display labels", () => {
+    expect(stepStatusBaseLabel("pending")).toBe("Pending");
+    expect(stepStatusBaseLabel(undefined)).toBe("Pending");
+    expect(stepStatusBaseLabel("running")).toBe("Running");
+    expect(stepStatusBaseLabel("done")).toBe("Done");
+    expect(stepStatusBaseLabel("error")).toBe("Failed");
+    expect(stepStatusBaseLabel("skipped")).toBe("Skipped");
+  });
+});
+
 describe("formatStepStatusWithDuration", () => {
   test("running elapsed uses UTC timestamps", () => {
     const now = Date.parse("2026-07-12T12:02:30.000Z");
@@ -75,5 +87,23 @@ describe("parseIsoTimestamp", () => {
     expect(parseIsoTimestamp("2026-07-12T12:00:00.000Z")).toBe(
       Date.parse("2026-07-12T12:00:00.000Z")
     );
+  });
+
+  test("treats naive ISO strings as UTC (not browser local)", () => {
+    const naive = "2026-07-12T12:00:00.000";
+    expect(parseIsoTimestamp(naive)).toBe(
+      Date.parse("2026-07-12T12:00:00.000Z")
+    );
+  });
+
+  test("elapsed running time is timezone-independent", () => {
+    const started = "2026-07-12T12:00:00.000";
+    const now = Date.parse("2026-07-12T12:02:30.000Z");
+    const text = formatStepStatusWithDuration(
+      "running",
+      { started_at: started },
+      now
+    );
+    expect(text).toBe("Running · 2m 30s");
   });
 });

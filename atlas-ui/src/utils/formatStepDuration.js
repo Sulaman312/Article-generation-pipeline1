@@ -13,10 +13,16 @@ export function formatStepDurationMs(ms) {
   return remMin > 0 ? `${hr}h ${remMin}m` : `${hr}h`;
 }
 
-/** Parse ISO timestamps from the API (UTC with `Z`, or legacy naive local). */
+/** Parse ISO timestamps as UTC epoch ms (timezone-agnostic elapsed math). */
 export function parseIsoTimestamp(iso) {
   if (!iso) return null;
-  const s = String(iso).trim();
+  let s = String(iso).trim();
+  // Naive ISO strings from the API are UTC — never browser-local wall clock.
+  if (/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d{1,9})?$/.test(s)) {
+    s = `${s}Z`;
+  } else if (/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d{1,9})\+00:00$/.test(s)) {
+    s = s.replace("+00:00", "Z");
+  }
   const t = Date.parse(s);
   return Number.isNaN(t) ? null : t;
 }
@@ -40,7 +46,7 @@ export function stepStatusBaseLabel(status) {
   if (status === "running") return "Running";
   if (status === "error") return "Failed";
   if (status === "skipped") return "Skipped";
-  return "Queued";
+  return "Pending";
 }
 
 /**

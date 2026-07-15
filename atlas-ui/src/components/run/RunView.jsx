@@ -2,7 +2,7 @@ import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } fro
 import * as api from "../../services/api";
 import { useToast } from "../../context/ToastContext";
 import { stepsForPipeline } from "../../constants/pipelines";
-import { inputSourceForStep } from "../../utils/pipelineFlow";
+import { inputSourceForStep, canRunStep } from "../../utils/pipelineFlow";
 import { parseTopicCard } from "../../utils/parseTopicCard";
 import { executeRunStep } from "../../utils/runStepAction";
 import {
@@ -47,7 +47,7 @@ const AUTOSAVE_MS = 1000;
 function statusClass(s) {
   if (s === "done" || s === "running" || s === "error" || s === "skipped")
     return s;
-  return "queued";
+  return "pending";
 }
 
 function ArtifactChunkFallback() {
@@ -198,6 +198,15 @@ export default function RunView({
     [status, activeTiming, clockTick]
   );
 
+  const inputSrc = useMemo(
+    () => inputSourceForStep(activeStep.key, statuses, pipelineId),
+    [activeStep.key, statuses, pipelineId]
+  );
+  const inputStep = useMemo(() => {
+    if (inputSrc.kind !== "artifact") return null;
+    return STEPS.find((s) => s.key === inputSrc.stepKey) || null;
+  }, [inputSrc, STEPS]);
+
   useEffect(() => {
     if (!running) return undefined;
     const id = window.setInterval(() => setClockTick((t) => t + 1), 1000);
@@ -213,9 +222,15 @@ export default function RunView({
     prevStatusRef.current = status;
   }, [status]);
 
-  const inputTabTitle = previousStep
-    ? `Input: ${previousStep.label}`
-    : "Input: topic";
+  // Prefer the resolved article input (skips publishing sidecars like meta_seo).
+  const inputTabTitle =
+    inputSrc.kind === "topic"
+      ? "Input: topic"
+      : inputStep
+        ? `Input: ${inputStep.label}`
+        : previousStep
+          ? `Input: ${previousStep.label}`
+          : "Input: topic";
   const outputTabTitle = `Output: ${activeStep.label}`;
 
   return (
@@ -313,11 +328,12 @@ export default function RunView({
             onStepError={setStepError}
             onRunComplete={refreshRun}
             onShowOutput={() => setTab("output")}
-            onGoToNextStep={() => {
+            onGoToNextStep={(() => {
               const i = STEPS.findIndex((s) => s.key === activeStepKey);
               const next = STEPS[i + 1];
-              if (next) onSelectStep(next.key);
-            }}
+              if (!next) return undefined;
+              return () => onSelectStep(next.key);
+            })()}
           />
         )}
       </div>
@@ -328,7 +344,7 @@ export default function RunView({
 function copyMarkdownForStep(markdown, stepName) {
   if (stepName === "final_output") {
     const split = splitFinalOutput(markdown);
-    return split.displayMarkdown || markdown;
+    return (split.displayMarkdown || markdown || "").trim();
   }
   return markdown;
 }
@@ -342,10 +358,15 @@ function CopyOutputButton({ text, stepName, toast }) {
     try {
       const ok = await copyFormattedMarkdown(source);
       if (ok) {
-        toast?.("Copied formatted article — paste into Word or your CMS", {
-          variant: "success",
-          duration: 3500,
-        });
+        toast?.(
+          stepName === "final_output"
+            ? "Copied with formatting — paste into Word, Docs, or your CMS"
+            : "Copied formatted article — paste into Word or your CMS",
+          {
+            variant: "success",
+            duration: 3500,
+          }
+        );
       } else {
         toast?.("Could not copy", { variant: "error", duration: 4000 });
       }
@@ -359,7 +380,7 @@ function CopyOutputButton({ text, stepName, toast }) {
       className="btn btn-sm btn-edit-artifact"
       onClick={handleCopy}
       disabled={copying}
-      title="Copy formatted article (not markdown source)"
+      title="Copy with formatting (headings, bold, lists, links)"
     >
       {copying ? "Copying…" : "Copy"}
     </button>
@@ -471,7 +492,11 @@ function OutputPanel({
   onShowOutput,
   onGoToNextStep,
 }) {
-  const showInlineRun = false;
+  const showInlineRun =
+    status !== "done" &&
+    status !== "running" &&
+    !inlineRunning &&
+    canRunStep(step.key, statuses, topic, pipelineId);
 
   async function handleInlineRun() {
     if (!showInlineRun) return;
@@ -552,7 +577,7 @@ function OutputPanel({
       toast={toast}
       headerEditKey={headerEditKey}
       useHeaderEdit
-      onSaveAndContinue={onGoToNextStep}
+      onSaveAndContinue={onGoToNextStep || undefined}
     />
   );
 }
@@ -666,8 +691,10 @@ function ArtifactView({
     }
   }
 
-  const showEditorDock =
-    !readOnly && editing && typeof onSaveAndContinue === "function";
+  const canContinue = typeof onSaveAndContinue === "function";
+  const isDirty = !readOnly && draft !== content;
+  // Save only after real edits; continue stays available on earlier steps while editing.
+  const showEditorDock = !readOnly && editing && (isDirty || canContinue);
 
   const topicCardPreview =
     stepName === "topic_card" &&
@@ -770,23 +797,31 @@ function ArtifactView({
 
   const editorDock = showEditorDock ? (
     <div className="run-editor-dock">
-      <button
-        type="button"
-        className="btn btn-dock-secondary"
-        onClick={handleSave}
-      >
-        Save
-      </button>
-      <button
-        type="button"
-        className="btn btn-primary btn-dock-primary"
-        onClick={handleSaveAndContinue}
-      >
-        Save &amp; continue
-        <span className="btn-play-ico" aria-hidden>
-          ▶
-        </span>
-      </button>
+      {isDirty ? (
+        <button
+          type="button"
+          className={
+            canContinue
+              ? "btn btn-dock-secondary"
+              : "btn btn-primary btn-dock-primary"
+          }
+          onClick={handleSave}
+        >
+          Save
+        </button>
+      ) : null}
+      {canContinue ? (
+        <button
+          type="button"
+          className="btn btn-primary btn-dock-primary"
+          onClick={handleSaveAndContinue}
+        >
+          {isDirty ? "Save & continue" : "Continue"}
+          <span className="btn-play-ico" aria-hidden>
+            ▶
+          </span>
+        </button>
+      ) : null}
     </div>
   ) : null;
 

@@ -31,6 +31,15 @@
   min-height: 0;
 }
 
+/* Workspace pages (New article, artifacts, etc.) scroll inside the main column */
+.layout-main:has(> .page) {
+  height: 100%;
+  max-height: 100vh;
+  overflow-x: hidden;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
 .layout-main:has(.run-shell) {
   overflow: hidden;
   height: 100%;
@@ -450,9 +459,9 @@
   justify-content: center;
 }
 
-.status-pill.queued,
-.status-pip.queued {
-  /* reserved queued chrome — matches pending soft gray */
+.status-pill.pending,
+.status-pip.pending {
+  /* default pending chrome — soft gray */
 }
 
 .ws-logo-frame,
@@ -1679,6 +1688,22 @@ body.sb-resizing .sb {
 .sb-step-rail-btn:disabled {
   opacity: 0.5;
   cursor: not-allowed;
+}
+
+.sb-step-rail-btn--play {
+  color: var(--pipeline-emerald-deep);
+  border-color: var(--pipeline-border);
+  background: var(--pipeline-surface);
+}
+
+.sb-step-rail-btn--play:hover:not(:disabled) {
+  background: var(--pipeline-surface-strong, #ecfdf5);
+  border-color: var(--pipeline-emerald);
+  color: var(--pipeline-emerald-deep);
+}
+
+.sb-step-rail-btn--rerun:hover:not(:disabled) {
+  background: var(--hover);
 }
 
 .sb-step-rail-btn--pause {

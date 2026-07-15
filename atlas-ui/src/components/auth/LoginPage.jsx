@@ -80,7 +80,7 @@ export default function LoginPage() {
               aria-pressed={showPassword}
               title={showPassword ? "Hide password" : "Show password"}
             >
-              <IconEye hidden={showPassword} />
+              <IconEye revealed={showPassword} />
             </button>
           </div>
 
