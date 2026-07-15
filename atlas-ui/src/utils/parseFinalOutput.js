@@ -1,4 +1,3 @@
-import { parseDelimitedFields } from "./parseDelimitedFields";
 import { buildFaqPageSchemaScript, extractFaqPairs } from "./faqSchema";
 
 export const PUBLISHING_METADATA_START = "---PUBLISHING METADATA START---";
@@ -9,14 +8,6 @@ export const FINAL_ARTICLE_START = FINAL_OUTPUT_START;
 export const FINAL_ARTICLE_END = FINAL_OUTPUT_END;
 export const FAQ_SCHEMA_START = "---FAQ SCHEMA (JSON-LD) START---";
 export const FAQ_SCHEMA_END = "---FAQ SCHEMA (JSON-LD) END---";
-
-export function parsePublishingMetadata(text) {
-  return parseDelimitedFields(
-    text,
-    PUBLISHING_METADATA_START,
-    PUBLISHING_METADATA_END
-  );
-}
 
 export function extractFaqSchemaScript(text) {
   if (typeof text !== "string") return "";

@@ -88,8 +88,3 @@ export function charCountStatus(count, min, max) {
   if (count > max) return "long";
   return "ok";
 }
-
-/** @deprecated Use parseMetaSeoStructured */
-export function parseMetaSeo(text) {
-  return parseMetaSeoStructured(text);
-}

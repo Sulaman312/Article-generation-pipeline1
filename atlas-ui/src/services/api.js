@@ -568,13 +568,6 @@ export async function runFullPipeline(clientId, topic) {
   });
 }
 
-export async function getContextSummary(clientId) {
-  const data = await request(
-    `/clients/${encodeURIComponent(clientId)}/context-summary`
-  );
-  return data.summary ?? "";
-}
-
 export async function updateClient(clientId, { display_name }) {
   return request(`/clients/${encodeURIComponent(clientId)}`, {
     method: "PATCH",
@@ -587,13 +580,6 @@ export async function deleteClient(clientId) {
   return request(`/clients/${encodeURIComponent(clientId)}`, {
     method: "DELETE",
   });
-}
-
-export async function listContextFiles(clientId) {
-  const data = await request(
-    `/clients/${encodeURIComponent(clientId)}/context-files`
-  );
-  return data.files ?? [];
 }
 
 export async function getContextFile(clientId, filename) {
