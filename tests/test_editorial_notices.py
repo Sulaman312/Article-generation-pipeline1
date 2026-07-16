@@ -45,6 +45,26 @@ class EditorialNoticeTests(unittest.TestCase):
             combined.rstrip(),
         )
 
+    def test_french_faq_notice_uses_localized_heading(self):
+        notice = editorial_input.faq_editorial_notice(
+            {"Notes": "Write the article in French."}
+        )
+        self.assertIn("## Questions fréquentes", notice)
+        self.assertIn("exactly one", notice.lower())
+        self.assertIn("French", notice)
+
+    def test_article_language_from_notes(self):
+        self.assertEqual(
+            editorial_input.article_language_from_manual(
+                {"Notes": "Rédiger en français pour le marché belge."}
+            ),
+            "fr",
+        )
+        self.assertEqual(
+            editorial_input.article_language_from_manual({"Notes": "English only."}),
+            "en",
+        )
+
     def test_writing_format_guidelines_notice(self):
         notice = editorial_input.writing_format_guidelines_notice()
         self.assertIn("system prompt", notice.lower())

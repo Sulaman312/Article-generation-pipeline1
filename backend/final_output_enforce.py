@@ -347,11 +347,19 @@ def normalize_article_links(article: str, clusters: list[str] | None = None) -> 
     return text
 
 
-def inject_faq_template(article: str, topic: str = "") -> str:
+def inject_faq_template(
+    article: str, topic: str = "", *, manual: dict | None = None
+) -> str:
     """Insert a minimal FAQ block before Conclusion when the model skipped it."""
     if len(faq_schema.extract_faq_pairs(article)) >= 2:
         return article
-    faq_lines = ["\n## Frequently Asked Questions\n"]
+
+    lang = editorial_input.article_language_from_manual(manual)
+    heading = editorial_input.faq_heading_for_language(lang)
+    if lang != "en":
+        return _inject_faq_llm(article, topic=topic, lang=lang, heading=heading)
+
+    faq_lines = [f"\n{heading}\n"]
     for q, a in _FAQ_TEMPLATES[:6]:
         faq_lines.append(f"### {q}\n\n{a}\n")
     faq_block = "\n".join(faq_lines)
@@ -359,6 +367,30 @@ def inject_faq_template(article: str, topic: str = "") -> str:
     if m:
         return article[: m.start()] + "\n" + faq_block + article[m.start() :]
     return article.rstrip() + "\n" + faq_block + "\n"
+
+
+def _inject_faq_llm(
+    article: str, *, topic: str, lang: str, heading: str
+) -> str:
+    """Generate a topic-relevant FAQ block in the article language."""
+    language_label = editorial_input.language_label_for_code(lang)
+    system = (
+        f"Return ONLY the full article markdown. Write exactly ONE FAQ section in "
+        f"{language_label} using H2 `{heading}` with 5–7 H3 Q&As. Do not add FAQ "
+        "blocks in any other language."
+    )
+    user = (
+        f"Topic: {topic or 'article'}\n\n"
+        f"Add the FAQ section before the closing H2/CTA when possible.\n\n"
+        f"---ARTICLE---\n{article.strip()}\n"
+    )
+    return claude.chat_complete(
+        system,
+        user,
+        step_label=f"Final output FAQ inject ({language_label})",
+        max_tokens=8192,
+        temperature=0.35,
+    ).strip()
 
 
 def _trim_article_llm(article_md: str, target: int, topic: str) -> str:
@@ -393,9 +425,13 @@ def _repair_article_with_llm(
     urls: list[str],
     topic: str,
     word_target: int | None,
+    manual: dict | None = None,
 ) -> str:
     current = editorial_input.count_article_words(article_md)
     tasks: list[str] = []
+    lang = editorial_input.article_language_from_manual(manual)
+    faq_heading = editorial_input.faq_heading_for_language(lang)
+    language_label = editorial_input.language_label_for_code(lang)
     if word_target:
         low, high = editorial_input.word_count_bounds(word_target)
         tasks.append(
@@ -404,7 +440,8 @@ def _repair_article_with_llm(
         )
     if add_faq:
         tasks.append(
-            "Add `## Frequently Asked Questions` with 5–7 H3 Q&As before the conclusion."
+            f"Add ONE FAQ section with H2 `{faq_heading}` and 5–7 H3 Q&As in "
+            f"{language_label} before the conclusion. Do not add FAQ in another language."
         )
     if add_external:
         url_block = "\n".join(f"- {u}" for u in urls[:10]) or "- (none)"
@@ -511,12 +548,18 @@ def _load_faq_reference_markdown(client_id: str, run_id: str) -> str:
 
 
 def _preserve_faq_from_prior_steps(
-    article: str, client_id: str, run_id: str
+    article: str,
+    client_id: str,
+    run_id: str,
+    *,
+    heading: str = "## Frequently Asked Questions",
 ) -> str:
     reference = _load_faq_reference_markdown(client_id, run_id)
     if not reference:
         return article
-    restored = faq_schema.ensure_faq_from_reference(article, reference)
+    restored = faq_schema.ensure_faq_from_reference(
+        article, reference, heading=heading
+    )
     if restored != article:
         before = len(faq_schema.extract_faq_pairs(article))
         after = len(faq_schema.extract_faq_pairs(restored))
@@ -558,8 +601,13 @@ def enforce_final_output(
         manual = {}
     word_target = editorial_input.word_count_target_from_manifest(manifest)
     topic = (manifest.get("topic") or manual.get("Topic") or "").strip()
+    lang = editorial_input.article_language_from_manual(manual)
+    faq_heading = editorial_input.faq_heading_for_language(lang)
 
     article = faq_schema.extract_final_article_body(text) or faq_schema.strip_publishing_metadata_block(text) or text
+    article = faq_schema.consolidate_faq_sections(
+        article, heading=faq_heading, lang=lang
+    )
     urls = _load_source_urls(client_id, run_id)
 
     from .context_extractor import extract_for_step_7
@@ -568,9 +616,11 @@ def enforce_final_output(
     article = normalize_article_links(article, clusters)
 
     if _needs_faq(article, manual):
-        article = inject_faq_template(article, topic)
+        article = inject_faq_template(article, topic, manual=manual)
 
-    article = _preserve_faq_from_prior_steps(article, client_id, run_id)
+    article = _preserve_faq_from_prior_steps(
+        article, client_id, run_id, heading=faq_heading
+    )
 
     if _needs_external(article, manual) and urls:
         article = inject_external_links_programmatic(article, urls)
@@ -593,7 +643,12 @@ def enforce_final_output(
                     "final_output trim failed for %s/%s", client_id, run_id
                 )
 
-    article = _preserve_faq_from_prior_steps(article, client_id, run_id)
+    article = _preserve_faq_from_prior_steps(
+        article, client_id, run_id, heading=faq_heading
+    )
+    article = faq_schema.consolidate_faq_sections(
+        article, heading=faq_heading, lang=lang
+    )
 
     if faq_schema.FINAL_OUTPUT_START in text:
         text = faq_schema.replace_final_article_body(text, article)

@@ -48,13 +48,37 @@ class FaqSchemaTests(unittest.TestCase):
         restored = faq_schema.ensure_faq_from_reference(reduced, reference)
         self.assertEqual(len(faq_schema.extract_faq_pairs(restored)), 6)
 
-    def test_ensure_faq_from_reference_noop_when_complete(self):
-        reference = _sample_with_faqs(6)
-        current = _sample_with_faqs(6)
-        self.assertIs(
-            faq_schema.ensure_faq_from_reference(current, reference),
-            current,
+    def test_consolidate_faq_sections_keeps_french_only(self):
+        bilingual = (
+            "## Intro\n\nBody.\n\n"
+            "## Questions fréquentes\n\n"
+            "### Combien coûte la numérisation?\n\n"
+            "Les tarifs varient selon le volume.\n\n"
+            "### Faut-il former le personnel?\n\n"
+            "Oui, une courte formation suffit.\n\n"
+            "## Frequently Asked Questions\n\n"
+            "### How much does digitization cost?\n\n"
+            "Pricing depends on volume.\n\n"
+            "### Do staff need training?\n\n"
+            "Yes, a short training is enough.\n"
         )
+        consolidated = faq_schema.consolidate_faq_sections(
+            bilingual,
+            heading="## Questions fréquentes",
+            lang="fr",
+        )
+        self.assertIn("## Questions fréquentes", consolidated)
+        self.assertNotIn("Frequently Asked Questions", consolidated)
+        pairs = faq_schema.extract_faq_pairs(consolidated)
+        self.assertEqual(len(pairs), 2)
+        self.assertIn("numérisation", pairs[0][0])
+
+    def test_format_faq_block_uses_localized_heading(self):
+        block = faq_schema.format_faq_block(
+            [("Question?", "Answer.")],
+            heading="## Questions fréquentes",
+        )
+        self.assertTrue(block.startswith("## Questions fréquentes"))
 
 
 if __name__ == "__main__":

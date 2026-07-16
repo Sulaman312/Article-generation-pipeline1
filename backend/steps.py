@@ -76,7 +76,7 @@ def _faq_notice_for_run(client_id: str, run_id: str) -> str:
     manifest = artifacts.read_run_manifest(client_id, run_id) or {}
     manual = manifest.get("manual_inputs")
     if isinstance(manual, dict) and editorial_input.should_include_faq(manual):
-        return editorial_input.faq_editorial_notice()
+        return editorial_input.faq_editorial_notice(manual)
     return ""
 
 

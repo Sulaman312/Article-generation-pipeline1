@@ -301,12 +301,63 @@ def should_include_faq(fields: dict | None) -> bool:
     return raw not in ("no", "false", "0", "skip", "off", "n")
 
 
-def faq_editorial_notice() -> str:
+_FAQ_HEADING_BY_LANG: dict[str, str] = {
+    "en": "## Frequently Asked Questions",
+    "fr": "## Questions fréquentes",
+    "de": "## Häufig gestellte Fragen",
+    "es": "## Preguntas frecuentes",
+    "it": "## Domande frequenti",
+}
+
+_LANGUAGE_LABELS: dict[str, str] = {
+    "en": "English",
+    "fr": "French",
+    "de": "German",
+    "es": "Spanish",
+    "it": "Italian",
+}
+
+
+def article_language_from_manual(manual: dict | None) -> str:
+    """Infer article language from Notes / Topic (defaults to English)."""
+    notes = notes_from_manual(manual).lower()
+    topic = ""
+    if isinstance(manual, dict):
+        topic = (manual.get("Topic") or manual.get("topic") or "").lower()
+    combined = f"{notes} {topic}"
+    if re.search(
+        r"\b(french|français|en français|in french|rédig(?:er|e|é)\s+en\s+français)\b",
+        combined,
+        re.I,
+    ):
+        return "fr"
+    if re.search(r"\b(german|deutsch|auf deutsch|in german)\b", combined, re.I):
+        return "de"
+    if re.search(r"\b(spanish|español|en español|in spanish)\b", combined, re.I):
+        return "es"
+    if re.search(r"\b(italian|italiano|in italian)\b", combined, re.I):
+        return "it"
+    return "en"
+
+
+def language_label_for_code(lang: str) -> str:
+    return _LANGUAGE_LABELS.get((lang or "en").lower(), "English")
+
+
+def faq_heading_for_language(lang: str) -> str:
+    return _FAQ_HEADING_BY_LANG.get((lang or "en").lower(), _FAQ_HEADING_BY_LANG["en"])
+
+
+def faq_editorial_notice(manual: dict | None = None) -> str:
+    lang = article_language_from_manual(manual)
+    heading = faq_heading_for_language(lang)
+    language_label = _LANGUAGE_LABELS.get(lang, "English")
     return (
         "\n\n=== FAQ SECTION (REQUIRED FOR SEO) ===\n"
-        "Include a **Frequently Asked Questions** block in the outline and draft.\n"
+        f"Include **one** FAQ block in the outline and draft — written entirely in **{language_label}**.\n"
         "- Placement: after the main body sections, **before** the conclusion/CTA.\n"
-        "- Format: H2 `## Frequently Asked Questions` then 5–7 items.\n"
+        f"- Format: H2 `{heading}` then 5–7 items.\n"
+        "- Use **exactly one** FAQ section. Do **not** add a second FAQ block in another language.\n"
         "- Each item: `### Question here?` then a direct 2–4 sentence answer (40–80 words each).\n"
         "- Questions must match real searcher intent (cost, timeline, compliance, how-to, vs alternatives).\n"
         "- Pull questions from SERP gaps, PAA-style queries, and the topic card — not generic filler.\n"
