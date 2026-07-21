@@ -26,6 +26,8 @@ import { preloadRunChunks } from "../../utils/preloadRunChunks";
 import { ArtifactSkeleton } from "../shared/Skeletons";
 import { PIPELINE_MARKDOWN_CLASS } from "../../constants/markdownPreview";
 import { splitFinalOutput } from "../../utils/parseFinalOutput";
+import { manualInputsToDisplayFields } from "../../utils/editorialFields";
+import KeyValueStructured from "./KeyValueStructured";
 
 const FinalOutputDocEditor = lazy(() => import("./FinalOutputDocEditor"));
 const MarkdownArtifactPanel = lazy(() =>
@@ -387,6 +389,47 @@ function CopyOutputButton({ text, stepName, toast }) {
   );
 }
 
+function RunManualInputsPanel({ topic, manualInputs }) {
+  const fields = useMemo(
+    () => manualInputsToDisplayFields(manualInputs),
+    [manualInputs]
+  );
+  const topicLead =
+    String(topic || "").trim() ||
+    String(
+      manualInputs?.Topic ||
+        manualInputs?.topic ||
+        ""
+    ).trim();
+
+  return (
+    <div className="run-artifact-shell">
+      <div className="run-artifact-card">
+        <div className="run-artifact-body run-input-topic-body">
+          <div className="run-input-topic-eyebrow">Topic · this run</div>
+          {topicLead ? (
+            <p className="run-input-topic-lead">{topicLead}</p>
+          ) : (
+            <p className="run-input-topic-lead muted">(no topic)</p>
+          )}
+          {fields.length ? (
+            <div className="run-manual-inputs">
+              <div className="run-input-topic-eyebrow run-manual-inputs-eyebrow">
+                Your inputs
+              </div>
+              <KeyValueStructured fields={fields} />
+            </div>
+          ) : (
+            <p className="run-manual-inputs-empty muted">
+              No additional form fields were saved for this run.
+            </p>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function InputPanel({
   client,
   runId,
@@ -402,25 +445,9 @@ function InputPanel({
 }) {
   const src = inputSourceForStep(activeStepKey, statuses, pipelineId);
 
-  if (isFirstStep) {
+  if (isFirstStep || src.kind === "topic") {
     return (
-      <div className="run-artifact-shell">
-        <div className="run-artifact-card">
-          <div className="run-artifact-body run-input-topic-body">
-            <div className="run-input-topic-eyebrow">Topic · this run</div>
-            {topic?.trim() ? (
-              <Suspense fallback={<ArtifactChunkFallback />}>
-                <Markdown
-                  text={topic}
-                  className={`${PIPELINE_MARKDOWN_CLASS} md--topic-input`}
-                />
-              </Suspense>
-            ) : (
-              <p className="run-input-topic-lead muted">(no topic)</p>
-            )}
-          </div>
-        </div>
-      </div>
+      <RunManualInputsPanel topic={topic} manualInputs={manualInputs} />
     );
   }
   if (src.kind === "blocked") {
@@ -432,27 +459,6 @@ function InputPanel({
               Complete earlier steps first — then this step can use their output
               as input.
             </div>
-          </div>
-        </div>
-      </div>
-    );
-  }
-  if (src.kind === "topic") {
-    return (
-      <div className="run-artifact-shell">
-        <div className="run-artifact-card">
-          <div className="run-artifact-body run-input-topic-body">
-            <div className="run-input-topic-eyebrow">Topic · this run</div>
-            {topic?.trim() ? (
-              <Suspense fallback={<ArtifactChunkFallback />}>
-                <Markdown
-                  text={topic}
-                  className={`${PIPELINE_MARKDOWN_CLASS} md--topic-input`}
-                />
-              </Suspense>
-            ) : (
-              <p className="run-input-topic-lead muted">(no topic)</p>
-            )}
           </div>
         </div>
       </div>

@@ -4,9 +4,14 @@ const ALL_DONE = {
   topic_card: "done",
   serp_research: "done",
   research: "done",
+  atp_topic_research: "done",
+  paa_faq_research: "done",
+  case_study_research: "done",
+  research_audit: "done",
   assignment_brief: "done",
   outline: "done",
   draft: "done",
+  supporting_posts: "done",
   fact_check: "done",
   meta_seo: "done",
   final_output: "pending",
@@ -39,11 +44,17 @@ describe("inputSourceForStep", () => {
     const src = inputSourceForStep("draft", {
       ...ALL_DONE,
       draft: "pending",
+      supporting_posts: "pending",
       fact_check: "pending",
       meta_seo: "pending",
       final_output: "pending",
     });
     expect(src).toEqual({ kind: "artifact", stepKey: "outline" });
+  });
+
+  test("fact_check skips supporting_posts sidecar and uses draft", () => {
+    const src = inputSourceForStep("fact_check", ALL_DONE);
+    expect(src).toEqual({ kind: "artifact", stepKey: "draft" });
   });
 });
 

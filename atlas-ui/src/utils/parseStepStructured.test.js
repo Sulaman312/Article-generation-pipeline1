@@ -91,6 +91,23 @@ TOTAL ESTIMATED WORD COUNT: 2200
     expect(data.totalWords).toBe("2200");
   });
 
+  test("parses LEDE NOTE before intro and H2", () => {
+    const data = parseOutlineStructured(`
+---OUTLINE START---
+H1: Sample title
+LEDE NOTE: Direct answer in 2–3 sentences after H1.
+INTRO NOTE: Optional bridge only.
+H2: First section
+  PURPOSE: Teach setup
+  WORD COUNT: 200 words
+TOTAL ESTIMATED WORD COUNT: 2000
+---OUTLINE END---
+`);
+    expect(data.ledeNote).toContain("Direct answer");
+    expect(data.introNote).toContain("Optional bridge");
+    expect(data.sections[0].title).toBe("First section");
+  });
+
   test("summarizes section word budgets", () => {
     expect(parseWordCountRange("180–220 words")).toBe(200);
     const data = parseOutlineStructured(`

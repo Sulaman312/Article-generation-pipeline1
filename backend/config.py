@@ -57,7 +57,7 @@ else:
 
 # OpenAI / Figma keys are not used by the article-only pipeline (removed).
 
-# Perplexity Sonar (optional — Step `serp_research` uses manual placeholder if unset)
+# Perplexity Sonar (optional — serp / ATP / PAA steps use manual placeholder if unset)
 PERPLEXITY_API_KEY = (os.getenv("PERPLEXITY_API_KEY") or "").strip() or None
 PERPLEXITY_MODEL = (os.getenv("PERPLEXITY_MODEL") or "sonar").strip() or "sonar"
 PERPLEXITY_API_URL = (
@@ -72,13 +72,37 @@ try:
 except ValueError:
     PERPLEXITY_TEMPERATURE = 0.15
 
+# Hard quality gates on draft / final (lede, WC, keyword, audit, FAQ).
+HARD_GATES_ENABLED = (os.getenv("HARD_GATES_ENABLED") or "1").strip().lower() not in (
+    "0",
+    "false",
+    "no",
+    "off",
+)
+HARD_GATES_STRICT = (os.getenv("HARD_GATES_STRICT") or "1").strip().lower() not in (
+    "0",
+    "false",
+    "no",
+    "off",
+)
+
 STEP_CONTEXT_FILES = {
     "topic_card": ["context.md"],
     "serp_research": [],
     "research": ["context.md", "personas.md"],
+    "atp_topic_research": [],
+    "paa_faq_research": [],
+    "case_study_research": [],
+    "research_audit": ["context.md"],
     "assignment_brief": ["context.md", "personas.md"],
     "outline": ["context.md", "personas.md"],
     "draft": ["context.md", "personas.md", "brand_voice.md", "writing_guidelines.md"],
+    "supporting_posts": [
+        "context.md",
+        "personas.md",
+        "brand_voice.md",
+        "writing_guidelines.md",
+    ],
     "fact_check": [],
     "final_output": ["cta_guidelines.md", "internal_links.md"],
     "meta_seo": ["context.md"],

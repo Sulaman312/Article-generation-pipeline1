@@ -20,6 +20,26 @@ _STEP_UI: dict[str, dict[str, str]] = {
         "matrixLabel": "Gap analysis",
         "matrixCol": "SA",
     },
+    "atp_topic_research": {
+        "label": "ATP Topic Research",
+        "matrixLabel": "Topic questions",
+        "matrixCol": "ATP",
+    },
+    "paa_faq_research": {
+        "label": "PAA / FAQ Research",
+        "matrixLabel": "FAQ questions",
+        "matrixCol": "FQ",
+    },
+    "case_study_research": {
+        "label": "Case Study Research",
+        "matrixLabel": "Case study",
+        "matrixCol": "CS",
+    },
+    "research_audit": {
+        "label": "Research Audit",
+        "matrixLabel": "Verify research",
+        "matrixCol": "RA",
+    },
     "assignment_brief": {
         "label": "Assignment Brief",
         "matrixLabel": "Editorial brief",
@@ -34,6 +54,11 @@ _STEP_UI: dict[str, dict[str, str]] = {
         "label": "Draft",
         "matrixLabel": "First draft",
         "matrixCol": "DR",
+    },
+    "supporting_posts": {
+        "label": "Supporting Posts",
+        "matrixLabel": "Cluster drafts",
+        "matrixCol": "SP",
     },
     "fact_check": {
         "label": "Fact Check (web + editor)",

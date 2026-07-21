@@ -26,6 +26,7 @@ FIELD_LABELS: tuple[str, ...] = (
     "Internal Links",
     "Include FAQ",
     "Include External Links",
+    "Keyword Data",
     "Notes",
 )
 
@@ -41,9 +42,15 @@ _KEY_TO_LABEL: dict[str, str] = {
     "internal_links": "Internal Links",
     "include_faq": "Include FAQ",
     "include_external_links": "Include External Links",
+    "keyword_data": "Keyword Data",
+    "atp_data": "Keyword Data",
     "notes": "Notes",
     "semrush_notes": "Semrush / keyword research",
 }
+
+_LONG_FIELD_LABELS = frozenset({"Keyword Data", "Semrush / keyword research", "Notes"})
+_LONG_FIELD_MAX = 50_000
+_DEFAULT_FIELD_MAX = 4_000
 
 
 def sanitize_manual_inputs(raw: dict | None) -> dict[str, str] | None:
@@ -58,7 +65,8 @@ def sanitize_manual_inputs(raw: dict | None) -> dict[str, str] | None:
             continue
         text = str(val).strip()
         if text:
-            out[label] = text[:4000]
+            limit = _LONG_FIELD_MAX if label in _LONG_FIELD_LABELS else _DEFAULT_FIELD_MAX
+            out[label] = text[:limit]
     return out or None
 
 
@@ -356,11 +364,11 @@ def faq_editorial_notice(manual: dict | None = None) -> str:
         "\n\n=== FAQ SECTION (REQUIRED FOR SEO) ===\n"
         f"Include **one** FAQ block in the outline and draft — written entirely in **{language_label}**.\n"
         "- Placement: after the main body sections, **before** the conclusion/CTA.\n"
-        f"- Format: H2 `{heading}` then 5–7 items.\n"
-        "- Use **exactly one** FAQ section. Do **not** add a second FAQ block in another language.\n"
+        f"- Format: H2 `{heading}` then items from the **PAA / FAQ RESEARCH** Recommended FAQ bank.\n"
+        "- Prefer bank question wording; do **not** invent a second FAQ block in another language.\n"
+        "- If the PAA bank says LOW SIGNAL or KEYWORD DATA SHOWS LOW/NO DEMAND, use fewer questions — do not pad.\n"
         "- Each item: `### Question here?` then a direct 2–4 sentence answer (40–80 words each).\n"
-        "- Questions must match real searcher intent (cost, timeline, compliance, how-to, vs alternatives).\n"
-        "- Pull questions from SERP gaps, PAA-style queries, and the topic card — not generic filler.\n"
+        "- Do not invent brands, products, or prices without a cited source.\n"
         "- FAQ does **not** count toward the form Word Count (body prose only).\n"
     )
 
@@ -413,9 +421,13 @@ def seo_readability_notice() -> str:
         "\n\n=== SEO & READABILITY RULES (NON-NEGOTIABLE) ===\n"
         "- **H1 title:** maximum **60 characters**, **5-12 words**, with the primary keyword "
         "once (exact or near-exact).\n"
+        "- **Post-H1 lede:** 2–3 sentences (40–80 words) directly after H1, before the first H2 — "
+        "plain prose, no \"Summary\" heading (AI Overviews / snippets).\n"
         "- **Body keyword use:** use the primary keyword once in the first 100 body words and "
         "do not repeat that exact phrase elsewhere in body prose. Use each secondary keyword "
         "at most once across headings and body prose. Metadata is counted separately.\n"
+        "- **E-E-A-T (in-body):** proof points where planned, 3–5 credible external links, honest limits — "
+        "never a standalone \"Why trust us\" section; no invented stats, brands, or prices.\n"
         "- **Length:** honor the form Word Count target. When competitors are lean, write toward "
         "the lower end of the allowed range by cutting filler, not useful detail.\n"
         "- **Links:** weave 3-5 working external authority links and 2-4 internal cluster links "

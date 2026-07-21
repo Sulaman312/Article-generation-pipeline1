@@ -348,7 +348,11 @@ def normalize_article_links(article: str, clusters: list[str] | None = None) -> 
 
 
 def inject_faq_template(
-    article: str, topic: str = "", *, manual: dict | None = None
+    article: str,
+    topic: str = "",
+    *,
+    manual: dict | None = None,
+    paa_faq_research: str = "",
 ) -> str:
     """Insert a minimal FAQ block before Conclusion when the model skipped it."""
     if len(faq_schema.extract_faq_pairs(article)) >= 2:
@@ -356,8 +360,17 @@ def inject_faq_template(
 
     lang = editorial_input.article_language_from_manual(manual)
     heading = editorial_input.faq_heading_for_language(lang)
-    if lang != "en":
-        return _inject_faq_llm(article, topic=topic, lang=lang, heading=heading)
+    from . import paa_faq
+
+    bank_prompt = paa_faq.format_faq_bank_for_prompt(paa_faq_research)
+    if bank_prompt or lang != "en":
+        return _inject_faq_llm(
+            article,
+            topic=topic,
+            lang=lang,
+            heading=heading,
+            faq_bank_prompt=bank_prompt,
+        )
 
     faq_lines = [f"\n{heading}\n"]
     for q, a in _FAQ_TEMPLATES[:6]:
@@ -370,17 +383,27 @@ def inject_faq_template(
 
 
 def _inject_faq_llm(
-    article: str, *, topic: str, lang: str, heading: str
+    article: str,
+    *,
+    topic: str,
+    lang: str,
+    heading: str,
+    faq_bank_prompt: str = "",
 ) -> str:
     """Generate a topic-relevant FAQ block in the article language."""
     language_label = editorial_input.language_label_for_code(lang)
     system = (
         f"Return ONLY the full article markdown. Write exactly ONE FAQ section in "
-        f"{language_label} using H2 `{heading}` with 5–7 H3 Q&As. Do not add FAQ "
-        "blocks in any other language."
+        f"{language_label} using H2 `{heading}`. Prefer the provided FAQ bank questions. "
+        "Do not add FAQ blocks in any other language. Do not invent brands, products, or prices."
+    )
+    bank = faq_bank_prompt.strip() or (
+        "No FAQ bank provided — write only as many specific questions as the topic supports "
+        "(prefer 4–7; fewer if thin)."
     )
     user = (
         f"Topic: {topic or 'article'}\n\n"
+        f"{bank}\n\n"
         f"Add the FAQ section before the closing H2/CTA when possible.\n\n"
         f"---ARTICLE---\n{article.strip()}\n"
     )
@@ -604,6 +627,12 @@ def enforce_final_output(
     lang = editorial_input.article_language_from_manual(manual)
     faq_heading = editorial_input.faq_heading_for_language(lang)
 
+    paa_faq = ""
+    try:
+        paa_faq = artifacts.load_artifact(client_id, run_id, "paa_faq_research")
+    except FileNotFoundError:
+        paa_faq = ""
+
     article = faq_schema.extract_final_article_body(text) or faq_schema.strip_publishing_metadata_block(text) or text
     article = faq_schema.consolidate_faq_sections(
         article, heading=faq_heading, lang=lang
@@ -616,7 +645,9 @@ def enforce_final_output(
     article = normalize_article_links(article, clusters)
 
     if _needs_faq(article, manual):
-        article = inject_faq_template(article, topic, manual=manual)
+        article = inject_faq_template(
+            article, topic, manual=manual, paa_faq_research=paa_faq
+        )
 
     article = _preserve_faq_from_prior_steps(
         article, client_id, run_id, heading=faq_heading
@@ -665,4 +696,16 @@ def enforce_final_output(
     ):
         text = faq_schema.wrap_final_article(article)
 
-    return faq_schema.ensure_faq_schema_block(text)
+    text = faq_schema.ensure_faq_schema_block(text)
+
+    from . import hard_gates
+
+    text = hard_gates.enforce_article_gates(
+        text,
+        client_id=client_id,
+        run_id=run_id,
+        stage="final",
+        allow_llm_repair=allow_llm_repair,
+        raise_on_fail=True,
+    )
+    return text

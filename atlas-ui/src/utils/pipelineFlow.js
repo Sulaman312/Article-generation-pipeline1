@@ -5,14 +5,24 @@ import { stepKeysForPipeline } from "../constants/pipelines";
 /**
  * Publishing-only steps that must not become LLM / Input-tab fodder for later
  * content steps. Meta SEO sits beside the article (Final Output → Metadata).
+ * Supporting posts are a cluster sidecar — fact_check still reads the main draft.
  */
 const PUBLISHING_SIDECAR_STEPS = new Set(["meta_seo"]);
+const CLUSTER_SIDECAR_STEPS = new Set(["supporting_posts"]);
 
 /**
  * Whether `candidate` is a valid article input for `stepKey`.
  * Meta title & description feed the Metadata panel, not final_output's body.
  */
 function isArticleInputForStep(stepKey, candidate) {
+  if (
+    CLUSTER_SIDECAR_STEPS.has(candidate) &&
+    (stepKey === "fact_check" ||
+      stepKey === "meta_seo" ||
+      stepKey === "final_output")
+  ) {
+    return false;
+  }
   if (stepKey === "final_output" && PUBLISHING_SIDECAR_STEPS.has(candidate)) {
     return false;
   }

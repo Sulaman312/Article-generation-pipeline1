@@ -24,6 +24,29 @@ class StepMarkersTests(unittest.TestCase):
         self.assertEqual(start, "---SERP ANALYSIS START---")
         self.assertEqual(end, "---SERP ANALYSIS END---")
 
+    def test_wrap_collapses_nested_start_markers(self):
+        raw = (
+            "---PAA FAQ RESEARCH START---\n"
+            "---PAA FAQ RESEARCH START---\n"
+            "## Primary keyword & intent\n"
+            "- PRIMARY KEYWORD: test\n"
+            "---PAA FAQ RESEARCH END---\n"
+        )
+        wrapped = wrap_step_artifact("paa_faq_research", raw)
+        self.assertEqual(wrapped.count("---PAA FAQ RESEARCH START---"), 1)
+        self.assertEqual(wrapped.count("---PAA FAQ RESEARCH END---"), 1)
+        self.assertIn("PRIMARY KEYWORD", wrapped)
+
+    def test_wrap_peels_orphan_start_without_end(self):
+        raw = (
+            "---PAA FAQ RESEARCH START---\n"
+            "## Primary keyword & intent\n"
+            "- PRIMARY KEYWORD: test\n"
+        )
+        wrapped = wrap_step_artifact("paa_faq_research", raw)
+        self.assertEqual(wrapped.count("---PAA FAQ RESEARCH START---"), 1)
+        self.assertTrue(wrapped.strip().endswith("---PAA FAQ RESEARCH END---"))
+
     def test_wrap_normalizes_legacy_research_markers(self):
         raw = (
             "---RESEARCH START---\n"

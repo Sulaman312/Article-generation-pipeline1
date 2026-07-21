@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import * as api from "../../services/api";
 import { useToast } from "../../context/ToastContext";
 import { stepsForPipeline } from "../../constants/pipelines";
+import { getPipelineSteps } from "../../constants/pipelineRegistry";
 import {
   SIDEBAR_WIDTH_MAX,
   SIDEBAR_WIDTH_MIN,
@@ -450,7 +451,7 @@ export default function AppSidebar({
       <div className="sb-foot">
         {!collapsed ? (
           <div className="sb-foot-stack">
-            <span>ContentFlow • 9 steps</span>
+            <span>ContentFlow • {getPipelineSteps().length} steps</span>
             {onSignOut ? (
               <button
                 type="button"

@@ -75,16 +75,26 @@ Before you output the article, check all of these:
 ☐ Case study placeholders are replaced with actual stories
 ☐ I have 3+ specific numbers or insights
 ☐ H1 is no more than 60 characters, 5–12 words, with primary keyword once
+☐ **Post-H1 lede:** 2–3 sentences (40–80 words) directly after H1, before first H2 — no "Summary" heading
 ☐ Primary keyword appears once in the first 100 body words and nowhere else exactly in body prose
 ☐ Each secondary keyword appears at most once across headings/body
 ☐ 2–3 image placeholders with descriptive alt text are in place
 ☐ 3–5 inline external links and valid internal links follow the brief
+☐ Proof points and external cites match the outline TRUST & E-E-A-T plan (no invented stats/brands)
 ☐ Tone remains consistent from introduction through CTA
 ☐ The article sounds like {client_name}, not generic AI
 
 If any checkbox is false, do NOT submit. REWRITE until all are true.
 
 WRITING STANDARDS — non-negotiable:
+
+0. POST-H1 LEDE (REQUIRED — AI Overviews / featured snippets)
+   - Structure: `# H1 title` → **2–3 sentences of plain prose (40–80 words)** → `## First H2`
+   - The lede must directly answer the search intent: what this is, who it is for, what they will get.
+   - Use the primary keyword once naturally in the lede or first 100 body words total.
+   - Do **not** add headings like "Summary", "Overview", or "Key takeaways" before the first H2.
+   - Do **not** open with filler ("In today's world…", "If you're reading this…").
+   - Follow the outline **LEDE NOTE**; if missing, use **INTRO NOTE** plus a direct answer in the lede.
 
 1. NO FILLER OPENINGS
    Bad:  "In today's fast-paced world, businesses are increasingly turning to AI..."
@@ -132,7 +142,16 @@ WRITING STANDARDS — non-negotiable:
    - Weave it in naturally — do not drop it in as a block quote or interrupt the flow
    - If no company context is provided, write a placeholder: [INSERT CASE STUDY: topic]
 
-9. EXTERNAL AUTHORITY LINKS (REQUIRED — unless the outline explicitly omits them)
+9. TRUST & E-E-A-T (NATURAL — NO STANDALONE SECTION)
+   - **Experience:** weave the **Research Audit approved case study** (if STATUS is APPROVED) into a
+     proof-point slot — only the narrative/claims the audit allows; cite the approved URL inline.
+   - If the audit says NO APPROVED CASE STUDY, use company-context proof only — never invent a public example.
+   - **Expertise:** accurate terms, BLUF under H2s, honest limits ("this does not apply when…").
+   - **Authoritativeness:** 3–5 inline external links from SERP / audit-approved sources only.
+   - **Trust:** no invented brands, products, prices, or credentials; never use FLAGGED claims.
+   - Never add a heading titled "Why trust us", "E-E-A-T", or similar.
+
+10. EXTERNAL AUTHORITY LINKS (REQUIRED — unless the outline explicitly omits them)
    - Include **3–5** outbound markdown links: `[2–3 word anchor](https://full-url)`.
    - Use URLs from the **SERP research digest** and **SERP analysis** in your user message.
    - Do **not** invent URLs. If no URL is available for a claim, generalize the claim or omit the stat.
@@ -141,29 +160,38 @@ WRITING STANDARDS — non-negotiable:
      after a period and never dump a link list at the end.
    - Do not link competitor sales pages unless the brief is explicitly comparative.
 
-10. SEO & KEYWORD DISCIPLINE (NON-NEGOTIABLE)
+11. SEO & KEYWORD DISCIPLINE (NON-NEGOTIABLE)
    - H1: max 60 characters, 5–12 words, primary keyword once.
    - Body: use the primary keyword once in the first 100 words, then use synonyms instead of
      repeating that exact phrase. Use each secondary keyword at most once across H2s/body.
+   - Prefer long-tails / high-intent phrases from **ATP TOPIC RESEARCH** marked for the main article
+     (at most once each). Do not force every ATP phrase into the draft.
    - Metadata is counted separately from title and article body.
    - When SERP data favors lean content, remove filler and repeated points while staying within
      the editor's allowed word-count range.
 
-11. IN-TEXT IMAGES (REQUIRED — unless the outline explicitly omits them)
+11b. SUPPORTING CLUSTER INTERLINKS (when ATP TOPIC RESEARCH is present)
+   - Weave 1–3 mid-sentence placeholders toward supporting posts:
+     `[short anchor](INTERNAL: Supporting: <exact S# title from ATP>)`
+   - Do not invent supporting titles — only use titles from the ATP Supporting blog cluster.
+   - Keep anchors 2–3 words; never dump a link list.
+
+12. IN-TEXT IMAGES (REQUIRED — unless the outline explicitly omits them)
    - Place 2–3 images according to the outline IMAGE PLAN.
    - Format: `![descriptive alt text](IMAGE: slug-or-description)`
    - Alt text: 8–15 words describing the scene; include a keyword only when natural.
    - Spread images across the article.
 
-12. FAQ SECTION (REQUIRED — unless the outline explicitly omits it)
-   - After the last main H2 body section and **before** the conclusion/CTA, include:
-     `## Frequently Asked Questions`
-   - Write **5–7** Q&A pairs from the outline FAQ SECTION (add one if the outline listed fewer).
+13. FAQ SECTION (REQUIRED — unless the outline explicitly omits it)
+   - After the last main H2 body section and **before** the conclusion/CTA, include the FAQ H2
+     (localized heading when Notes / PAA research specify a language).
+   - Write Q&A pairs from the outline FAQ SECTION / **PAA / FAQ RESEARCH Recommended FAQ bank**.
+   - Prefer the PAA bank question wording; do not invent a parallel English FAQ when the article is French (or other).
+   - If the PAA bank is LOW SIGNAL, write fewer questions — do not pad.
    - Format each item as:
      `### [Full question as a natural question?]`
      Then 2–4 sentences answering directly (40–80 words). No filler.
-   - Questions must be specific (pricing, ROI, GDPR/HIPAA, implementation time, vs SaaS, etc.) —
-     not "What is AI?" unless the audience is truly beginner.
+   - Do not invent brand names, products, or prices unless present in cited sources in the user message.
    - FAQ does **not** count toward the form Word Count (body prose only).
    - Do not use an accordion shortcode — plain markdown only.
    - Use numbered lists for sequential steps, bullets for non-sequential items

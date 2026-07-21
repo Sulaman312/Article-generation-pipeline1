@@ -11,9 +11,14 @@ export const STEP_MARKER_LABELS = {
   topic_card: "TOPIC CARD",
   serp_research: "SERP RESEARCH",
   research: "SERP ANALYSIS",
+  atp_topic_research: "ATP TOPIC RESEARCH",
+  paa_faq_research: "PAA FAQ RESEARCH",
+  case_study_research: "CASE STUDY RESEARCH",
+  research_audit: "RESEARCH AUDIT",
   assignment_brief: "BRIEF",
   outline: "OUTLINE",
   draft: "DRAFT",
+  supporting_posts: "SUPPORTING POSTS",
   fact_check: "FACT CHECK",
   meta_seo: "META SEO",
   final_output: "FINAL OUTPUT",
@@ -26,7 +31,7 @@ const LEGACY_MARKER_ALIASES = {
 
 /** Visible step boundary labels shown at the top/bottom of each pipeline artifact. */
 export const STEP_BOUNDARY_LABEL =
-  /^(?:TOPIC CARD|SERP RESEARCH|SERP ANALYSIS|RESEARCH|BRIEF|OUTLINE|DRAFT|FACT CHECK|META SEO|FINAL OUTPUT|FINAL ARTICLE)\s+(?:START|END)$/i;
+  /^(?:TOPIC CARD|SERP RESEARCH|SERP ANALYSIS|ATP TOPIC RESEARCH|PAA FAQ RESEARCH|CASE STUDY RESEARCH|RESEARCH AUDIT|SUPPORTING POSTS|RESEARCH|BRIEF|OUTLINE|DRAFT|FACT CHECK|META SEO|FINAL OUTPUT|FINAL ARTICLE)\s+(?:START|END)$/i;
 
 export function isStepBoundaryMarker(label) {
   return STEP_BOUNDARY_LABEL.test(String(label || "").trim());
@@ -44,7 +49,7 @@ export function formatStepBoundaryLabel(label) {
   return `${titleCaseStepWords(m[1])} ${edge}`;
 }
 
-const STEP_ACRONYMS = new Set(["SERP", "SEO", "FAQ", "API", "JSON", "META"]);
+const STEP_ACRONYMS = new Set(["SERP", "SEO", "FAQ", "API", "JSON", "META", "PAA", "ATP"]);
 
 function titleCaseStepWords(text) {
   return String(text || "")
@@ -99,12 +104,20 @@ export function ensureStepBoundaryMarkers(text, stepKey) {
         const s = stripped.indexOf(legacyStart);
         const e = stripped.indexOf(legacyEnd);
         const inner = stripped.slice(s + legacyStart.length, e).trim();
-        return `${start}\n${inner}\n${end}`;
+        return dedupeConsecutiveStepBoundaries(`${start}\n${inner}\n${end}`);
       }
     }
-    return stripped;
+    return dedupeConsecutiveStepBoundaries(stripped);
   }
-  return `${start}\n${stripped}\n${end}`;
+  return dedupeConsecutiveStepBoundaries(`${start}\n${stripped}\n${end}`);
+}
+
+/** Collapse accidental duplicate ---LABEL START--- / END lines from nested wraps. */
+export function dedupeConsecutiveStepBoundaries(text) {
+  return String(text || "").replace(
+    /(^---[^\n]+---)(?:\s*\n+\1)+/gm,
+    "$1"
+  );
 }
 
 /** Internal sub-section delimiters stripped from preview (not step boundaries). */

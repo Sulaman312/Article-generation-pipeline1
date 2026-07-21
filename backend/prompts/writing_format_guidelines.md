@@ -30,8 +30,17 @@
 
 ## Structure / BLUF
 
+- **Post-H1 lede (required):** Immediately after the H1, write **2–3 sentences (40–80 words total)** that directly answer the search intent: what the article covers, who it is for, and what the reader will learn or decide. Use the primary keyword once naturally. Do **not** add a heading like "Summary" or "Key takeaways" — plain prose only, then the first H2.
 - Use **BLUF** (Bottom Line Up Front) in every section: the first sentence or two under any H2 (and the first sentence of every H3) states the main takeaway before supporting detail. No throat-clearing.
 - **Heading-Body Contract:** the body must deliver exactly what the heading promises (a "how-to" heading needs steps/numbered guidance, a comparison heading needs comparison, etc.).
+
+## Trust / E-E-A-T (natural, in-body)
+
+- Show **experience** with specific workflows, roles, or situations — not "as experts we believe."
+- Show **expertise** with accurate terms, BLUF answers, and real constraints (when something does not apply).
+- Show **authoritativeness** with 3–5 inline outbound links to credible sources (from SERP research), woven mid-sentence.
+- Show **trust** by stating limits, avoiding invented stats/brands/prices, and using proof points only where context supports them.
+- Do **not** add a standalone "Why trust us" or "E-E-A-T" section — trust signals live inside normal prose, proof slots, and citations.
 
 ## CTAs
 

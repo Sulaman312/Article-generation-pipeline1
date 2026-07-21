@@ -225,6 +225,445 @@ def run_sonar_serp(topic_card_text: str) -> str:
     return wrap_step_artifact("serp_research", "\n".join(out) + "\n")
 
 
+def build_paa_faq_user_message(
+    topic_card_text: str,
+    *,
+    serp_digest: str = "",
+    research_doc: str = "",
+    keyword_data: str = "",
+    notes: str = "",
+) -> str:
+    """User message for the PAA / FAQ research Sonar call."""
+    tc = (topic_card_text or "").strip() or "[EMPTY — topic card missing]"
+    serp = (serp_digest or "").strip() or "[none]"
+    analysis = (research_doc or "").strip() or "[none]"
+    kw = (keyword_data or "").strip() or "[none]"
+    ed_notes = (notes or "").strip() or "[none]"
+    return (
+        "Below is the **Topic Card** from our editorial pipeline (keyword, intent, angles, constraints).\n\n"
+        "Optional context may follow (SERP digest, SERP analysis, keyword-tool data, and/or editor notes). "
+        "Use it when present; do not invent missing SERP or keyword details.\n\n"
+        "Task:\n"
+        "1. Research **People Also Ask**, related questions, and FAQ-worthy objections for this topic.\n"
+        "2. **Reconcile** web/SERP signals with keyword-tool data when provided:\n"
+        "   - Keyword-tool export = demand anchor (volume, autocomplete breadth, question count).\n"
+        "   - Web/PAA = phrasing and objection signals, not proof of volume when keyword data says otherwise.\n"
+        "   - If seed keyword shows 0 or near-0 volume, flag it explicitly and downgrade unverified web questions.\n"
+        "3. Produce a prioritized FAQ question bank for our article (featured snippets + on-page FAQ).\n"
+        "4. Attach a citation for every non-INFERRED question. If you cannot cite it, mark INFERRED.\n"
+        "5. Do not invent URLs or API strings — only cite what you fetched or what appears verbatim in "
+        "## Related questions (API).\n\n"
+        "---TOPIC CARD---\n"
+        f"{tc}\n"
+        "---END TOPIC CARD---\n\n"
+        "---SERP RESEARCH DIGEST (optional)---\n"
+        f"{serp}\n"
+        "---END SERP DIGEST---\n\n"
+        "---SERP ANALYSIS (optional)---\n"
+        f"{analysis}\n"
+        "---END SERP ANALYSIS---\n\n"
+        "---KEYWORD DATA (optional)---\n"
+        f"{kw}\n"
+        "---END KEYWORD DATA---\n\n"
+        "---EDITOR NOTES / LANGUAGE (optional)---\n"
+        f"{ed_notes}\n"
+        "---END NOTES---"
+    )
+
+
+def manual_paa_faq_placeholder() -> str:
+    """Saved when no API key — editor pastes PAA / FAQ research in the Run UI."""
+    body = (
+        "SOURCE: **MANUAL** (Perplexity API key not configured on the server)\n\n"
+        "Add `PERPLEXITY_API_KEY` to your `.env` (see `env.example`) to auto-generate this step.\n\n"
+        "**What to do now:**\n"
+        "1. In Perplexity (or your tool), research People Also Ask / related questions for this topic.\n"
+        "2. Prefer questions with real SERP evidence; mark anything unproven as INFERRED.\n"
+        "3. Paste a structured FAQ bank (6–8 questions when evidence supports it; fewer if thin).\n"
+        "4. Click **Edit output** on this step, paste, save — then run **Assignment Brief**.\n"
+    )
+    return wrap_step_artifact("paa_faq_research", body)
+
+
+def run_sonar_paa_faq(
+    topic_card_text: str,
+    *,
+    serp_digest: str = "",
+    research_doc: str = "",
+    keyword_data: str = "",
+    notes: str = "",
+) -> str:
+    """Call Perplexity Sonar for PAA / FAQ question bank; return markdown artifact body."""
+    if not config.PERPLEXITY_API_KEY:
+        raise RuntimeError("PERPLEXITY_API_KEY is not set")
+
+    from .. import prompts
+
+    model = _validated_model()
+    url = (config.PERPLEXITY_API_URL or "https://api.perplexity.ai/v1/sonar").strip()
+    payload: dict[str, Any] = {
+        "model": model,
+        "max_tokens": min(max(512, config.PERPLEXITY_MAX_TOKENS), 4000),
+        "temperature": float(config.PERPLEXITY_TEMPERATURE or 0.15),
+        "search_mode": "web",
+        "return_related_questions": True,
+        "messages": [
+            {"role": "system", "content": prompts.PAA_FAQ_RESEARCH_PROMPT},
+            {
+                "role": "user",
+                "content": build_paa_faq_user_message(
+                    topic_card_text,
+                    serp_digest=serp_digest,
+                    research_doc=research_doc,
+                    keyword_data=keyword_data,
+                    notes=notes,
+                ),
+            },
+        ],
+    }
+    headers = {
+        "Authorization": f"Bearer {config.PERPLEXITY_API_KEY}",
+        "Content-Type": "application/json",
+        "Accept": "application/json",
+    }
+    try:
+        data = _post_json(url, headers, payload)
+    except HTTPError as e:
+        err_body = ""
+        try:
+            err_body = e.read().decode("utf-8", errors="replace")[:800]
+        except Exception:
+            pass
+        raise ValueError(
+            f"Perplexity HTTP {e.code}. {err_body or e.reason}"
+        ) from e
+    except URLError as e:
+        raise ValueError(f"Perplexity network error: {e}") from e
+
+    text = _extract_message_text(data).strip()
+    if not text:
+        raise ValueError("Perplexity returned empty content")
+
+    citations = data.get("citations")
+    cit_lines: list[str] = []
+    if isinstance(citations, list):
+        for c in citations:
+            if isinstance(c, str) and c.strip():
+                cit_lines.append(c.strip())
+
+    related = data.get("related_questions")
+    rq_lines: list[str] = []
+    if isinstance(related, list):
+        for q in related:
+            if isinstance(q, str) and q.strip():
+                rq_lines.append(q.strip())
+
+    # Pipeline owns ## Related questions (API) — append/overwrite with verbatim API strings.
+    text = _ensure_related_questions_api_section(text, rq_lines)
+
+    out: list[str] = [text]
+    if cit_lines:
+        out.extend(["", "## Citable sources (API)"])
+        out.extend(f"- {u}" for u in cit_lines[:40])
+    return wrap_step_artifact("paa_faq_research", "\n".join(out) + "\n")
+
+
+def build_atp_topic_user_message(
+    topic_card_text: str,
+    *,
+    serp_digest: str = "",
+    research_doc: str = "",
+    keyword_data: str = "",
+    notes: str = "",
+) -> str:
+    """User message for AnswerThePublic-style topic research Sonar call."""
+    tc = (topic_card_text or "").strip() or "[EMPTY — topic card missing]"
+    serp = (serp_digest or "").strip() or "[none]"
+    analysis = (research_doc or "").strip() or "[none]"
+    kw = (keyword_data or "").strip() or "[none]"
+    ed_notes = (notes or "").strip() or "[none]"
+    return (
+        "Below is the **Topic Card** from our editorial pipeline.\n\n"
+        "Optional context may follow (SERP digest, SERP analysis, keyword-tool / AnswerThePublic "
+        "paste, editor notes). Use it when present; do not invent missing volume or tool exports.\n\n"
+        "Task:\n"
+        "1. Produce an **AnswerThePublic-style** map: questions, prepositions, comparisons, "
+        "alphabetical/long-tail variants grounded in current web/SERP signals.\n"
+        "2. Identify **high-intent** questions and long-tails for the main article and a supporting "
+        "blog cluster.\n"
+        "3. Propose **3–5 supporting blog topics** with interlink anchors to/from the main article "
+        "(plan only — do not write full posts).\n"
+        "4. List keywords the **main** article should weave in naturally.\n"
+        "5. Attach citations for non-INFERRED items. Never invent volumes or URLs.\n"
+        "6. Reconcile with keyword-tool / ATP paste when provided — treat it as the demand anchor.\n\n"
+        "---TOPIC CARD---\n"
+        f"{tc}\n"
+        "---END TOPIC CARD---\n\n"
+        "---SERP RESEARCH DIGEST (optional)---\n"
+        f"{serp}\n"
+        "---END SERP DIGEST---\n\n"
+        "---SERP ANALYSIS (optional)---\n"
+        f"{analysis}\n"
+        "---END SERP ANALYSIS---\n\n"
+        "---KEYWORD / ANSWERTHEPUBLIC DATA (optional)---\n"
+        f"{kw}\n"
+        "---END KEYWORD DATA---\n\n"
+        "---EDITOR NOTES / LANGUAGE (optional)---\n"
+        f"{ed_notes}\n"
+        "---END NOTES---"
+    )
+
+
+def manual_atp_topic_placeholder() -> str:
+    """Saved when no API key — editor pastes ATP-style research in the Run UI."""
+    body = (
+        "SOURCE: **MANUAL** (Perplexity API key not configured on the server)\n\n"
+        "Add `PERPLEXITY_API_KEY` to your `.env` (see `env.example`) to auto-generate this step.\n\n"
+        "**What to do now:**\n"
+        "1. In AnswerThePublic, Perplexity, or your keyword tool, research questions + long-tails "
+        "for this topic.\n"
+        "2. Paste a structured map: question groups, high-intent shortlist, long-tails, and "
+        "3–5 supporting blog ideas with interlink anchors.\n"
+        "3. Click **Edit output** on this step, paste, save — then continue the pipeline.\n"
+    )
+    return wrap_step_artifact("atp_topic_research", body)
+
+
+def run_sonar_atp_topic(
+    topic_card_text: str,
+    *,
+    serp_digest: str = "",
+    research_doc: str = "",
+    keyword_data: str = "",
+    notes: str = "",
+) -> str:
+    """Call Perplexity Sonar for AnswerThePublic-style topic research."""
+    if not config.PERPLEXITY_API_KEY:
+        raise RuntimeError("PERPLEXITY_API_KEY is not set")
+
+    from .. import prompts
+
+    model = _validated_model()
+    url = (config.PERPLEXITY_API_URL or "https://api.perplexity.ai/v1/sonar").strip()
+    payload: dict[str, Any] = {
+        "model": model,
+        "max_tokens": min(max(512, config.PERPLEXITY_MAX_TOKENS), 4000),
+        "temperature": float(config.PERPLEXITY_TEMPERATURE or 0.15),
+        "search_mode": "web",
+        "return_related_questions": True,
+        "messages": [
+            {"role": "system", "content": prompts.ATP_TOPIC_RESEARCH_PROMPT},
+            {
+                "role": "user",
+                "content": build_atp_topic_user_message(
+                    topic_card_text,
+                    serp_digest=serp_digest,
+                    research_doc=research_doc,
+                    keyword_data=keyword_data,
+                    notes=notes,
+                ),
+            },
+        ],
+    }
+    headers = {
+        "Authorization": f"Bearer {config.PERPLEXITY_API_KEY}",
+        "Content-Type": "application/json",
+        "Accept": "application/json",
+    }
+    try:
+        data = _post_json(url, headers, payload)
+    except HTTPError as e:
+        err_body = ""
+        try:
+            err_body = e.read().decode("utf-8", errors="replace")[:800]
+        except Exception:
+            pass
+        raise ValueError(
+            f"Perplexity HTTP {e.code}. {err_body or e.reason}"
+        ) from e
+    except URLError as e:
+        raise ValueError(f"Perplexity network error: {e}") from e
+
+    text = _extract_message_text(data).strip()
+    if not text:
+        raise ValueError("Perplexity returned empty content")
+
+    citations = data.get("citations")
+    cit_lines: list[str] = []
+    if isinstance(citations, list):
+        for c in citations:
+            if isinstance(c, str) and c.strip():
+                cit_lines.append(c.strip())
+
+    related = data.get("related_questions")
+    rq_lines: list[str] = []
+    if isinstance(related, list):
+        for q in related:
+            if isinstance(q, str) and q.strip():
+                rq_lines.append(q.strip())
+
+    text = _ensure_related_questions_api_section(text, rq_lines)
+
+    out: list[str] = [text]
+    if cit_lines:
+        out.extend(["", "## Citable sources (API)"])
+        out.extend(f"- {u}" for u in cit_lines[:40])
+    return wrap_step_artifact("atp_topic_research", "\n".join(out) + "\n")
+
+
+def build_case_study_user_message(
+    topic_card_text: str,
+    *,
+    atp_doc: str = "",
+    research_doc: str = "",
+    serp_digest: str = "",
+    keyword_data: str = "",
+    notes: str = "",
+) -> str:
+    """User message for case-study Sonar research."""
+    tc = (topic_card_text or "").strip() or "[EMPTY — topic card missing]"
+    atp = (atp_doc or "").strip() or "[none]"
+    analysis = (research_doc or "").strip() or "[none]"
+    serp = (serp_digest or "").strip() or "[none]"
+    kw = (keyword_data or "").strip() or "[none]"
+    ed_notes = (notes or "").strip() or "[none]"
+    return (
+        "Find **one verifiable public case study or real-world example** (plus up to 2 backups) "
+        "for the article topic below. Every candidate needs a full https URL from live search. "
+        "Do not invent brands, prices, or ROI figures.\n\n"
+        "Prefer examples that fit the industry/angle and ATP-validated keywords when present.\n\n"
+        "---TOPIC CARD---\n"
+        f"{tc}\n"
+        "---END TOPIC CARD---\n\n"
+        "---ATP TOPIC RESEARCH (optional)---\n"
+        f"{atp}\n"
+        "---END ATP---\n\n"
+        "---SERP ANALYSIS (optional)---\n"
+        f"{analysis}\n"
+        "---END SERP ANALYSIS---\n\n"
+        "---SERP DIGEST (optional)---\n"
+        f"{serp}\n"
+        "---END SERP DIGEST---\n\n"
+        "---KEYWORD / ATP DATA (optional)---\n"
+        f"{kw}\n"
+        "---END KEYWORD DATA---\n\n"
+        "---EDITOR NOTES (optional)---\n"
+        f"{ed_notes}\n"
+        "---END NOTES---"
+    )
+
+
+def manual_case_study_placeholder() -> str:
+    body = (
+        "SOURCE: **MANUAL** (Perplexity API key not configured on the server)\n\n"
+        "Add `PERPLEXITY_API_KEY` to your `.env` to auto-find a linkable case study.\n\n"
+        "**What to do now:**\n"
+        "1. Find one public case study / real example with a working https URL.\n"
+        "2. Paste the structured case-study block (primary + backups).\n"
+        "3. Save — the pipeline will URL-check links on the next automated run when the key is set;\n"
+        "   for manual paste, the research audit will still scrutinize claims.\n"
+    )
+    return wrap_step_artifact("case_study_research", body)
+
+
+def run_sonar_case_study(
+    topic_card_text: str,
+    *,
+    atp_doc: str = "",
+    research_doc: str = "",
+    serp_digest: str = "",
+    keyword_data: str = "",
+    notes: str = "",
+) -> str:
+    """Call Perplexity Sonar for a linkable case study; append URL verification."""
+    if not config.PERPLEXITY_API_KEY:
+        raise RuntimeError("PERPLEXITY_API_KEY is not set")
+
+    from .. import prompts
+    from .. import url_verify
+
+    model = _validated_model()
+    url = (config.PERPLEXITY_API_URL or "https://api.perplexity.ai/v1/sonar").strip()
+    payload: dict[str, Any] = {
+        "model": model,
+        "max_tokens": min(max(512, config.PERPLEXITY_MAX_TOKENS), 3500),
+        "temperature": float(config.PERPLEXITY_TEMPERATURE or 0.15),
+        "search_mode": "web",
+        "return_related_questions": False,
+        "messages": [
+            {"role": "system", "content": prompts.CASE_STUDY_RESEARCH_PROMPT},
+            {
+                "role": "user",
+                "content": build_case_study_user_message(
+                    topic_card_text,
+                    atp_doc=atp_doc,
+                    research_doc=research_doc,
+                    serp_digest=serp_digest,
+                    keyword_data=keyword_data,
+                    notes=notes,
+                ),
+            },
+        ],
+    }
+    headers = {
+        "Authorization": f"Bearer {config.PERPLEXITY_API_KEY}",
+        "Content-Type": "application/json",
+        "Accept": "application/json",
+    }
+    try:
+        data = _post_json(url, headers, payload)
+    except HTTPError as e:
+        err_body = ""
+        try:
+            err_body = e.read().decode("utf-8", errors="replace")[:800]
+        except Exception:
+            pass
+        raise ValueError(
+            f"Perplexity HTTP {e.code}. {err_body or e.reason}"
+        ) from e
+    except URLError as e:
+        raise ValueError(f"Perplexity network error: {e}") from e
+
+    text = _extract_message_text(data).strip()
+    if not text:
+        raise ValueError("Perplexity returned empty content")
+
+    citations = data.get("citations")
+    cit_lines: list[str] = []
+    if isinstance(citations, list):
+        for c in citations:
+            if isinstance(c, str) and c.strip():
+                cit_lines.append(c.strip())
+
+    out: list[str] = [text]
+    if cit_lines:
+        out.extend(["", "## Citable sources (API)"])
+        out.extend(f"- {u}" for u in cit_lines[:40])
+
+    wrapped_body = "\n".join(out) + "\n"
+    verified = url_verify.append_url_verification(wrapped_body, limit=20)
+    return wrap_step_artifact("case_study_research", verified)
+
+
+_RELATED_API_SECTION_RE = re.compile(
+    r"(##\s+Related questions \(API\)\s*\n)(.*?)(?=\n##\s|\Z)",
+    re.IGNORECASE | re.DOTALL,
+)
+
+
+def _ensure_related_questions_api_section(text: str, rq_lines: list[str]) -> str:
+    """Replace or append the Related questions (API) block with pipeline-owned strings."""
+    body = (text or "").strip()
+    if not rq_lines:
+        block = "## Related questions (API)\n[none]\n"
+    else:
+        block = "## Related questions (API)\n" + "\n".join(f"- {q}" for q in rq_lines) + "\n"
+
+    if _RELATED_API_SECTION_RE.search(body):
+        return _RELATED_API_SECTION_RE.sub(block + "\n", body, count=1).strip()
+    return body.rstrip() + "\n\n" + block
+
+
 FACTCHECK_DRAFT_CHAR_LIMIT = 48_000
 
 FACTCHECK_SYSTEM_PROMPT = """You are a meticulous research assistant with web search access.

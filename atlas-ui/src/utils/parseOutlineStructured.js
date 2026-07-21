@@ -81,6 +81,15 @@ export function parseOutlineStructured(text) {
   if (!/H1\s*:/i.test(body) && !/H2\s*:/i.test(body)) return null;
 
   const h1 = (body.match(/^\s*H1\s*:\s*(.+)$/im) || [])[1]?.trim() || "";
+  const ledeNote = extractNote(body, "LEDE NOTE", [
+    "INTRO NOTE",
+    "H2",
+    "FAQ SECTION",
+    "CONCLUSION NOTE",
+    "CTA NOTE",
+    "IMAGE PLAN",
+    "TOTAL ESTIMATED WORD COUNT",
+  ]);
   const introNote = extractNote(body, "INTRO NOTE", [
     "H2",
     "FAQ SECTION",
@@ -127,10 +136,11 @@ export function parseOutlineStructured(text) {
     if (sec) sections.push(sec);
   }
 
-  if (!h1 && !sections.length && !introNote) return null;
+  if (!h1 && !sections.length && !introNote && !ledeNote) return null;
 
   return {
     h1,
+    ledeNote,
     introNote,
     sections,
     conclusionNote,

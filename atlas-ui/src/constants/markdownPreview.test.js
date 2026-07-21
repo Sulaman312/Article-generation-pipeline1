@@ -36,6 +36,20 @@ describe("step boundary markers", () => {
     }
   });
 
+  test("dedupes consecutive duplicate start markers in preview", () => {
+    const raw = [
+      "---PAA FAQ RESEARCH START---",
+      "",
+      "---PAA FAQ RESEARCH START---",
+      "",
+      "## Primary keyword & intent",
+      "- PRIMARY KEYWORD: x",
+      "---PAA FAQ RESEARCH END---",
+    ].join("\n");
+    const out = normalizeStepArtifactMarkdown(raw, "paa_faq_research");
+    expect(out.match(/PAA FAQ RESEARCH START/g)).toHaveLength(1);
+  });
+
   test("normalizeStepArtifactMarkdown keeps fact-check start/end chrome", () => {
     const raw = [
       "---PERPLEXITY WEB FACT-CHECK (raw audit trail)---",

@@ -57,6 +57,12 @@ export const EDITORIAL_FIELD_SPECS = [
     hint: "Yes = 3–5 outbound links to authoritative sources (gov, research, industry) for trust. Uses URLs from SERP research.",
   },
   {
+    key: "keyword_data",
+    label: "Keyword Data",
+    wide: true,
+    hint: "Paste AnswerThePublic / Semrush / keyword CSV or export. Used to reconcile ATP + PAA volume (not guessed).",
+  },
+  {
     key: "notes",
     label: "Notes",
     wide: true,
@@ -84,4 +90,45 @@ export function buildManualInputsPayload(fields, semrushNotes = "") {
 
 export function hasRequiredTopic(fields) {
   return Boolean((fields.topic || "").trim());
+}
+
+/**
+ * Turn run.manual_inputs into KeyValueStructured rows (snake_case or label keys).
+ */
+export function manualInputsToDisplayFields(manualInputs) {
+  if (!manualInputs || typeof manualInputs !== "object") return [];
+
+  const used = new Set();
+  const rows = [];
+
+  for (const spec of EDITORIAL_FIELD_SPECS) {
+    const raw =
+      manualInputs[spec.key] ??
+      manualInputs[spec.label] ??
+      "";
+    const value = String(raw || "").trim();
+    if (!value) continue;
+    used.add(spec.key);
+    used.add(spec.label);
+    rows.push({
+      key: spec.key,
+      label: spec.label,
+      value,
+    });
+  }
+
+  // Preserve any extra keys (e.g. legacy fields) in stable order
+  for (const [key, raw] of Object.entries(manualInputs)) {
+    if (used.has(key)) continue;
+    if (key === "semrush_notes") continue;
+    const value = String(raw || "").trim();
+    if (!value) continue;
+    rows.push({
+      key,
+      label: key.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase()),
+      value,
+    });
+  }
+
+  return rows;
 }

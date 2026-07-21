@@ -22,6 +22,8 @@ class EditorialNoticeTests(unittest.TestCase):
         notice = editorial_input.seo_readability_notice()
         self.assertIn("once in the first 100 body words", notice)
         self.assertIn("do not repeat that exact phrase", notice)
+        self.assertIn("Post-H1 lede", notice)
+        self.assertIn("E-E-A-T", notice)
         self.assertNotIn("once in H1 only", notice)
 
         combined_prompts = "\n".join(
@@ -50,7 +52,7 @@ class EditorialNoticeTests(unittest.TestCase):
             {"Notes": "Write the article in French."}
         )
         self.assertIn("## Questions fréquentes", notice)
-        self.assertIn("exactly one", notice.lower())
+        self.assertIn("PAA / FAQ RESEARCH", notice)
         self.assertIn("French", notice)
 
     def test_article_language_from_notes(self):

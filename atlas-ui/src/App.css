@@ -3993,6 +3993,25 @@ body.sb-resizing .sb {
   padding-top: 4px;
 }
 
+.run-manual-inputs {
+  margin-top: 28px;
+  padding-top: 8px;
+  border-top: 1px solid var(--border, #e5e7eb);
+}
+
+.run-manual-inputs-eyebrow {
+  margin-bottom: 14px;
+}
+
+.run-manual-inputs-empty {
+  margin: 20px 0 0;
+  font-size: 14px;
+}
+
+.run-manual-inputs .topic-card-structured {
+  margin-top: 0;
+}
+
 .empty-state.empty-state-inline {
   text-align: left;
   padding: 48px 8px;

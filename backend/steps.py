@@ -301,6 +301,291 @@ def run_serp_research(client_id: str, run_id: str, previous_artifact: str = "") 
     return output
 
 
+def run_atp_topic_research(client_id: str, run_id: str, previous_artifact: str = "") -> str:
+    """AnswerThePublic-style topic research — Perplexity Sonar (or manual placeholder)."""
+    step_name = "atp_topic_research"
+    from .integrations import perplexity as ppx
+
+    topic_card = _load_prior_artifact(client_id, run_id, "topic_card")
+    serp_digest = _load_prior_artifact(client_id, run_id, "serp_research")
+    research_doc = (previous_artifact or "").strip() or _load_prior_artifact(
+        client_id, run_id, "research"
+    )
+    manifest = artifacts.read_run_manifest(client_id, run_id) or {}
+    manual = manifest.get("manual_inputs")
+    notes = ""
+    keyword_data = ""
+    if isinstance(manual, dict):
+        notes = editorial_input.notes_from_manual(manual)
+        keyword_data = _keyword_data_from_manual(manual if isinstance(manual, dict) else None)
+
+    if config.PERPLEXITY_API_KEY:
+        try:
+            output = ppx.run_sonar_atp_topic(
+                topic_card,
+                serp_digest=serp_digest,
+                research_doc=research_doc,
+                keyword_data=keyword_data,
+                notes=notes,
+            )
+        except Exception as e:
+            logger.exception("Perplexity ATP topic research failed")
+            raise RuntimeError(f"Perplexity ATP topic research failed: {e}") from e
+    else:
+        logger.info("%s: no PERPLEXITY_API_KEY — writing manual placeholder", step_name)
+        output = ppx.manual_atp_topic_placeholder()
+
+    output = wrap_step_artifact(step_name, output)
+    artifacts.save_artifact(client_id, run_id, step_name, output)
+    logger.info("step complete %s", step_name)
+    return output
+
+
+def _atp_block_for_run(client_id: str, run_id: str) -> str:
+    """Inject ATP topic research into brief/outline/draft user messages."""
+    atp = _load_prior_artifact(client_id, run_id, "atp_topic_research")
+    atp_step = _step_num("atp_topic_research") or "?"
+    if not atp.strip():
+        return (
+            f"\n\n---ATP TOPIC RESEARCH (STEP {atp_step})---\n"
+            f"[MISSING — re-run Step {atp_step}. Until then, do not invent a full supporting "
+            "cluster; use only clearly needed long-tails.]\n"
+        )
+    return (
+        f"\n\n---ATP TOPIC RESEARCH (STEP {atp_step}) — KEYWORDS + SUPPORTING CLUSTER---\n"
+        f"{atp.strip()}\n"
+        "Use high-intent phrases and main-article long-tails naturally (at most once each). "
+        "Plan or place INTERNAL links toward supporting posts using "
+        "`[short anchor](INTERNAL: Supporting: <title>)`. "
+        "Respect LOW SIGNAL — do not invent extra cluster posts.\n"
+    )
+
+
+def _keyword_data_from_manual(manual: dict | None) -> str:
+    if not isinstance(manual, dict):
+        return ""
+    return (
+        manual.get("Keyword Data")
+        or manual.get("keyword_data")
+        or manual.get("ATP Data")
+        or manual.get("atp_data")
+        or manual.get("AnswerThePublic")
+        or ""
+    ).strip()
+
+
+def run_case_study_research(client_id: str, run_id: str, previous_artifact: str = "") -> str:
+    """Find a linkable case study via Perplexity; pipeline URL-checks citations."""
+    step_name = "case_study_research"
+    from .integrations import perplexity as ppx
+    from . import url_verify
+
+    topic_card = _load_prior_artifact(client_id, run_id, "topic_card")
+    serp_digest = _load_prior_artifact(client_id, run_id, "serp_research")
+    research_doc = _load_prior_artifact(client_id, run_id, "research")
+    atp_doc = _load_prior_artifact(client_id, run_id, "atp_topic_research")
+    manifest = artifacts.read_run_manifest(client_id, run_id) or {}
+    manual = manifest.get("manual_inputs")
+    notes = editorial_input.notes_from_manual(manual) if isinstance(manual, dict) else ""
+    keyword_data = _keyword_data_from_manual(manual if isinstance(manual, dict) else None)
+
+    if config.PERPLEXITY_API_KEY:
+        try:
+            output = ppx.run_sonar_case_study(
+                topic_card,
+                atp_doc=atp_doc,
+                research_doc=research_doc,
+                serp_digest=serp_digest,
+                keyword_data=keyword_data,
+                notes=notes,
+            )
+        except Exception as e:
+            logger.exception("Perplexity case study research failed")
+            raise RuntimeError(f"Perplexity case study research failed: {e}") from e
+    else:
+        logger.info("%s: no PERPLEXITY_API_KEY — writing manual placeholder", step_name)
+        output = ppx.manual_case_study_placeholder()
+        # Still URL-check any links the editor may have pasted on re-run.
+        if "https://" in output.lower():
+            output = wrap_step_artifact(
+                step_name, url_verify.append_url_verification(output, limit=20)
+            )
+
+    output = wrap_step_artifact(step_name, output)
+    artifacts.save_artifact(client_id, run_id, step_name, output)
+    logger.info("step complete %s", step_name)
+    return output
+
+
+def run_research_audit(client_id: str, run_id: str, previous_artifact: str = "") -> str:
+    """Claude gate: scrub Perplexity artifacts before brief/draft."""
+    step_name = "research_audit"
+    context = artifacts.load_context(client_id, step_name)
+    system_msg = prompts.RESEARCH_AUDIT_PROMPT + "\n" + context
+    step_label = _step_label(step_name)
+
+    manifest = artifacts.read_run_manifest(client_id, run_id) or {}
+    manual = manifest.get("manual_inputs")
+    notes = editorial_input.notes_from_manual(manual) if isinstance(manual, dict) else ""
+    keyword_data = _keyword_data_from_manual(manual if isinstance(manual, dict) else None)
+
+    case_study = (previous_artifact or "").strip() or _load_prior_artifact(
+        client_id, run_id, "case_study_research"
+    )
+    user_msg = (
+        "Audit the following research artifacts. Reject fabricated brands, prices, stats, "
+        "and dead/FAIL URLs. Approve only what draft/brief may use.\n\n"
+        f"---SERP RESEARCH DIGEST---\n"
+        f"{_load_prior_artifact(client_id, run_id, 'serp_research').strip() or '[none]'}\n\n"
+        f"---SERP ANALYSIS---\n"
+        f"{_load_prior_artifact(client_id, run_id, 'research').strip() or '[none]'}\n\n"
+        f"---ATP TOPIC RESEARCH---\n"
+        f"{_load_prior_artifact(client_id, run_id, 'atp_topic_research').strip() or '[none]'}\n\n"
+        f"---PAA / FAQ RESEARCH---\n"
+        f"{_load_prior_artifact(client_id, run_id, 'paa_faq_research').strip() or '[none]'}\n\n"
+        f"---CASE STUDY RESEARCH (includes URL verification)---\n"
+        f"{case_study.strip() or '[none]'}\n\n"
+        f"---KEYWORD / ATP PASTE (optional)---\n"
+        f"{keyword_data or '[none]'}\n\n"
+        f"---EDITOR NOTES---\n"
+        f"{notes or '[none]'}\n"
+    )
+    output = _chat_complete(
+        system_msg,
+        user_msg,
+        step_label,
+        temperature=0.2,
+        max_tokens=3500,
+    )
+    output = wrap_step_artifact(step_name, output)
+    artifacts.save_artifact(client_id, run_id, step_name, output)
+    logger.info("step complete %s", step_name)
+    return output
+
+
+def _research_audit_block_for_run(client_id: str, run_id: str) -> str:
+    audit = _load_prior_artifact(client_id, run_id, "research_audit")
+    audit_step = _step_num("research_audit") or "?"
+    if not audit.strip():
+        return (
+            f"\n\n---RESEARCH AUDIT (STEP {audit_step})---\n"
+            f"[MISSING — re-run Step {audit_step} before drafting. Do not invent case studies, "
+            "stats, or FAQ banks.]\n"
+        )
+    return (
+        f"\n\n---RESEARCH AUDIT (STEP {audit_step}) — MANDATORY GATE---\n"
+        f"{audit.strip()}\n"
+        "Follow APPROVED sections only. Never use FLAGGED / reject-list claims. "
+        "If STATUS is NO APPROVED CASE STUDY, do not invent one. "
+        "Use approved FAQ questions and supporting cluster titles only.\n"
+    )
+
+
+def run_supporting_posts(client_id: str, run_id: str, previous_artifact: str = "") -> str:
+    """Claude drafts supporting blog posts from the audited ATP cluster."""
+    step_name = "supporting_posts"
+    context = artifacts.load_context(client_id, step_name)
+    system_msg = (
+        prompts.with_writing_format_guidelines(prompts.SUPPORTING_POSTS_PROMPT)
+        + "\n"
+        + context
+    )
+    step_label = _step_label(step_name)
+
+    draft = (previous_artifact or "").strip() or _load_prior_artifact(
+        client_id, run_id, "draft"
+    )
+    outline = _load_prior_artifact(client_id, run_id, "outline")
+    user_msg = (
+        f"{_research_audit_block_for_run(client_id, run_id)}"
+        f"{_atp_block_for_run(client_id, run_id)}"
+        f"---MAIN ARTICLE DRAFT---\n"
+        f"{draft.strip() or '[draft missing — use outline titles for interlinks]'}\n\n"
+        f"---MAIN ARTICLE OUTLINE---\n"
+        f"{outline.strip() or '[none]'}\n"
+    )
+    user_msg += _editorial_notices_for_run(client_id, run_id)
+    output = _chat_complete(
+        system_msg,
+        user_msg,
+        step_label,
+        temperature=0.55,
+        max_tokens=8000,
+    )
+    output = wrap_step_artifact(step_name, output)
+    artifacts.save_artifact(client_id, run_id, step_name, output)
+    logger.info("step complete %s", step_name)
+    return output
+
+
+def run_paa_faq_research(client_id: str, run_id: str, previous_artifact: str = "") -> str:
+    """PAA / FAQ research — Perplexity Sonar question bank (or manual placeholder)."""
+    step_name = "paa_faq_research"
+    from .integrations import perplexity as ppx
+
+    topic_card = _load_prior_artifact(client_id, run_id, "topic_card")
+    serp_digest = _load_prior_artifact(client_id, run_id, "serp_research")
+    research_doc = _load_prior_artifact(client_id, run_id, "research")
+    manifest = artifacts.read_run_manifest(client_id, run_id) or {}
+    manual = manifest.get("manual_inputs")
+    notes = ""
+    keyword_data = ""
+    if isinstance(manual, dict):
+        notes = editorial_input.notes_from_manual(manual)
+        keyword_data = _keyword_data_from_manual(manual if isinstance(manual, dict) else None)
+    atp_prior = _load_prior_artifact(client_id, run_id, "atp_topic_research")
+    if atp_prior.strip():
+        from . import atp_research
+
+        bank = atp_research.format_atp_bank_for_prompt(atp_prior)
+        if bank:
+            keyword_data = (
+                f"{keyword_data}\n\n---FROM ATP TOPIC RESEARCH---\n{bank}".strip()
+                if keyword_data
+                else f"---FROM ATP TOPIC RESEARCH---\n{bank}"
+            )
+
+    if config.PERPLEXITY_API_KEY:
+        try:
+            output = ppx.run_sonar_paa_faq(
+                topic_card,
+                serp_digest=serp_digest,
+                research_doc=research_doc,
+                keyword_data=keyword_data,
+                notes=notes,
+            )
+        except Exception as e:
+            logger.exception("Perplexity PAA FAQ step failed")
+            raise RuntimeError(f"Perplexity PAA FAQ failed: {e}") from e
+    else:
+        logger.info("%s: no PERPLEXITY_API_KEY — writing manual placeholder", step_name)
+        output = ppx.manual_paa_faq_placeholder()
+
+    output = wrap_step_artifact(step_name, output)
+    artifacts.save_artifact(client_id, run_id, step_name, output)
+    logger.info("step complete %s", step_name)
+    return output
+
+
+def _paa_faq_block_for_run(client_id: str, run_id: str) -> str:
+    """Inject the PAA FAQ research artifact into brief/outline/draft user messages."""
+    paa = _load_prior_artifact(client_id, run_id, "paa_faq_research")
+    paa_step = _step_num("paa_faq_research") or "?"
+    if not paa.strip():
+        return (
+            f"\n\n---PAA / FAQ RESEARCH (STEP {paa_step})---\n"
+            f"[MISSING — re-run Step {paa_step}. Until then, do not invent a full FAQ bank; "
+            "use only clearly needed questions and mark uncertainty.]\n"
+        )
+    return (
+        f"\n\n---PAA / FAQ RESEARCH (STEP {paa_step}) — MANDATORY FAQ SOURCE---\n"
+        f"{paa.strip()}\n"
+        "Use the **Recommended FAQ bank** questions for the article FAQ. "
+        "Do not invent a parallel FAQ set in another language. "
+        "Respect LOW SIGNAL / KEYWORD DATA SHOWS LOW/NO DEMAND flags — do not pad to 6–8.\n"
+    )
+
+
 def run_step_2(client_id: str, run_id: str, previous_artifact: str = "") -> str:
     step_name = "assignment_brief"
     context = artifacts.load_context(client_id, step_name)
@@ -315,11 +600,22 @@ def run_step_2(client_id: str, run_id: str, previous_artifact: str = "") -> str:
     topic_card = _load_prior_artifact(client_id, run_id, "topic_card")
     tc_step = _step_num("topic_card") or "?"
     research_step = _step_num("research") or "?"
+    paa_step = _step_num("paa_faq_research") or "?"
+    research_doc = _load_prior_artifact(client_id, run_id, "research")
+    paa_doc = _load_prior_artifact(client_id, run_id, "paa_faq_research")
     user_msg = (
         f"---TOPIC CARD (STEP {tc_step})---\n"
         f"{topic_card.strip() or f'[TOPIC CARD ARTIFACT MISSING — re-run Step {tc_step}]'}\n\n"
         f"---SERP ANALYSIS & GAPS (STEP {research_step})---\n"
-        f"{previous_artifact.strip()}\n"
+        f"{research_doc.strip() or f'[STEP {research_step} ARTIFACT MISSING — re-run SERP analysis]'}\n"
+        f"{_research_audit_block_for_run(client_id, run_id)}"
+        f"{_atp_block_for_run(client_id, run_id)}"
+        f"---PAA / FAQ RESEARCH (STEP {paa_step}) — MANDATORY FAQ SOURCE---\n"
+        f"{paa_doc.strip() or f'[MISSING — re-run Step {paa_step}]'}\n"
+        "Prefer **Research Audit → Approved FAQ questions** when present; otherwise use the "
+        "PAA Recommended FAQ bank. Do not invent a parallel FAQ set. "
+        "Respect LOW SIGNAL / low-demand flags.\n"
+        "Prefer **Research Audit → Approved case study** for E-E-A-T proof — never invent one.\n"
     )
     user_msg += _editorial_notices_for_run(client_id, run_id)
     if wc_target:
@@ -378,6 +674,9 @@ def run_step_4(client_id: str, run_id: str, previous_artifact: str = "") -> str:
         f"{previous_artifact.strip()}\n\n"
         f"---SERP ANALYSIS & RESEARCH (STEP {research_step})---\n"
         f"{research_doc.strip() or f'[STEP {research_step} ARTIFACT MISSING — re-run SERP analysis]'}\n"
+        f"{_research_audit_block_for_run(client_id, run_id)}"
+        f"{_atp_block_for_run(client_id, run_id)}"
+        f"{_paa_faq_block_for_run(client_id, run_id)}"
     )
     user_msg += _editorial_notices_for_run(client_id, run_id)
     user_msg += editorial_input.outline_format_guidelines_notice()
@@ -455,6 +754,9 @@ Instead of generic corporate language, use:
         f"{previous_artifact.strip()}\n\n"
         f"---SERP ANALYSIS & RESEARCH (STEP {research_step})---\n"
         f"{research_doc.strip() or f'[STEP {research_step} ARTIFACT MISSING — re-run SERP analysis]'}\n"
+        f"{_research_audit_block_for_run(client_id, run_id)}"
+        f"{_atp_block_for_run(client_id, run_id)}"
+        f"{_paa_faq_block_for_run(client_id, run_id)}"
     )
     serp_digest = _load_prior_artifact(client_id, run_id, "serp_research")
     user_msg += (
@@ -506,6 +808,16 @@ Instead of generic corporate language, use:
             )
             words = editorial_input.count_article_words(output)
         logger.info("draft final word count %s (target %s)", words, wc_target)
+    from . import hard_gates
+
+    output = hard_gates.enforce_article_gates(
+        output,
+        client_id=client_id,
+        run_id=run_id,
+        stage="draft",
+        allow_llm_repair=True,
+        raise_on_fail=True,
+    )
     output = wrap_step_artifact(step_name, output)
     artifacts.save_artifact(client_id, run_id, step_name, output)
     logger.info("step complete %s", step_name)
@@ -518,7 +830,9 @@ def run_step_6(client_id: str, run_id: str, previous_artifact: str = "") -> str:
     system_msg = prompts.FACT_CHECK_PROMPT + "\n" + context
     step_label = _step_label(step_name)
 
-    draft = (previous_artifact or "").strip()
+    draft = _load_prior_artifact(client_id, run_id, "draft").strip() or (
+        previous_artifact or ""
+    ).strip()
     draft_step = _step_num("draft") or "?"
     ppx_block = ""
     if config.PERPLEXITY_API_KEY:

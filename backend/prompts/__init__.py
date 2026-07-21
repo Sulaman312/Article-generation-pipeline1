@@ -30,9 +30,16 @@ STEP_5_PROMPT = _load_md("05_draft.md")
 STEP_6_PROMPT = _load_md("06_fact_check.md")
 STEP_7_PROMPT = _load_md("07_final_output.md")
 STEP_8_PROMPT = _load_md("08_meta_seo.md")
+PAA_FAQ_RESEARCH_PROMPT = _load_md("paa_faq_research.md")
+ATP_TOPIC_RESEARCH_PROMPT = _load_md("atp_topic_research.md")
+CASE_STUDY_RESEARCH_PROMPT = _load_md("case_study_research.md")
+RESEARCH_AUDIT_PROMPT = _load_md("research_audit.md")
+SUPPORTING_POSTS_PROMPT = _load_md("supporting_posts.md")
 
 # Semantic aliases. The numeric STEP_* constants follow the on-disk markdown filenames
-# and intentionally do NOT include the `serp_research` pipeline step.
+# and intentionally do NOT include the `serp_research` / `atp_topic_research` /
+# `paa_faq_research` / `case_study_research` / `research_audit` / `supporting_posts`
+# pipeline steps.
 TOPIC_CARD_PROMPT = STEP_1_PROMPT
 ASSIGNMENT_BRIEF_PROMPT = STEP_2_PROMPT
 RESEARCH_PROMPT = STEP_3_PROMPT
@@ -75,6 +82,11 @@ __all__ = [
     "FACT_CHECK_PROMPT",
     "FINAL_OUTPUT_PROMPT",
     "META_SEO_PROMPT",
+    "PAA_FAQ_RESEARCH_PROMPT",
+    "ATP_TOPIC_RESEARCH_PROMPT",
+    "CASE_STUDY_RESEARCH_PROMPT",
+    "RESEARCH_AUDIT_PROMPT",
+    "SUPPORTING_POSTS_PROMPT",
     "WRITING_FORMAT_GUIDELINES",
     "WRITING_FORMAT_BLOCK",
     "with_writing_format_guidelines",

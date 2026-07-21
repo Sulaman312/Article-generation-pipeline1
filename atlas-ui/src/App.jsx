@@ -55,14 +55,22 @@ function App() {
   const [artifactFilename, setArtifactFilename] = useState(null);
   const [logoVersions, setLogoVersions] = useState({});
   const [stepStatusOverrides, setStepStatusOverrides] = useState({});
+  const [pipelineEpoch, setPipelineEpoch] = useState(0);
 
   useEffect(() => {
     if (!signedIn) return undefined;
     if (import.meta.env.MODE === "test") return undefined;
-    hydratePipelineSteps(api).catch(() => {
-      /* fallback steps already loaded */
-    });
-    return undefined;
+    let cancelled = false;
+    hydratePipelineSteps(api)
+      .then(() => {
+        if (!cancelled) setPipelineEpoch((n) => n + 1);
+      })
+      .catch(() => {
+        /* fallback steps already loaded */
+      });
+    return () => {
+      cancelled = true;
+    };
   }, [signedIn]);
 
   useEffect(() => {
@@ -320,6 +328,7 @@ function App() {
   return (
     <div
       className={`layout${sidebarCollapsed ? " layout--sb-collapsed" : ""}`}
+      data-pipeline-epoch={pipelineEpoch}
       style={
         sidebarCollapsed
           ? undefined

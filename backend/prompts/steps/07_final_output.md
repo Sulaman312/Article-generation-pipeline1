@@ -78,12 +78,14 @@ TASK 3 — FINAL SEO & READABILITY CHECK (article body only)
   Run through this checklist in order. Fix any item that fails — minimal edit only.
   [ ] H1 is no more than 60 characters and 5–12 words
   [ ] H1 contains the primary keyword once (exact or near-exact)
+  [ ] Post-H1 lede present: 2–3 sentences (40–80 words) of plain prose immediately after H1, before first H2 — no "Summary" heading
   [ ] Primary keyword appears once in the first 100 body words and nowhere else exactly in body prose
   [ ] Each secondary keyword appears at most once across headings/body
   [ ] At least one H2 contains a secondary keyword — natural placement only
   [ ] Article body stays within target and is not padded relative to SERP norms
   [ ] 2–3 in-text image placeholders use `![alt](IMAGE: …)` with descriptive alt text
-  [ ] External links: 3–5 valid inline HTTPS markdown links
+  [ ] External links: 3–5 valid inline HTTPS markdown links (E-E-A-T — real sources only)
+  [ ] Proof points and cited claims preserved from draft — no invented brands, stats, or prices added
   [ ] Internal links: 2–4 valid `](INTERNAL:` placeholders without duplicate clusters
   [ ] Article has a clear H1 → H2 hierarchy (no H3s without a parent H2)
   [ ] All headings use sentence case (not title case); closing H2 is topical (not "Conclusion")
@@ -101,6 +103,7 @@ OUTPUT FORMAT — follow exactly:
 
 RULES:
 - Do NOT rewrite content broadly — only add CTAs, links, images, trim filler, and make minimal SEO fixes
+- **Preserve the post-H1 lede** from the draft — do not add a "Summary" heading or remove the opening 40–80 word answer block
 - **Do NOT output meta titles, meta descriptions, publishing metadata, or SEO checklist blocks** — those are generated in the separate Meta Title & Description step.
 - **Preserve the full FAQ section** from the fact-check corrected article: keep every H3 Q&A (typically 5–7). Never reduce FAQ count.
 - H1 hard limits: 60 characters, 5–12 words, primary keyword once
@@ -111,7 +114,10 @@ RULES:
 - Target 2–3 in-text image placeholders with descriptive alt text
 - Output only the final article block. No preamble. No commentary after.
 - The client's content clusters are in your context above — use them, not generic cluster names
+- Also keep any `](INTERNAL: Supporting: …)` placeholders from the draft that match ATP supporting titles
 - Each internal link must use `](INTERNAL: …)` with an actual cluster from the list provided
+  **or** an ATP supporting title already present in the draft
 - Anchor text for **both** internal and external links: **2–3 words max**, embedded mid-sentence
-- Do not fabricate cluster names — if it's not in the context cluster list, do not link to it
+- Do not fabricate cluster names — if it's not in the context cluster list and not an existing
+  Supporting: placeholder from the draft, do not invent a new one
 - Links should feel like natural next steps for the reader, not random internal cross-sells
