@@ -37,8 +37,8 @@ RESEARCH_AUDIT_PROMPT = _load_md("research_audit.md")
 SUPPORTING_POSTS_PROMPT = _load_md("supporting_posts.md")
 
 # Semantic aliases. The numeric STEP_* constants follow the on-disk markdown filenames
-# and intentionally do NOT include the `serp_research` / `atp_topic_research` /
-# `paa_faq_research` / `case_study_research` / `research_audit` / `supporting_posts`
+# and intentionally do NOT include the `serp_research` / `source_research`
+# (ATP / PAA / case study / audit sub-artifacts) / `supporting_posts` sidecar
 # pipeline steps.
 TOPIC_CARD_PROMPT = STEP_1_PROMPT
 ASSIGNMENT_BRIEF_PROMPT = STEP_2_PROMPT

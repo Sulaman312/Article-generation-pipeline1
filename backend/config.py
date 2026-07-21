@@ -90,6 +90,8 @@ STEP_CONTEXT_FILES = {
     "topic_card": ["context.md"],
     "serp_research": [],
     "research": ["context.md", "personas.md"],
+    "source_research": ["context.md"],
+    # Internal sub-artifacts (written inside source_research / draft; not UI steps).
     "atp_topic_research": [],
     "paa_faq_research": [],
     "case_study_research": [],

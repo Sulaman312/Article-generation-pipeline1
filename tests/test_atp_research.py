@@ -45,17 +45,15 @@ LOW SIGNAL TOPIC — limited verifiable question/demand evidence; keep cluster s
 
 
 class AtpTopicResearchTests(unittest.TestCase):
-    def test_step_is_registered_between_research_and_paa(self):
-        self.assertIn("atp_topic_research", ARTICLE_STEP_ORDER)
+    def test_atp_runs_inside_source_research(self):
+        self.assertIn("source_research", ARTICLE_STEP_ORDER)
         self.assertEqual(
-            ARTICLE_STEP_ORDER.index("atp_topic_research"),
+            ARTICLE_STEP_ORDER.index("source_research"),
             ARTICLE_STEP_ORDER.index("research") + 1,
         )
-        self.assertEqual(
-            ARTICLE_STEP_ORDER.index("atp_topic_research") + 1,
-            ARTICLE_STEP_ORDER.index("paa_faq_research"),
-        )
-        self.assertIn("atp_topic_research", STEP_RUNNERS)
+        self.assertNotIn("atp_topic_research", ARTICLE_STEP_ORDER)
+        self.assertIn("source_research", STEP_RUNNERS)
+        self.assertNotIn("atp_topic_research", STEP_RUNNERS)
         self.assertEqual(STEP_ORDER, ARTICLE_STEP_ORDER)
 
     def test_extract_high_intent_and_supporting(self):

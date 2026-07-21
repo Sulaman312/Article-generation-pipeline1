@@ -6,6 +6,8 @@ STEP_MARKER_LABELS: dict[str, str] = {
     "topic_card": "TOPIC CARD",
     "serp_research": "SERP RESEARCH",
     "research": "SERP ANALYSIS",
+    "source_research": "SOURCE RESEARCH",
+    # Sub-artifacts still written inside Source Research / Draft (not UI steps).
     "atp_topic_research": "ATP TOPIC RESEARCH",
     "paa_faq_research": "PAA FAQ RESEARCH",
     "case_study_research": "CASE STUDY RESEARCH",

@@ -40,17 +40,11 @@ LOW SIGNAL TOPIC — only 3 questions had verifiable demand evidence.
 
 
 class PaaFaqTests(unittest.TestCase):
-    def test_step_is_registered_after_research(self):
-        self.assertIn("paa_faq_research", ARTICLE_STEP_ORDER)
-        self.assertEqual(
-            ARTICLE_STEP_ORDER.index("paa_faq_research"),
-            ARTICLE_STEP_ORDER.index("atp_topic_research") + 1,
-        )
-        self.assertEqual(
-            ARTICLE_STEP_ORDER.index("paa_faq_research") + 1,
-            ARTICLE_STEP_ORDER.index("case_study_research"),
-        )
-        self.assertIn("paa_faq_research", STEP_RUNNERS)
+    def test_paa_runs_inside_source_research(self):
+        self.assertIn("source_research", ARTICLE_STEP_ORDER)
+        self.assertNotIn("paa_faq_research", ARTICLE_STEP_ORDER)
+        self.assertIn("source_research", STEP_RUNNERS)
+        self.assertNotIn("paa_faq_research", STEP_RUNNERS)
         self.assertEqual(STEP_ORDER, ARTICLE_STEP_ORDER)
 
     def test_extract_recommended_questions(self):

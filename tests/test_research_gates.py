@@ -29,32 +29,33 @@ class UrlVerifyTests(unittest.TestCase):
 
 
 class NewPipelineStepsTests(unittest.TestCase):
-    def test_order_includes_case_study_audit_supporting(self):
+    def test_order_combines_source_research_and_folds_supporting(self):
         self.assertEqual(
-            ARTICLE_STEP_ORDER.index("case_study_research"),
-            ARTICLE_STEP_ORDER.index("paa_faq_research") + 1,
-        )
-        self.assertEqual(
-            ARTICLE_STEP_ORDER.index("research_audit"),
-            ARTICLE_STEP_ORDER.index("case_study_research") + 1,
+            ARTICLE_STEP_ORDER.index("source_research"),
+            ARTICLE_STEP_ORDER.index("research") + 1,
         )
         self.assertEqual(
             ARTICLE_STEP_ORDER.index("assignment_brief"),
-            ARTICLE_STEP_ORDER.index("research_audit") + 1,
+            ARTICLE_STEP_ORDER.index("source_research") + 1,
         )
         self.assertEqual(
-            ARTICLE_STEP_ORDER.index("supporting_posts"),
+            ARTICLE_STEP_ORDER.index("fact_check"),
             ARTICLE_STEP_ORDER.index("draft") + 1,
         )
+        self.assertIn("source_research", STEP_RUNNERS)
         for key in (
+            "atp_topic_research",
+            "paa_faq_research",
             "case_study_research",
             "research_audit",
             "supporting_posts",
         ):
-            self.assertIn(key, STEP_RUNNERS)
+            self.assertNotIn(key, ARTICLE_STEP_ORDER)
+            self.assertNotIn(key, STEP_RUNNERS)
         self.assertEqual(STEP_ORDER, ARTICLE_STEP_ORDER)
+        self.assertEqual(len(ARTICLE_STEP_ORDER), 10)
 
-    def test_fact_check_skips_supporting_posts_sidecar(self):
+    def test_fact_check_uses_draft(self):
         statuses = {name: "done" for name in ARTICLE_STEP_ORDER}
         prev, kind = input_source_for_step(
             "fact_check", statuses, step_order=list(ARTICLE_STEP_ORDER)

@@ -29,6 +29,15 @@ def upgrade_manifest(manifest: dict) -> tuple[dict, bool]:
 
     pipeline = get_pipeline("article")
     statuses = dict(out.get("statuses") or {})
+    # Migrate pre-combined 14-step runs: ATP+PAA+case+audit → source_research.
+    if "source_research" not in statuses or statuses.get("source_research") == "pending":
+        if statuses.get("research_audit") == "done" or (
+            statuses.get("atp_topic_research") == "done"
+            and statuses.get("paa_faq_research") == "done"
+            and statuses.get("case_study_research") == "done"
+        ):
+            statuses["source_research"] = "done"
+            changed = True
     for name in pipeline.step_order:
         if name not in statuses:
             statuses[name] = "pending"

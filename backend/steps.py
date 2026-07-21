@@ -301,6 +301,38 @@ def run_serp_research(client_id: str, run_id: str, previous_artifact: str = "") 
     return output
 
 
+def run_source_research(client_id: str, run_id: str, previous_artifact: str = "") -> str:
+    """One UI step: ATP + PAA/FAQ + case study (Perplexity) + Claude research audit.
+
+    Still writes the individual artifacts so brief/outline/draft/hard-gates keep working.
+    """
+    step_name = "source_research"
+    research_doc = (previous_artifact or "").strip() or _load_prior_artifact(
+        client_id, run_id, "research"
+    )
+
+    atp = run_atp_topic_research(client_id, run_id, research_doc)
+    paa = run_paa_faq_research(client_id, run_id, atp)
+    case = run_case_study_research(client_id, run_id, paa)
+    audit = run_research_audit(client_id, run_id, case)
+
+    from .step_markers import extract_step_body
+
+    audit_body = extract_step_body("research_audit", audit) or audit
+    combined = (
+        "This pack combines AnswerThePublic-style topic research, PAA/FAQ research, "
+        "case-study research (URL-checked), and a Claude research audit.\n\n"
+        "Use the **Research Audit** section as the mandatory gate for brief → draft. "
+        "Full ATP / PAA / case-study artifacts are also saved on this run for reference.\n\n"
+        "## Research audit (approved for drafting)\n\n"
+        f"{audit_body.strip()}\n"
+    )
+    output = wrap_step_artifact(step_name, combined)
+    artifacts.save_artifact(client_id, run_id, step_name, output)
+    logger.info("step complete %s", step_name)
+    return output
+
+
 def run_atp_topic_research(client_id: str, run_id: str, previous_artifact: str = "") -> str:
     """AnswerThePublic-style topic research — Perplexity Sonar (or manual placeholder)."""
     step_name = "atp_topic_research"
@@ -344,15 +376,16 @@ def run_atp_topic_research(client_id: str, run_id: str, previous_artifact: str =
 def _atp_block_for_run(client_id: str, run_id: str) -> str:
     """Inject ATP topic research into brief/outline/draft user messages."""
     atp = _load_prior_artifact(client_id, run_id, "atp_topic_research")
-    atp_step = _step_num("atp_topic_research") or "?"
+    src_step = _step_num("source_research") or "?"
     if not atp.strip():
         return (
-            f"\n\n---ATP TOPIC RESEARCH (STEP {atp_step})---\n"
-            f"[MISSING — re-run Step {atp_step}. Until then, do not invent a full supporting "
-            "cluster; use only clearly needed long-tails.]\n"
+            f"\n\n---ATP TOPIC RESEARCH (from Source Research step {src_step})---\n"
+            f"[MISSING — re-run Source Research (step {src_step}). Until then, do not invent "
+            "a full supporting cluster; use only clearly needed long-tails.]\n"
         )
     return (
-        f"\n\n---ATP TOPIC RESEARCH (STEP {atp_step}) — KEYWORDS + SUPPORTING CLUSTER---\n"
+        f"\n\n---ATP TOPIC RESEARCH (from Source Research step {src_step}) — "
+        "KEYWORDS + SUPPORTING CLUSTER---\n"
         f"{atp.strip()}\n"
         "Use high-intent phrases and main-article long-tails naturally (at most once each). "
         "Plan or place INTERNAL links toward supporting posts using "
@@ -465,15 +498,15 @@ def run_research_audit(client_id: str, run_id: str, previous_artifact: str = "")
 
 def _research_audit_block_for_run(client_id: str, run_id: str) -> str:
     audit = _load_prior_artifact(client_id, run_id, "research_audit")
-    audit_step = _step_num("research_audit") or "?"
+    src_step = _step_num("source_research") or "?"
     if not audit.strip():
         return (
-            f"\n\n---RESEARCH AUDIT (STEP {audit_step})---\n"
-            f"[MISSING — re-run Step {audit_step} before drafting. Do not invent case studies, "
-            "stats, or FAQ banks.]\n"
+            f"\n\n---RESEARCH AUDIT (from Source Research step {src_step})---\n"
+            f"[MISSING — re-run Source Research (step {src_step}) before drafting. "
+            "Do not invent case studies, stats, or FAQ banks.]\n"
         )
     return (
-        f"\n\n---RESEARCH AUDIT (STEP {audit_step}) — MANDATORY GATE---\n"
+        f"\n\n---RESEARCH AUDIT (from Source Research step {src_step}) — MANDATORY GATE---\n"
         f"{audit.strip()}\n"
         "Follow APPROVED sections only. Never use FLAGGED / reject-list claims. "
         "If STATUS is NO APPROVED CASE STUDY, do not invent one. "
@@ -570,15 +603,16 @@ def run_paa_faq_research(client_id: str, run_id: str, previous_artifact: str = "
 def _paa_faq_block_for_run(client_id: str, run_id: str) -> str:
     """Inject the PAA FAQ research artifact into brief/outline/draft user messages."""
     paa = _load_prior_artifact(client_id, run_id, "paa_faq_research")
-    paa_step = _step_num("paa_faq_research") or "?"
+    src_step = _step_num("source_research") or "?"
     if not paa.strip():
         return (
-            f"\n\n---PAA / FAQ RESEARCH (STEP {paa_step})---\n"
-            f"[MISSING — re-run Step {paa_step}. Until then, do not invent a full FAQ bank; "
-            "use only clearly needed questions and mark uncertainty.]\n"
+            f"\n\n---PAA / FAQ RESEARCH (from Source Research step {src_step})---\n"
+            f"[MISSING — re-run Source Research (step {src_step}). Until then, do not invent "
+            "a full FAQ bank; use only clearly needed questions and mark uncertainty.]\n"
         )
     return (
-        f"\n\n---PAA / FAQ RESEARCH (STEP {paa_step}) — MANDATORY FAQ SOURCE---\n"
+        f"\n\n---PAA / FAQ RESEARCH (from Source Research step {src_step}) — "
+        "MANDATORY FAQ SOURCE---\n"
         f"{paa.strip()}\n"
         "Use the **Recommended FAQ bank** questions for the article FAQ. "
         "Do not invent a parallel FAQ set in another language. "
@@ -600,9 +634,7 @@ def run_step_2(client_id: str, run_id: str, previous_artifact: str = "") -> str:
     topic_card = _load_prior_artifact(client_id, run_id, "topic_card")
     tc_step = _step_num("topic_card") or "?"
     research_step = _step_num("research") or "?"
-    paa_step = _step_num("paa_faq_research") or "?"
     research_doc = _load_prior_artifact(client_id, run_id, "research")
-    paa_doc = _load_prior_artifact(client_id, run_id, "paa_faq_research")
     user_msg = (
         f"---TOPIC CARD (STEP {tc_step})---\n"
         f"{topic_card.strip() or f'[TOPIC CARD ARTIFACT MISSING — re-run Step {tc_step}]'}\n\n"
@@ -610,10 +642,9 @@ def run_step_2(client_id: str, run_id: str, previous_artifact: str = "") -> str:
         f"{research_doc.strip() or f'[STEP {research_step} ARTIFACT MISSING — re-run SERP analysis]'}\n"
         f"{_research_audit_block_for_run(client_id, run_id)}"
         f"{_atp_block_for_run(client_id, run_id)}"
-        f"---PAA / FAQ RESEARCH (STEP {paa_step}) — MANDATORY FAQ SOURCE---\n"
-        f"{paa_doc.strip() or f'[MISSING — re-run Step {paa_step}]'}\n"
+        f"{_paa_faq_block_for_run(client_id, run_id)}"
         "Prefer **Research Audit → Approved FAQ questions** when present; otherwise use the "
-        "PAA Recommended FAQ bank. Do not invent a parallel FAQ set. "
+        "Source Research FAQ bank. Do not invent a parallel FAQ set. "
         "Respect LOW SIGNAL / low-demand flags.\n"
         "Prefer **Research Audit → Approved case study** for E-E-A-T proof — never invent one.\n"
     )
@@ -821,6 +852,13 @@ Instead of generic corporate language, use:
     output = wrap_step_artifact(step_name, output)
     artifacts.save_artifact(client_id, run_id, step_name, output)
     logger.info("step complete %s", step_name)
+    # Supporting cluster drafts are generated as a sidecar (not a separate UI step).
+    try:
+        run_supporting_posts(client_id, run_id, output)
+    except Exception:
+        logger.exception(
+            "supporting posts generation failed after draft (non-fatal for main article)"
+        )
     return output
 
 

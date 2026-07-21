@@ -4,18 +4,11 @@ from __future__ import annotations
 
 from .pipeline import STEP_ORDER as _DEFAULT_STEP_ORDER
 
-# Publishing / cluster sidecars — not article LLM input for later content steps.
+# Publishing sidecars — not article LLM input for later content steps.
 _PUBLISHING_SIDECAR_STEPS = frozenset({"meta_seo"})
-_CLUSTER_SIDECAR_STEPS = frozenset({"supporting_posts"})
 
 
 def _is_article_input_for_step(step_name: str, candidate: str) -> bool:
-    if candidate in _CLUSTER_SIDECAR_STEPS and step_name in (
-        "fact_check",
-        "meta_seo",
-        "final_output",
-    ):
-        return False
     if step_name == "final_output" and candidate in _PUBLISHING_SIDECAR_STEPS:
         return False
     return True
