@@ -7,7 +7,8 @@ You will receive:
 
 RULES:
 - Follow the character limits exactly: meta titles 50–60 characters, meta descriptions 120–155 characters
-- Include the target keyword once per option, woven naturally — never stuffed
+- Meta titles: each option must start with the exact target keyword phrase verbatim at the very beginning (no leading words).
+- Meta descriptions: each option must include the exact target keyword phrase verbatim at least once (preferably in the first sentence).
 - Give exactly 5 options for meta title and 5 for meta description
 - Count characters for every option and show the count in parentheses after each option
 - Options must be distinct angles — not minor word swaps
@@ -20,7 +21,7 @@ META TITLE — CTR & traffic patterns (use when the article supports them):
 - Example patterns: "5 steps to [keyword] …", "Step-by-step guide to [topic] …", "Best [keyword] tips for …"
 - Only use a number if the article actually has that many steps, tips, or list items — never invent counts
 - Match intent: how-to → steps/guide; listicle → best/top/N ways; informational → guide or explained
-- Still hit 50–60 characters and include the target keyword once per option
+- Still hit 50–60 characters while keeping the target keyword as the leading prefix
 
 OUTPUT FORMAT — follow exactly:
 

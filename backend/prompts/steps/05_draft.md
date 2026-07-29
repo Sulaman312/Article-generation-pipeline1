@@ -185,7 +185,7 @@ WRITING STANDARDS — non-negotiable:
    - **First image is mandatory right after `## Summary`** (H1 → Summary → Image → content).
    - Place 1–2 additional images later per the outline IMAGE PLAN (2–3 total).
    - Format: `![descriptive alt text](IMAGE: slug-or-description)`
-   - Alt text: 8–15 words describing the scene; include a keyword only when natural.
+   - Alt text: 8–15 words describing the scene; include at least **half** the words from the primary keyword phrase (in any order) when feasible.
    - Spread remaining images across the article (not clustered).
 
 13. FAQ SECTION (REQUIRED — unless the outline explicitly omits it)

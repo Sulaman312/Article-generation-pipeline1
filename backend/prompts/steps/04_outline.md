@@ -33,6 +33,8 @@ INTRO NOTE: [Optional bridge only if Summary does not naturally reach the first 
 max 1–2 sentences on tension or context. Prefer "Use Summary only — no extra intro paragraph."]
 
 H2: [Section Title — sentence case only; must match or improve on brief's suggested structure]
+  KEY EXPRESSION IN SUBTITLE NOTE: Where it fits naturally, include the primary keyword phrase
+  or a close synonym in the H2 title for at least 2 H2 sections (preferably the first content H2).
   PURPOSE: [what this section must accomplish for the reader — one specific sentence; BLUF for draft]
   KEY POINTS:
     - [specific point — concrete, not a topic header]

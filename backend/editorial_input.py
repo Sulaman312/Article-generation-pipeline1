@@ -957,7 +957,7 @@ def build_meta_seo_context(
 
     meta_title_prompt = (
         f'Write a meta title for a {page_type} featuring {content_description}. '
-        f'Include my target keyword, "{keyword}," in a natural way. '
+        f'Meta titles must start with the exact target keyword phrase, "{keyword}", verbatim at the very beginning (no leading words). '
         f"Keep the title to between 50 and 60 characters. Give me 5 options to choose from. "
         f"Use varied high-CTR patterns where the content supports them — e.g. step-by-step guide, "
         f"N steps to, how to, best (for list/comparison pieces), or complete guide. "
@@ -965,7 +965,7 @@ def build_meta_seo_context(
     )
     meta_description_prompt = (
         f"Write a meta description for a {page_type} featuring {content_description}. "
-        f'Include my target keyword, "{keyword}," in a natural way. '
+        f'Meta descriptions must include the exact target keyword phrase, "{keyword}", verbatim at least once (preferably in the first sentence). '
         f"Keep the description to between 120 and 155 characters. "
         f"Give me 5 options to choose from."
     )
@@ -1000,9 +1000,77 @@ def finalize_meta_seo_output(text: str) -> str:
     cleaned = _META_SEO_PROMPT_ECHO.sub("", text)
     cleaned = _META_SEO_CONTENT_SUMMARY.sub("", cleaned)
     cleaned = re.sub(r"\n{3,}", "\n\n", cleaned).strip()
-    from .step_markers import wrap_step_artifact
 
+    cleaned = _sanitize_meta_seo_option_lengths(cleaned)
+    from .step_markers import wrap_step_artifact
     return wrap_step_artifact("meta_seo", cleaned)
+
+
+def _truncate_to_last_space(s: str, max_len: int) -> str:
+    t = (s or "").strip()
+    if len(t) <= max_len:
+        return t
+    cut = t[:max_len]
+    last_space = cut.rfind(" ")
+    if last_space > 12:  # avoid overly short fragments like single words
+        cut = cut[:last_space]
+    return cut.rstrip(" ,.;:!?-–—").strip()
+
+
+def _sanitize_meta_seo_option_lengths(
+    meta_seo_text: str,
+    *,
+    title_min: int = 50,
+    title_max: int = 60,
+    desc_min: int = 120,
+    desc_max: int = 155,
+) -> str:
+    """Clamp meta option character counts to the required max.
+
+    The UI shows long/short badges based on the char count in parentheses, so we
+    recompute counts and truncate overly-long options to ensure compliance.
+    """
+    lines = str(meta_seo_text).splitlines()
+    # Track which option list we're in by header.
+    section: str | None = None
+
+    # e.g. "1. ... (123 characters)"
+    opt_re = re.compile(
+        r"^(\s*\d+\.\s+)(.+?)(?:\s*\(\s*\d+\s*characters?\s*\))?\s*$",
+        re.IGNORECASE,
+    )
+
+    out: list[str] = []
+    for line in lines:
+        if re.match(r"^META TITLE OPTIONS", line.strip(), re.IGNORECASE):
+            section = "title"
+            out.append(line)
+            continue
+        if re.match(r"^META DESCRIPTION OPTIONS", line.strip(), re.IGNORECASE):
+            section = "desc"
+            out.append(line)
+            continue
+
+        m = opt_re.match(line)
+        if not m or not section:
+            out.append(line)
+            continue
+
+        prefix, option_text = m.group(1), m.group(2)
+        option_text = option_text.strip()
+        if not option_text:
+            out.append(line)
+            continue
+
+        max_len = title_max if section == "title" else desc_max
+        # Truncate only when needed.
+        if len(option_text) > max_len:
+            option_text = _truncate_to_last_space(option_text, max_len)
+
+        char_count = len(option_text)
+        out.append(f"{prefix}{option_text} ({char_count} characters)")
+
+    return "\n".join(out).strip()
 
 
 def strip_meta_seo_prompt_echo(text: str) -> str:

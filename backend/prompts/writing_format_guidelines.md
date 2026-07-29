@@ -31,7 +31,7 @@
 ## Structure / BLUF
 
 - **Opening (required):** Immediately after the H1, use this exact order:
-  1. `## Summary` — **3–4 lines / 2–3 sentences (40–80 words)** that directly answer the search intent (what the article covers, who it is for, what the reader will learn or decide). Use the primary keyword once naturally.
+  1. `## Summary` — **3–4 lines / 2–3 sentences (40–80 words)** that directly answer the search intent (what the article covers, who it is for, what the reader will learn or decide). Use the primary keyword once, in the **first sentence** of the Summary prose.
   2. **Hero image** — `![descriptive alt text](IMAGE: slug-or-description)` on the next line after the Summary prose.
   3. Then the first content H2.
 - Do **not** put body prose or CTAs between the Summary image and the first content H2.

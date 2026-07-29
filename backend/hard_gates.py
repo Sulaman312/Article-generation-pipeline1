@@ -297,7 +297,10 @@ def check_primary_keyword(article: str, primary: str) -> GateIssue | None:
     body = faq_schema.strip_faq_section(article)
     # Drop H1 from body keyword scan for "first 100 body words"
     body_no_h1 = _H1.sub("", body, count=1)
-    tokens = _word_tokens(body_no_h1)
+    # Only count keyword occurrences in body prose, not in subtitle headings.
+    # This lets headings carry the key phrase for SEO without breaking stuffing gates.
+    body_prose_only = re.sub(r"^#{1,6}\s+.*$", "", body_no_h1, flags=re.MULTILINE)
+    tokens = _word_tokens(body_prose_only)
     first = tokens[:FIRST_N_BODY_WORDS]
     rest = tokens[FIRST_N_BODY_WORDS:]
     in_first = _count_phrase_in_words(first, kw)
