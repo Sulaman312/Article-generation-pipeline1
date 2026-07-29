@@ -79,6 +79,7 @@ TASK 3 — FINAL SEO & READABILITY CHECK (article body only)
   [ ] H1 is no more than 60 characters and 5–12 words
   [ ] H1 contains the primary keyword once (exact or near-exact)
   [ ] Opening order: `# H1` → `## Summary` (40–80 words) → hero `![alt](IMAGE: …)` → first content H2
+  [ ] No "Key takeaways", "What you'll learn", or similar headings anywhere after the Summary block — remove them if present
   [ ] Primary keyword appears once in the first 100 body words and nowhere else exactly in body prose
   [ ] Each secondary keyword appears at most once across headings/body
   [ ] At least one H2 contains a secondary keyword — natural placement only

@@ -29,6 +29,14 @@ _SUMMARY_H2 = re.compile(
     r"^##\s+(summary|résumé|resume|zusammenfassung)\s*$",
     re.IGNORECASE | re.MULTILINE,
 )
+# Any heading that looks like "key takeaways", "takeaways", "what you'll learn", etc.
+# These are only valid immediately after H1 as the Summary block — never later in the body.
+_TAKEAWAY_H2 = re.compile(
+    r"^#{1,3}\s+(key\s+takeaways?|takeaways?|what\s+you'?ll\s+learn|"
+    r"in\s+this\s+article|what\s+we\s+(cover|discuss|explore)|"
+    r"quick\s+summary|article\s+summary|top\s+takeaways?)\s*$",
+    re.IGNORECASE | re.MULTILINE,
+)
 _IMAGE_MD = re.compile(r"!\[[^\]]*\]\([^)]+\)")
 _MONEY_OR_STAT = re.compile(
     r"(?:[$€£]\s?\d[\d,]*(?:\.\d+)?"
@@ -249,6 +257,32 @@ def check_cited_numbers(article: str) -> list[GateIssue]:
             )
         )
     return issues
+
+
+def check_no_late_takeaways(article: str) -> GateIssue | None:
+    """Fail if a 'key takeaways' / 'what you'll learn' heading appears after the Summary block."""
+    text = (article or "").replace("\r\n", "\n").strip()
+    if not text:
+        return None
+    h1 = _H1.search(text)
+    if not h1:
+        return None
+    after_h1 = text[h1.end():]
+    h2s = list(_H2.finditer(after_h1))
+    # Skip the first H2 (## Summary) — only scan the rest of the body.
+    body_after_summary = after_h1[h2s[1].start():] if len(h2s) > 1 else ""
+    if not body_after_summary:
+        return None
+    m = _TAKEAWAY_H2.search(body_after_summary)
+    if m:
+        heading = m.group(0).strip()
+        return GateIssue(
+            "late_takeaways",
+            f'"{heading}" must not appear in the article body. '
+            "Key takeaways belong only in the ## Summary at the top of the article, "
+            "not at the end. Remove or merge this section into ## Summary.",
+        )
+    return None
 
 
 def check_word_count(article: str, target: int | None) -> tuple[GateIssue | None, int]:
@@ -539,6 +573,11 @@ def evaluate_article_gates(
     else:
         report.lede_words = len(_word_tokens(extract_lede_text(article)))
 
+    # Block "Key takeaways" / "What you'll learn" headings anywhere after the Summary block.
+    takeaway_issue = check_no_late_takeaways(article)
+    if takeaway_issue:
+        report.issues.append(takeaway_issue)
+
     wc_issue, words = check_word_count(article, word_target)
     report.body_words = words
     if wc_issue:
@@ -594,6 +633,8 @@ def _repair_article_llm(
         "- Every concrete price / % / fee needs an inline HTTPS citation in the same "
         "paragraph, or remove/generalize the number.\n"
         "- Remove any FLAGGED claims and FAIL URLs.\n"
+        "- If [late_takeaways] failed: remove or merge the 'Key takeaways' / 'What you'll learn' "
+        "heading and its content into the existing ## Summary at the top — do not keep it at the end.\n"
         "- FAQ questions must match the approved/PAA bank when those gates failed.\n"
         f"- Each FAQ answer must be {FAQ_ANSWER_MIN_SENTENCES}–{FAQ_ANSWER_MAX_SENTENCES} "
         "sentences/lines.\n"

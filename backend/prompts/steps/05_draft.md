@@ -97,6 +97,7 @@ WRITING STANDARDS — non-negotiable:
    - Do **not** skip the Summary H2 or place the hero image before Summary prose.
    - Do **not** open with filler ("In today's world…", "If you're reading this…").
    - Follow the outline **SUMMARY NOTE** (or LEDE NOTE); if missing, use **INTRO NOTE** plus a direct answer in Summary.
+   - **NEVER** add a "Key takeaways", "What you'll learn", "In this article", or "Top takeaways" heading anywhere else in the article. All takeaways go in `## Summary` at the top — never repeated at the end.
 
 1. NO FILLER OPENINGS
    Bad:  "In today's fast-paced world, businesses are increasingly turning to AI..."
