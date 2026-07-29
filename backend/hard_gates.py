@@ -20,9 +20,24 @@ logger = logging.getLogger(__name__)
 LEDE_MIN_WORDS = 40
 LEDE_MAX_WORDS = 80
 FIRST_N_BODY_WORDS = 100
+FAQ_ANSWER_MIN_SENTENCES = 3
+FAQ_ANSWER_MAX_SENTENCES = 4
 
 _H1 = re.compile(r"^#\s+(.+)$", re.MULTILINE)
 _H2 = re.compile(r"^##\s+.+$", re.MULTILINE)
+_SUMMARY_H2 = re.compile(
+    r"^##\s+(summary|résumé|resume|zusammenfassung)\s*$",
+    re.IGNORECASE | re.MULTILINE,
+)
+_IMAGE_MD = re.compile(r"!\[[^\]]*\]\([^)]+\)")
+_MONEY_OR_STAT = re.compile(
+    r"(?:[$€£]\s?\d[\d,]*(?:\.\d+)?"
+    r"|\b\d[\d,]*(?:\.\d+)?\s?(?:USD|EUR|GBP|CAD|AUD)\b"
+    r"|\b\d{1,3}(?:\.\d+)?\s?%\b)",
+    re.IGNORECASE,
+)
+_HTTPS_LINK = re.compile(r"\]\(https?://[^)]+\)", re.IGNORECASE)
+_SENTENCE_SPLIT = re.compile(r"(?<=[.!?])\s+")
 _CLAIM_LINE = re.compile(
     r"^\s*[-*]\s*CLAIM\s*:\s*(.+?)(?:\s*\|\s*WHY:.*)?\s*$",
     re.IGNORECASE | re.MULTILINE,
@@ -117,7 +132,7 @@ def _word_tokens(text: str) -> list[str]:
 
 
 def extract_lede_text(article: str) -> str:
-    """Plain prose between H1 and the first H2."""
+    """Summary prose between ``## Summary`` and the hero image (or next H2)."""
     text = (article or "").replace("\r\n", "\n").strip()
     if not text:
         return ""
@@ -125,33 +140,115 @@ def extract_lede_text(article: str) -> str:
     if not h1:
         return ""
     after_h1 = text[h1.end() :]
-    h2 = _H2.search(after_h1)
-    if not h2:
+    h2s = list(_H2.finditer(after_h1))
+    if not h2s:
         return after_h1.strip()
-    return after_h1[: h2.start()].strip()
+    first = h2s[0]
+    if not _SUMMARY_H2.match(first.group(0).strip()):
+        # Legacy plain-lede articles: prose between H1 and first H2.
+        return after_h1[: first.start()].strip()
+    zone_end = h2s[1].start() if len(h2s) > 1 else len(after_h1)
+    zone = after_h1[first.end() : zone_end]
+    img = _IMAGE_MD.search(zone)
+    prose = zone[: img.start()] if img else zone
+    return prose.strip()
 
 
 def check_lede(article: str) -> GateIssue | None:
-    lede = extract_lede_text(article)
-    if not lede:
+    """Require H1 → ## Summary → summary prose → hero image → next H2."""
+    text = (article or "").replace("\r\n", "\n").strip()
+    if not text:
         return GateIssue(
             "lede_missing",
-            f"Post-H1 lede missing — need {LEDE_MIN_WORDS}–{LEDE_MAX_WORDS} words "
-            "of plain prose immediately after H1, before the first H2.",
+            f"Opening missing — need ## Summary ({LEDE_MIN_WORDS}–{LEDE_MAX_WORDS} words) "
+            "then a hero image immediately after H1.",
         )
-    # Reject a Summary-style heading in the lede zone
-    if re.search(r"^#{1,6}\s*(summary|overview|key takeaways)\b", lede, re.I | re.M):
+    h1 = _H1.search(text)
+    if not h1:
+        return GateIssue("h1_missing", "Article must start with an H1 title.")
+    after_h1 = text[h1.end() :]
+    h2s = list(_H2.finditer(after_h1))
+    if not h2s:
         return GateIssue(
-            "lede_heading",
-            'Lede must be plain prose — no "Summary" / "Overview" heading before first H2.',
+            "summary_missing",
+            'First block after H1 must be "## Summary", then prose, then a hero image.',
         )
-    n = len(_word_tokens(lede))
+    first_h2 = h2s[0].group(0).strip()
+    if not _SUMMARY_H2.match(first_h2):
+        return GateIssue(
+            "summary_heading",
+            'First H2 after H1 must be "## Summary" (order: H1 → Summary → Image → content).',
+        )
+    zone_end = h2s[1].start() if len(h2s) > 1 else len(after_h1)
+    zone = after_h1[h2s[0].end() : zone_end]
+    img = _IMAGE_MD.search(zone)
+    if not img:
+        return GateIssue(
+            "summary_image",
+            "Place a hero image immediately after the Summary prose, before the next H2 "
+            "(`![descriptive alt text](IMAGE: slug)`).",
+        )
+    prose = zone[: img.start()].strip()
+    trailing = zone[img.end() :].strip()
+    if trailing and _word_tokens(trailing):
+        return GateIssue(
+            "summary_order",
+            "Order must be H1 → ## Summary → summary prose → image → next H2 "
+            "(no extra body prose between the image and the next H2).",
+        )
+    if not prose:
+        return GateIssue(
+            "lede_missing",
+            f"## Summary prose missing — need {LEDE_MIN_WORDS}–{LEDE_MAX_WORDS} words "
+            "before the hero image.",
+        )
+    n = len(_word_tokens(prose))
     if n < LEDE_MIN_WORDS or n > LEDE_MAX_WORDS:
         return GateIssue(
             "lede_length",
-            f"Post-H1 lede is {n} words; required {LEDE_MIN_WORDS}-{LEDE_MAX_WORDS}.",
+            f"## Summary is {n} words; required {LEDE_MIN_WORDS}-{LEDE_MAX_WORDS}.",
         )
     return None
+
+
+def _answer_sentence_count(answer: str) -> int:
+    text = re.sub(r"\s+", " ", (answer or "").strip())
+    if not text:
+        return 0
+    parts = [p.strip() for p in _SENTENCE_SPLIT.split(text) if p.strip()]
+    return len(parts)
+
+
+def check_cited_numbers(article: str) -> list[GateIssue]:
+    """Block concrete prices/stats that lack an inline HTTPS citation in-paragraph."""
+    text = (article or "").replace("\r\n", "\n")
+    # Ignore code fences and image lines
+    text = re.sub(r"```[\s\S]*?```", " ", text)
+    text = _IMAGE_MD.sub(" ", text)
+    issues: list[GateIssue] = []
+    seen: set[str] = set()
+    for para in re.split(r"\n\s*\n", text):
+        if not para.strip() or para.strip().startswith("#"):
+            continue
+        if faq_schema._FAQ_HEADING.match(para.strip()):
+            continue
+        m = _MONEY_OR_STAT.search(para)
+        if not m:
+            continue
+        if _HTTPS_LINK.search(para):
+            continue
+        snippet = m.group(0).strip()
+        if snippet in seen:
+            continue
+        seen.add(snippet)
+        issues.append(
+            GateIssue(
+                "uncited_number",
+                f'Price/stat "{snippet}" must include an inline HTTPS citation in the same '
+                "paragraph, or remove/generalize the number (no invented prices).",
+            )
+        )
+    return issues
 
 
 def check_word_count(article: str, target: int | None) -> tuple[GateIssue | None, int]:
@@ -401,6 +498,17 @@ def check_faq(
                         f'FAQ question not in approved/PAA bank: "{q[:90]}"',
                     )
                 )
+
+    for q, a in pairs:
+        n = _answer_sentence_count(a)
+        if n < FAQ_ANSWER_MIN_SENTENCES or n > FAQ_ANSWER_MAX_SENTENCES:
+            issues.append(
+                GateIssue(
+                    "faq_answer_length",
+                    f'FAQ answer for "{q[:70]}" has {n} sentence(s); '
+                    f"need {FAQ_ANSWER_MIN_SENTENCES}–{FAQ_ANSWER_MAX_SENTENCES} lines.",
+                )
+            )
     return issues
 
 
@@ -436,6 +544,8 @@ def evaluate_article_gates(
     kw_issue = check_primary_keyword(article, report.primary_keyword)
     if kw_issue:
         report.issues.append(kw_issue)
+
+    report.issues.extend(check_cited_numbers(article))
 
     flagged = parse_audit_flagged_claims(research_audit)
     report.issues.extend(check_flagged_claims(article, flagged))
@@ -474,11 +584,16 @@ def _repair_article_llm(
     user = (
         f"{report.as_prompt_block()}\n\n"
         "Rules:\n"
-        f"- Post-H1 lede: {LEDE_MIN_WORDS}–{LEDE_MAX_WORDS} plain words, no Summary heading.\n"
+        f"- Opening order: `# H1` → `## Summary` ({LEDE_MIN_WORDS}–{LEDE_MAX_WORDS} words) "
+        "→ hero `![alt](IMAGE: …)` → first content H2.\n"
         f"- Primary keyword exact match once in first {FIRST_N_BODY_WORDS} body words; "
         "no further exact body repeats.\n"
+        "- Every concrete price / % / fee needs an inline HTTPS citation in the same "
+        "paragraph, or remove/generalize the number.\n"
         "- Remove any FLAGGED claims and FAIL URLs.\n"
         "- FAQ questions must match the approved/PAA bank when those gates failed.\n"
+        f"- Each FAQ answer must be {FAQ_ANSWER_MIN_SENTENCES}–{FAQ_ANSWER_MAX_SENTENCES} "
+        "sentences/lines.\n"
         "- Keep body word count inside the stated band if word_count failed.\n\n"
         "---ARTICLE---\n"
         f"{article.strip()}\n"

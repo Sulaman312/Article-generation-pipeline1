@@ -22,8 +22,9 @@ class EditorialNoticeTests(unittest.TestCase):
         notice = editorial_input.seo_readability_notice()
         self.assertIn("once in the first 100 body words", notice)
         self.assertIn("do not repeat that exact phrase", notice)
-        self.assertIn("Post-H1 lede", notice)
+        self.assertIn("## Summary", notice)
         self.assertIn("E-E-A-T", notice)
+        self.assertIn("3–4 lines", notice)
         self.assertNotIn("once in H1 only", notice)
 
         combined_prompts = "\n".join(

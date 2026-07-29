@@ -30,7 +30,11 @@
 
 ## Structure / BLUF
 
-- **Post-H1 lede (required):** Immediately after the H1, write **2–3 sentences (40–80 words total)** that directly answer the search intent: what the article covers, who it is for, and what the reader will learn or decide. Use the primary keyword once naturally. Do **not** add a heading like "Summary" or "Key takeaways" — plain prose only, then the first H2.
+- **Opening (required):** Immediately after the H1, use this exact order:
+  1. `## Summary` — **3–4 lines / 2–3 sentences (40–80 words)** that directly answer the search intent (what the article covers, who it is for, what the reader will learn or decide). Use the primary keyword once naturally.
+  2. **Hero image** — `![descriptive alt text](IMAGE: slug-or-description)` on the next line after the Summary prose.
+  3. Then the first content H2.
+- Do **not** put body prose or CTAs between the Summary image and the first content H2.
 - Use **BLUF** (Bottom Line Up Front) in every section: the first sentence or two under any H2 (and the first sentence of every H3) states the main takeaway before supporting detail. No throat-clearing.
 - **Heading-Body Contract:** the body must deliver exactly what the heading promises (a "how-to" heading needs steps/numbered guidance, a comparison heading needs comparison, etc.).
 
@@ -39,7 +43,7 @@
 - Show **experience** with specific workflows, roles, or situations — not "as experts we believe."
 - Show **expertise** with accurate terms, BLUF answers, and real constraints (when something does not apply).
 - Show **authoritativeness** with 3–5 inline outbound links to credible sources (from SERP research), woven mid-sentence.
-- Show **trust** by stating limits, avoiding invented stats/brands/prices, and using proof points only where context supports them.
+- Show **trust** by stating limits and using **only real, source-backed prices and numbers**. Every concrete price, fee, %, ROI, or numeric claim must come from SERP research / Research Audit approved sources and carry an inline HTTPS citation in the same paragraph. If you cannot cite it, generalize ("fees vary by clinic") or omit the number — never invent.
 - Do **not** add a standalone "Why trust us" or "E-E-A-T" section — trust signals live inside normal prose, proof slots, and citations.
 
 ## CTAs

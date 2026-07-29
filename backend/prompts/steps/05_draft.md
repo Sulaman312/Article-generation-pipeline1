@@ -75,26 +75,28 @@ Before you output the article, check all of these:
 ☐ Case study placeholders are replaced with actual stories
 ☐ I have 3+ specific numbers or insights
 ☐ H1 is no more than 60 characters, 5–12 words, with primary keyword once
-☐ **Post-H1 lede:** 2–3 sentences (40–80 words) directly after H1, before first H2 — no "Summary" heading
+☐ **Opening:** `# H1` → `## Summary` (40–80 words) → hero `![alt](IMAGE: …)` → first content H2
 ☐ Primary keyword appears once in the first 100 body words and nowhere else exactly in body prose
 ☐ Each secondary keyword appears at most once across headings/body
-☐ 2–3 image placeholders with descriptive alt text are in place
+☐ 2–3 image placeholders with descriptive alt text are in place (first image right after Summary)
 ☐ 3–5 inline external links and valid internal links follow the brief
-☐ Proof points and external cites match the outline TRUST & E-E-A-T plan (no invented stats/brands)
+☐ Proof points and external cites match the outline TRUST & E-E-A-T plan — **prices and numbers only when cited from SERP/audit sources**
 ☐ Tone remains consistent from introduction through CTA
 ☐ The article sounds like {client_name}, not generic AI
+☐ FAQ answers are each **3–4 lines** (3–4 sentences)
 
 If any checkbox is false, do NOT submit. REWRITE until all are true.
 
 WRITING STANDARDS — non-negotiable:
 
-0. POST-H1 LEDE (REQUIRED — AI Overviews / featured snippets)
-   - Structure: `# H1 title` → **2–3 sentences of plain prose (40–80 words)** → `## First H2`
-   - The lede must directly answer the search intent: what this is, who it is for, what they will get.
-   - Use the primary keyword once naturally in the lede or first 100 body words total.
-   - Do **not** add headings like "Summary", "Overview", or "Key takeaways" before the first H2.
+0. OPENING BLOCK (REQUIRED — H1 → Summary → Image)
+   - Structure: `# H1 title` → `## Summary` → **2–3 sentences / 3–4 lines (40–80 words)** →
+     `![descriptive alt text](IMAGE: hero-slug)` → `## First content H2`
+   - The Summary must directly answer the search intent: what this is, who it is for, what they will get.
+   - Use the primary keyword once naturally in the Summary or first 100 body words total.
+   - Do **not** skip the Summary H2 or place the hero image before Summary prose.
    - Do **not** open with filler ("In today's world…", "If you're reading this…").
-   - Follow the outline **LEDE NOTE**; if missing, use **INTRO NOTE** plus a direct answer in the lede.
+   - Follow the outline **SUMMARY NOTE** (or LEDE NOTE); if missing, use **INTRO NOTE** plus a direct answer in Summary.
 
 1. NO FILLER OPENINGS
    Bad:  "In today's fast-paced world, businesses are increasingly turning to AI..."
@@ -149,6 +151,9 @@ WRITING STANDARDS — non-negotiable:
    - **Expertise:** accurate terms, BLUF under H2s, honest limits ("this does not apply when…").
    - **Authoritativeness:** 3–5 inline external links from SERP / audit-approved sources only.
    - **Trust:** no invented brands, products, prices, or credentials; never use FLAGGED claims.
+     Every concrete price, fee, %, or ROI figure must come from SERP / Research Audit sources and
+     include an inline HTTPS citation in the same paragraph. If you cannot cite it, write a
+     qualitative line ("fees vary by provider") instead of inventing a number.
    - Never add a heading titled "Why trust us", "E-E-A-T", or similar.
 
 10. EXTERNAL AUTHORITY LINKS (REQUIRED — unless the outline explicitly omits them)
@@ -177,10 +182,11 @@ WRITING STANDARDS — non-negotiable:
    - Keep anchors 2–3 words; never dump a link list.
 
 12. IN-TEXT IMAGES (REQUIRED — unless the outline explicitly omits them)
-   - Place 2–3 images according to the outline IMAGE PLAN.
+   - **First image is mandatory right after `## Summary`** (H1 → Summary → Image → content).
+   - Place 1–2 additional images later per the outline IMAGE PLAN (2–3 total).
    - Format: `![descriptive alt text](IMAGE: slug-or-description)`
    - Alt text: 8–15 words describing the scene; include a keyword only when natural.
-   - Spread images across the article.
+   - Spread remaining images across the article (not clustered).
 
 13. FAQ SECTION (REQUIRED — unless the outline explicitly omits it)
    - After the last main H2 body section and **before** the conclusion/CTA, include the FAQ H2
@@ -190,8 +196,9 @@ WRITING STANDARDS — non-negotiable:
    - If the PAA bank is LOW SIGNAL, write fewer questions — do not pad.
    - Format each item as:
      `### [Full question as a natural question?]`
-     Then 2–4 sentences answering directly (40–80 words). No filler.
-   - Do not invent brand names, products, or prices unless present in cited sources in the user message.
+     Then **exactly 3–4 lines** answering directly (3–4 sentences). No one-liners. No filler essays.
+   - Do not invent brand names, products, or prices unless present in cited sources in the user message;
+     any price/number in an FAQ answer still needs a real cited source or must stay qualitative.
    - FAQ does **not** count toward the form Word Count (body prose only).
    - Do not use an accordion shortcode — plain markdown only.
    - Use numbered lists for sequential steps, bullets for non-sequential items

@@ -52,14 +52,15 @@ SUGGESTED STRUCTURE:
   - H2: [section name]: [one line: what this section accomplishes for the reader]
   - H2: [section name]: [one line: what this section accomplishes for the reader]
   [4–6 H2s total for the main body — no more, no fewer]
-POST-H1 OVERVIEW (LEDE):
-  - [Plan the **40–80 word** direct answer that appears **immediately after the H1** (no subheading):
-    who it is for, what they will learn/decide, and the primary keyword once. Optimized for AI Overviews
-    and featured snippets — factual, not promotional.]
+POST-H1 SUMMARY:
+  - [Plan the **## Summary** block (40–80 words / 3–4 lines) immediately after H1, then a hero image
+    before the first content H2. Include who it is for, what they will learn/decide, and the primary
+    keyword once. Optimized for AI Overviews and featured snippets — factual, not promotional.]
 TRUST & E-E-A-T (in-body — no standalone trust section):
   - [Use **Research Audit → Approved case study** when STATUS is APPROVED — weave into a PROOF POINT H2]
   - [If NO APPROVED CASE STUDY, use company context only — never invent a public case study]
-  - [Which claims need **external cites** (authoritativeness) — stats only from audit-approved sources]
+  - [Which claims need **external cites** — every concrete price, fee, %, or ROI must be
+    audit/SERP-backed with a cite; otherwise plan qualitative wording only]
   - [Any **limits or caveats** to state honestly (trust) — when advice does not apply]
 EXTERNAL AUTHORITY LINKS (REQUIRED unless editor Notes say otherwise):
   - Require **3–5** outbound links to authoritative third-party sources (`.gov`, standards bodies,
@@ -69,7 +70,8 @@ EXTERNAL AUTHORITY LINKS (REQUIRED unless editor Notes say otherwise):
   - Require inline markdown links only: no bare URLs, broken placeholders, or footer link dumps.
 
 IN-TEXT IMAGES (REQUIRED unless editor Notes say otherwise):
-  - Plan 2–3 image placements across the article (after intro, mid-body, before FAQ/conclusion).
+  - First image: hero immediately after ## Summary (H1 → Summary → Image → content).
+  - Plus 1–2 more across the article (mid-body, before FAQ/conclusion).
   - For each: section, descriptive alt text, and what the image should show.
   - Draft format: `![alt text](IMAGE: slug-or-description)`.
 
@@ -78,8 +80,9 @@ FAQ SECTION (REQUIRED unless editor Notes say otherwise):
   - H2: Frequently Asked Questions / localized heading when Notes require another language:
     [one line: capture PAA / objection-handling for featured snippets]
   - List the PAA bank questions (or fewer if LOW SIGNAL). One line each on what the answer must cover.
+  - Each FAQ answer in the draft must be **3–4 lines** (3–4 sentences).
   - Do not invent a second FAQ set in another language.
-  - Allocate ~250–400 words total for FAQ in the word count budget.
+  - Allocate ~200–350 words total for FAQ in the word count budget.
 TONE: [describe the voice in 2–3 adjectives + one example sentence. Require consistent tone from intro through CTA.]
 WORD COUNT TARGET: [must match topic card RECOMMENDED WORD COUNT exactly — if the topic card user
 message included Word Count: N, the target must stay within ±10% of N even if the card text drifted.

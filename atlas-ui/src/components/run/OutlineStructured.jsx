@@ -115,7 +115,7 @@ export default function OutlineStructured({ text }) {
         </header>
       ) : null}
 
-      <NoteBlock label="Post-H1 lede" text={data.ledeNote} />
+      <NoteBlock label="Post-H1 summary" text={data.ledeNote} />
       <NoteBlock label="Intro note" text={data.introNote} />
 
       <div className="section-cards">

@@ -395,7 +395,8 @@ def _inject_faq_llm(
     system = (
         f"Return ONLY the full article markdown. Write exactly ONE FAQ section in "
         f"{language_label} using H2 `{heading}`. Prefer the provided FAQ bank questions. "
-        "Do not add FAQ blocks in any other language. Do not invent brands, products, or prices."
+        "Do not add FAQ blocks in any other language. Do not invent brands, products, or prices. "
+        "Each FAQ answer must be exactly 3–4 sentences (3–4 lines)."
     )
     bank = faq_bank_prompt.strip() or (
         "No FAQ bank provided — write only as many specific questions as the topic supports "

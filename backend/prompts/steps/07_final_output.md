@@ -78,14 +78,15 @@ TASK 3 — FINAL SEO & READABILITY CHECK (article body only)
   Run through this checklist in order. Fix any item that fails — minimal edit only.
   [ ] H1 is no more than 60 characters and 5–12 words
   [ ] H1 contains the primary keyword once (exact or near-exact)
-  [ ] Post-H1 lede present: 2–3 sentences (40–80 words) of plain prose immediately after H1, before first H2 — no "Summary" heading
+  [ ] Opening order: `# H1` → `## Summary` (40–80 words) → hero `![alt](IMAGE: …)` → first content H2
   [ ] Primary keyword appears once in the first 100 body words and nowhere else exactly in body prose
   [ ] Each secondary keyword appears at most once across headings/body
   [ ] At least one H2 contains a secondary keyword — natural placement only
   [ ] Article body stays within target and is not padded relative to SERP norms
-  [ ] 2–3 in-text image placeholders use `![alt](IMAGE: …)` with descriptive alt text
+  [ ] 2–3 in-text image placeholders use `![alt](IMAGE: …)` with descriptive alt text (first after Summary)
   [ ] External links: 3–5 valid inline HTTPS markdown links (E-E-A-T — real sources only)
-  [ ] Proof points and cited claims preserved from draft — no invented brands, stats, or prices added
+  [ ] Proof points and cited claims preserved from draft — no invented brands, stats, or prices added;
+      every concrete price/% keeps its citation or is generalized
   [ ] Internal links: 2–4 valid `](INTERNAL:` placeholders without duplicate clusters
   [ ] Article has a clear H1 → H2 hierarchy (no H3s without a parent H2)
   [ ] All headings use sentence case (not title case); closing H2 is topical (not "Conclusion")
@@ -93,6 +94,7 @@ TASK 3 — FINAL SEO & READABILITY CHECK (article body only)
   [ ] 2–3 inline CTAs at H2 breaks, each with bold heading + description + markdown link on separate lines
   [ ] Demo CTAs use `/book-a-demo/` slug
   [ ] FAQ section present: H2 "Frequently Asked Questions" with at least 5 H3 Q&As — if missing, add a minimal FAQ block from the article topic (do not rewrite body sections)
+  [ ] Each FAQ answer is **3–4 lines** (3–4 sentences)
   [ ] Tone remains consistent throughout
 
 OUTPUT FORMAT — follow exactly:
@@ -103,9 +105,9 @@ OUTPUT FORMAT — follow exactly:
 
 RULES:
 - Do NOT rewrite content broadly — only add CTAs, links, images, trim filler, and make minimal SEO fixes
-- **Preserve the post-H1 lede** from the draft — do not add a "Summary" heading or remove the opening 40–80 word answer block
+- **Preserve the H1 → ## Summary → hero image opening** from the draft — do not flatten Summary into plain prose or remove the hero image
 - **Do NOT output meta titles, meta descriptions, publishing metadata, or SEO checklist blocks** — those are generated in the separate Meta Title & Description step.
-- **Preserve the full FAQ section** from the fact-check corrected article: keep every H3 Q&A (typically 5–7). Never reduce FAQ count.
+- **Preserve the full FAQ section** from the fact-check corrected article: keep every H3 Q&A (typically 5–7). Never reduce FAQ count. Keep answers at 3–4 lines each.
 - H1 hard limits: 60 characters, 5–12 words, primary keyword once
 - Primary keyword: once in H1 and once in first 100 body words; no further exact body repetition
 - Each secondary keyword appears at most once across article headings/body

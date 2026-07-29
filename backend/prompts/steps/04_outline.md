@@ -22,13 +22,15 @@ OUTPUT FORMAT — follow exactly:
 ---OUTLINE START---
 H1: [exact article title from the brief — do not modify; must be no more than 60 characters and 5–12 words]
 
-LEDE NOTE: [Plan the **post-H1 overview** the draft must write — 2–3 sentences, 40–80 words total.
+LEDE NOTE / SUMMARY NOTE: [Plan the **## Summary** block the draft must write — 2–3 sentences /
+3–4 lines, 40–80 words total under an H2 titled exactly "Summary".
 Direct answer to search intent: what this covers, who it is for, what the reader will learn or decide.
-Primary keyword once. No "Summary" heading in the draft — plain prose only, then the first H2.
-Optimized for AI Overviews / featured snippets. Do NOT write the lede here — plan only.]
+Primary keyword once. Then a hero image `![alt](IMAGE: …)` immediately after Summary prose,
+before the first content H2. Optimized for AI Overviews / featured snippets. Do NOT write the
+Summary here — plan only.]
 
-INTRO NOTE: [Optional bridge only if the lede does not naturally reach the first H2 — max 1–2 sentences
-on tension or context. If LEDE NOTE is sufficient, write "Use lede only — no extra intro paragraph."]
+INTRO NOTE: [Optional bridge only if Summary does not naturally reach the first content H2 —
+max 1–2 sentences on tension or context. Prefer "Use Summary only — no extra intro paragraph."]
 
 H2: [Section Title — sentence case only; must match or improve on brief's suggested structure]
   PURPOSE: [what this section must accomplish for the reader — one specific sentence; BLUF for draft]
@@ -49,12 +51,12 @@ H2: Frequently Asked Questions
   PURPOSE: [Answer the highest-intent questions the reader still has after the body — objections, cost, timeline, compliance, "how do I start", vs alternatives]
   QUESTIONS TO ANSWER (plan only — do not write full answers here):
     - Q: [copy from PAA / FAQ RESEARCH Recommended FAQ bank — exact wording when possible]
-      ANSWER NOTE: [what the draft answer must cover in 2–4 sentences]
+      ANSWER NOTE: [what the draft answer must cover in **3–4 lines** / 3–4 sentences]
     - Q: [question 2 from PAA bank]
       ANSWER NOTE: [coverage]
     [Use only bank questions with evidence; if LOW SIGNAL, list fewer — do not invent filler]
-  FORMAT: H2 + H3 per question (question as H3 heading) + short answer paragraph under each
-  WORD COUNT: [250–400 words total for all FAQ answers combined]
+  FORMAT: H2 + H3 per question (question as H3 heading) + **3–4 line** answer under each
+  WORD COUNT: [~200–350 words total for all FAQ answers combined]
 
 CONCLUSION NOTE: [2–3 sentences on what the closing section must do.
 Do NOT write the conclusion. Describe: what single insight it reinforces (not a recap),
@@ -66,8 +68,9 @@ CTA NOTE: [exact placement at H2 transitions + type (soft/direct) — plan 2–3
 INTERNAL LINK NOTE: [From ATP supporting cluster — plan 2–4 mid-sentence placeholders:
   `[short anchor](INTERNAL: Supporting: <title from ATP>)` and/or client cluster names.
   Prefer ATP interlink blueprint when present.]
-IMAGE PLAN: [2–3 placements — section + alt text + `![alt](IMAGE: slug)` slug for each]
-TOTAL ESTIMATED WORD COUNT: [sum of all sections + intro + conclusion — must match brief target ±10%; prefer the lower end when SERP competitors are shorter]
+IMAGE PLAN: [First image = hero right after ## Summary. Plus 1–2 mid-body placements —
+section + alt text + `![alt](IMAGE: slug)` slug for each; 2–3 total]
+TOTAL ESTIMATED WORD COUNT: [sum of all sections + Summary + conclusion — must match brief target ±10%; prefer the lower end when SERP competitors are shorter]
 ---OUTLINE END---
 
 RULES:
@@ -78,12 +81,13 @@ RULES:
 - TOTAL ESTIMATED WORD COUNT must match the brief's WORD COUNT TARGET (±100 words) — never plan a
   shorter article because the topic "feels" like a checklist or short post
 - If brief says 2,000 words, section word counts must sum to ~2,000 — not 1,000–1,200
-- Intro lede (post-H1) is **not** an H2 section — plan it in LEDE NOTE (~40–80 words)
-- Intro and conclusion are not counted as H2 sections — they are separate notes
+- Opening is **H1 → ## Summary → hero image → first content H2** — plan Summary in SUMMARY/LEDE NOTE (~40–80 words)
+- Intro and conclusion are not counted as main H2 sections — they are separate notes (Summary is the opening H2)
 - FAQ is required (separate FAQ SECTION block) — place after main H2s, before conclusion in the draft
-- FAQ word count is **not** included in TOTAL ESTIMATED WORD COUNT (body prose only)
+- FAQ answers must be planned as **3–4 lines each**; FAQ word count is **not** included in TOTAL ESTIMATED WORD COUNT
 - PROOF POINT SLOT must be used where company context is available — do not leave it empty
-- Plan 2–3 IMAGE SLOT entries across H2 sections — do not cluster them together
+- Plan 2–3 IMAGE SLOT entries — first after Summary, rest across H2 sections — do not cluster them together
 - Keep H1 within 60 characters and 5–12 words
 - Do not add sections the brief did not call for without flagging them as additions
+- Prices / numbers in KEY POINTS must flag EXTERNAL CITE SLOT when a concrete figure is planned
 - Output ONLY the outline. No preamble. No commentary after.
