@@ -1,8 +1,9 @@
 """Anthropic Claude API — editorial pipeline LLM steps.
 
 Environment (see repo `.env.example`):
-  ANTHROPIC_API_KEY — required for all Claude-powered steps
-  CLAUDE_MODEL       — default `claude-sonnet-4-6`
+  ANTHROPIC_API_KEY  — Anthropic or OpenRouter API key
+  ANTHROPIC_BASE_URL — optional; set ``https://openrouter.ai/api`` for OpenRouter
+  CLAUDE_MODEL       — Anthropic id or OpenRouter slug (e.g. ``anthropic/claude-sonnet-4.6``)
 
 Supports cooperative cancel via ``backend.job_control`` (streaming + chunk checks).
 """
@@ -41,7 +42,15 @@ def _get_client():
             raise RuntimeError(
                 "anthropic package not installed. Run: pip install anthropic"
             ) from e
-        _client = anthropic.Anthropic(api_key=config.ANTHROPIC_API_KEY)
+        kwargs = {"api_key": config.ANTHROPIC_API_KEY}
+        if config.ANTHROPIC_BASE_URL:
+            kwargs["base_url"] = config.ANTHROPIC_BASE_URL
+            logger.info(
+                "Claude client using custom base_url=%s model=%s",
+                config.ANTHROPIC_BASE_URL,
+                config.CLAUDE_MODEL,
+            )
+        _client = anthropic.Anthropic(**kwargs)
     return _client
 
 

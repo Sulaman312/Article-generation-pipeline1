@@ -19,7 +19,10 @@ if _project_env:
         load_dotenv(_project_path, override=True)
 
 # Anthropic Claude — all editorial LLM steps (topic card, research, draft, …)
+# For OpenRouter: put the OpenRouter key in ANTHROPIC_API_KEY and set
+# ANTHROPIC_BASE_URL=https://openrouter.ai/api plus an OpenRouter model slug.
 ANTHROPIC_API_KEY = (os.getenv("ANTHROPIC_API_KEY") or "").strip() or None
+ANTHROPIC_BASE_URL = (os.getenv("ANTHROPIC_BASE_URL") or "").strip() or None
 CLAUDE_MODEL = (os.getenv("CLAUDE_MODEL") or "claude-sonnet-4-6").strip()
 MAX_TOKENS = 4000
 TEMPERATURE = 0.7

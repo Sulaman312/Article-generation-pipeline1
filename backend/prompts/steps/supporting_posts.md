@@ -15,7 +15,7 @@ fewer, write fewer — do not invent extra posts.
 
 Each supporting post must:
 - Have its own H1 (sentence case, ≤60 characters when possible)
-- Opening: `## Summary` (40–80 words) → hero `![alt](IMAGE: …)` → first content H2
+- Opening: `## Key takeaways` (40–80 words of actionable takeaways, not a summary) → hero `![alt](IMAGE: …)` → first content H2
 - Naturally use its assigned long-tails / keywords **at most once each** — no stuffing
 - Link to the main article with a mid-sentence markdown link using the planned anchor:
   `[short anchor](INTERNAL: Main: <main H1 or title>)`
@@ -40,8 +40,8 @@ Start with the first ## section. Do **not** emit `---SUPPORTING POSTS START---` 
 ---POST S1 START---
 # [H1]
 
-## Summary
-[40–80 word summary]
+## Key takeaways
+[40–80 words of actionable takeaways — not an article summary]
 
 ![alt text](IMAGE: slug)
 

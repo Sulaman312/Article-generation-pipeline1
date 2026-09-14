@@ -75,10 +75,10 @@ Before you output the article, check all of these:
 ☐ Case study placeholders are replaced with actual stories
 ☐ I have 3+ specific numbers or insights
 ☐ H1 is no more than 60 characters, 5–12 words, with primary keyword once
-☐ **Opening:** `# H1` → `## Summary` (40–80 words) → hero `![alt](IMAGE: …)` → first content H2
+☐ **Opening:** `# H1` → `## Key takeaways` (40–80 words of takeaways, not a summary) → hero `![alt](IMAGE: …)` → first content H2
 ☐ Primary keyword appears once in the first 100 body words and nowhere else exactly in body prose
 ☐ Each secondary keyword appears at most once across headings/body
-☐ 2–3 image placeholders with descriptive alt text are in place (first image right after Summary)
+☐ 2–3 image placeholders with descriptive alt text are in place (first image right after Key takeaways)
 ☐ 3–5 inline external links and valid internal links follow the brief
 ☐ Proof points and external cites match the outline TRUST & E-E-A-T plan — **prices and numbers only when cited from SERP/audit sources**
 ☐ Tone remains consistent from introduction through CTA
@@ -89,15 +89,16 @@ If any checkbox is false, do NOT submit. REWRITE until all are true.
 
 WRITING STANDARDS — non-negotiable:
 
-0. OPENING BLOCK (REQUIRED — H1 → Summary → Image)
-   - Structure: `# H1 title` → `## Summary` → **2–3 sentences / 3–4 lines (40–80 words)** →
+0. OPENING BLOCK (REQUIRED — H1 → Key takeaways → Image)
+   - Structure: `# H1 title` → `## Key takeaways` → **40–80 words of actionable takeaways** →
      `![descriptive alt text](IMAGE: hero-slug)` → `## First content H2`
-   - The Summary must directly answer the search intent: what this is, who it is for, what they will get.
-   - Use the primary keyword once naturally in the Summary or first 100 body words total.
-   - Do **not** skip the Summary H2 or place the hero image before Summary prose.
+   - Write **key takeaways** (what to know / decide / do) — **not** a summary of what the article covers.
+   - Prefer **3–5 short bullets** or 2–3 dense takeaway sentences. No "In this article we will…" framing.
+   - Use the primary keyword once naturally in the first takeaway or first 100 body words total.
+   - Do **not** use `## Summary`. Do **not** skip Key takeaways or place the hero image before takeaways.
    - Do **not** open with filler ("In today's world…", "If you're reading this…").
-   - Follow the outline **SUMMARY NOTE** (or LEDE NOTE); if missing, use **INTRO NOTE** plus a direct answer in Summary.
-   - **NEVER** add a "Key takeaways", "What you'll learn", "In this article", or "Top takeaways" heading anywhere else in the article. All takeaways go in `## Summary` at the top — never repeated at the end.
+   - Follow the outline **KEY TAKEAWAYS NOTE** (or LEDE / SUMMARY NOTE); convert any planned "summary" into takeaways.
+   - **NEVER** repeat "Key takeaways", "Summary", "What you'll learn", or "In this article" headings later in the body.
 
 1. NO FILLER OPENINGS
    Bad:  "In today's fast-paced world, businesses are increasingly turning to AI..."
@@ -183,7 +184,7 @@ WRITING STANDARDS — non-negotiable:
    - Keep anchors 2–3 words; never dump a link list.
 
 12. IN-TEXT IMAGES (REQUIRED — unless the outline explicitly omits them)
-   - **First image is mandatory right after `## Summary`** (H1 → Summary → Image → content).
+   - **First image is mandatory right after `## Key takeaways`** (H1 → Key takeaways → Image → content).
    - Place 1–2 additional images later per the outline IMAGE PLAN (2–3 total).
    - Format: `![descriptive alt text](IMAGE: slug-or-description)`
    - Alt text: 8–15 words describing the scene; include at least **half** the words from the primary keyword phrase (in any order) when feasible.

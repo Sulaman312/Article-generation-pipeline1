@@ -22,15 +22,15 @@ OUTPUT FORMAT — follow exactly:
 ---OUTLINE START---
 H1: [exact article title from the brief — do not modify; must be no more than 60 characters and 5–12 words]
 
-LEDE NOTE / SUMMARY NOTE: [Plan the **## Summary** block the draft must write — 2–3 sentences /
-3–4 lines, 40–80 words total under an H2 titled exactly "Summary".
-Direct answer to search intent: what this covers, who it is for, what the reader will learn or decide.
-Primary keyword once. Then a hero image `![alt](IMAGE: …)` immediately after Summary prose,
-before the first content H2. Optimized for AI Overviews / featured snippets. Do NOT write the
-Summary here — plan only.]
+LEDE NOTE / KEY TAKEAWAYS NOTE: [Plan the **## Key takeaways** block the draft must write —
+40–80 words total under an H2 titled exactly "Key takeaways" (never "Summary").
+List 3–5 actionable takeaways (what to know / decide / do) — not a section-by-section article summary.
+Primary keyword once in the first takeaway. Then a hero image `![alt](IMAGE: …)` immediately after
+takeaways, before the first content H2. Optimized for AI Overviews / featured snippets. Do NOT write
+the takeaways here — plan only.]
 
-INTRO NOTE: [Optional bridge only if Summary does not naturally reach the first content H2 —
-max 1–2 sentences on tension or context. Prefer "Use Summary only — no extra intro paragraph."]
+INTRO NOTE: [Optional bridge only if Key takeaways does not naturally reach the first content H2 —
+max 1–2 sentences on tension or context. Prefer "Use Key takeaways only — no extra intro paragraph."]
 
 H2: [Section Title — sentence case only; must match or improve on brief's suggested structure]
   KEY EXPRESSION IN SUBTITLE NOTE: Where it fits naturally, include the primary keyword phrase
@@ -70,9 +70,9 @@ CTA NOTE: [exact placement at H2 transitions + type (soft/direct) — plan 2–3
 INTERNAL LINK NOTE: [From ATP supporting cluster — plan 2–4 mid-sentence placeholders:
   `[short anchor](INTERNAL: Supporting: <title from ATP>)` and/or client cluster names.
   Prefer ATP interlink blueprint when present.]
-IMAGE PLAN: [First image = hero right after ## Summary. Plus 1–2 mid-body placements —
+IMAGE PLAN: [First image = hero right after ## Key takeaways. Plus 1–2 mid-body placements —
 section + alt text + `![alt](IMAGE: slug)` slug for each; 2–3 total]
-TOTAL ESTIMATED WORD COUNT: [sum of all sections + Summary + conclusion — must match brief target ±10%; prefer the lower end when SERP competitors are shorter]
+TOTAL ESTIMATED WORD COUNT: [sum of all sections + Key takeaways + conclusion — must match brief target ±10%; prefer the lower end when SERP competitors are shorter]
 ---OUTLINE END---
 
 RULES:
@@ -83,12 +83,12 @@ RULES:
 - TOTAL ESTIMATED WORD COUNT must match the brief's WORD COUNT TARGET (±100 words) — never plan a
   shorter article because the topic "feels" like a checklist or short post
 - If brief says 2,000 words, section word counts must sum to ~2,000 — not 1,000–1,200
-- Opening is **H1 → ## Summary → hero image → first content H2** — plan Summary in SUMMARY/LEDE NOTE (~40–80 words)
-- Intro and conclusion are not counted as main H2 sections — they are separate notes (Summary is the opening H2)
+- Opening is **H1 → ## Key takeaways → hero image → first content H2** — plan takeaways in KEY TAKEAWAYS / LEDE NOTE (~40–80 words; not an article summary)
+- Intro and conclusion are not counted as main H2 sections — they are separate notes (Key takeaways is the opening H2)
 - FAQ is required (separate FAQ SECTION block) — place after main H2s, before conclusion in the draft
 - FAQ answers must be planned as **3–4 lines each**; FAQ word count is **not** included in TOTAL ESTIMATED WORD COUNT
 - PROOF POINT SLOT must be used where company context is available — do not leave it empty
-- Plan 2–3 IMAGE SLOT entries — first after Summary, rest across H2 sections — do not cluster them together
+- Plan 2–3 IMAGE SLOT entries — first after Key takeaways, rest across H2 sections — do not cluster them together
 - Keep H1 within 60 characters and 5–12 words
 - Do not add sections the brief did not call for without flagging them as additions
 - Prices / numbers in KEY POINTS must flag EXTERNAL CITE SLOT when a concrete figure is planned

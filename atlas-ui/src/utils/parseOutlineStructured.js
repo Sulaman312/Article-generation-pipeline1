@@ -82,6 +82,17 @@ export function parseOutlineStructured(text) {
 
   const h1 = (body.match(/^\s*H1\s*:\s*(.+)$/im) || [])[1]?.trim() || "";
   const ledeNote =
+    extractNote(body, "KEY TAKEAWAYS NOTE", [
+      "LEDE NOTE",
+      "SUMMARY NOTE",
+      "INTRO NOTE",
+      "H2",
+      "FAQ SECTION",
+      "CONCLUSION NOTE",
+      "CTA NOTE",
+      "IMAGE PLAN",
+      "TOTAL ESTIMATED WORD COUNT",
+    ]) ||
     extractNote(body, "SUMMARY NOTE", [
       "LEDE NOTE",
       "INTRO NOTE",
@@ -93,6 +104,15 @@ export function parseOutlineStructured(text) {
       "TOTAL ESTIMATED WORD COUNT",
     ]) ||
     extractNote(body, "LEDE NOTE", [
+      "INTRO NOTE",
+      "H2",
+      "FAQ SECTION",
+      "CONCLUSION NOTE",
+      "CTA NOTE",
+      "IMAGE PLAN",
+      "TOTAL ESTIMATED WORD COUNT",
+    ]) ||
+    extractNote(body, "LEDE NOTE / KEY TAKEAWAYS NOTE", [
       "INTRO NOTE",
       "H2",
       "FAQ SECTION",

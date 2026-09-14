@@ -15,7 +15,7 @@ HERO = "![Pet owner on a laptop during an online vet visit](IMAGE: telehealth-he
 
 
 def _opening(title: str, summary: str) -> str:
-    return f"# {title}\n\n## Summary\n\n{summary}\n\n{HERO}\n"
+    return f"# {title}\n\n## Key takeaways\n\n{summary}\n\n{HERO}\n"
 
 
 SAMPLE_AUDIT = """
@@ -72,10 +72,15 @@ class HardGateUnitTests(unittest.TestCase):
         self.assertIsNotNone(issue)
         self.assertEqual(issue.code, "summary_heading")
 
-        no_img = f"# Title\n\n## Summary\n\n{GOOD_LEDE}\n\n## Next\n\nBody.\n"
+        no_img = f"# Title\n\n## Key takeaways\n\n{GOOD_LEDE}\n\n## Next\n\nBody.\n"
         issue = hard_gates.check_lede(no_img)
         self.assertIsNotNone(issue)
         self.assertEqual(issue.code, "summary_image")
+
+        wrong_heading = f"# Title\n\n## Summary\n\n{GOOD_LEDE}\n\n{HERO}\n\n## Next\n\nBody.\n"
+        issue = hard_gates.check_lede(wrong_heading)
+        self.assertIsNotNone(issue)
+        self.assertEqual(issue.code, "summary_heading")
 
     def test_keyword_once_in_first_100(self):
         lede = (

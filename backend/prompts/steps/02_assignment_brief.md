@@ -52,10 +52,10 @@ SUGGESTED STRUCTURE:
   - H2: [section name]: [one line: what this section accomplishes for the reader]
   - H2: [section name]: [one line: what this section accomplishes for the reader]
   [4–6 H2s total for the main body — no more, no fewer]
-POST-H1 SUMMARY:
-  - [Plan the **## Summary** block (40–80 words / 3–4 lines) immediately after H1, then a hero image
-    before the first content H2. Include who it is for, what they will learn/decide, and the primary
-    keyword once. Optimized for AI Overviews and featured snippets — factual, not promotional.]
+POST-H1 KEY TAKEAWAYS:
+  - [Plan the **## Key takeaways** block (40–80 words) immediately after H1, then a hero image
+    before the first content H2. Write 3–5 actionable takeaways (know / decide / do) — **not** an
+    article summary. Primary keyword once in the first takeaway. Never title this ## Summary.]
 TRUST & E-E-A-T (in-body — no standalone trust section):
   - [Use **Research Audit → Approved case study** when STATUS is APPROVED — weave into a PROOF POINT H2]
   - [If NO APPROVED CASE STUDY, use company context only — never invent a public case study]
@@ -70,7 +70,7 @@ EXTERNAL AUTHORITY LINKS (REQUIRED unless editor Notes say otherwise):
   - Require inline markdown links only: no bare URLs, broken placeholders, or footer link dumps.
 
 IN-TEXT IMAGES (REQUIRED unless editor Notes say otherwise):
-  - First image: hero immediately after ## Summary (H1 → Summary → Image → content).
+  - First image: hero immediately after ## Key takeaways (H1 → Key takeaways → Image → content).
   - Plus 1–2 more across the article (mid-body, before FAQ/conclusion).
   - For each: section, descriptive alt text, and what the image should show.
   - Draft format: `![alt text](IMAGE: slug-or-description)`.

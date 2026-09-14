@@ -25,15 +25,16 @@ FAQ_ANSWER_MAX_SENTENCES = 4
 
 _H1 = re.compile(r"^#\s+(.+)$", re.MULTILINE)
 _H2 = re.compile(r"^##\s+.+$", re.MULTILINE)
-_SUMMARY_H2 = re.compile(
-    r"^##\s+(summary|résumé|resume|zusammenfassung)\s*$",
+# Required opening H2 immediately after H1 (Key takeaways — not an article summary).
+_OPENING_TAKEAWAYS_H2 = re.compile(
+    r"^##\s+(key\s+takeaways?|takeaways?)\s*$",
     re.IGNORECASE | re.MULTILINE,
 )
-# Any heading that looks like "key takeaways", "takeaways", "what you'll learn", etc.
-# These are only valid immediately after H1 as the Summary block — never later in the body.
-_TAKEAWAY_H2 = re.compile(
+# Duplicate / late takeaway-style or "summary" openings — only valid as the first H2 after H1.
+_LATE_OPENING_H2 = re.compile(
     r"^#{1,3}\s+(key\s+takeaways?|takeaways?|what\s+you'?ll\s+learn|"
     r"in\s+this\s+article|what\s+we\s+(cover|discuss|explore)|"
+    r"summary|résumé|resume|zusammenfassung|"
     r"quick\s+summary|article\s+summary|top\s+takeaways?)\s*$",
     re.IGNORECASE | re.MULTILINE,
 )
@@ -140,7 +141,7 @@ def _word_tokens(text: str) -> list[str]:
 
 
 def extract_lede_text(article: str) -> str:
-    """Summary prose between ``## Summary`` and the hero image (or next H2)."""
+    """Key-takeaways text between ``## Key takeaways`` and the hero image (or next H2)."""
     text = (article or "").replace("\r\n", "\n").strip()
     if not text:
         return ""
@@ -152,7 +153,7 @@ def extract_lede_text(article: str) -> str:
     if not h2s:
         return after_h1.strip()
     first = h2s[0]
-    if not _SUMMARY_H2.match(first.group(0).strip()):
+    if not _OPENING_TAKEAWAYS_H2.match(first.group(0).strip()):
         # Legacy plain-lede articles: prose between H1 and first H2.
         return after_h1[: first.start()].strip()
     zone_end = h2s[1].start() if len(h2s) > 1 else len(after_h1)
@@ -163,12 +164,12 @@ def extract_lede_text(article: str) -> str:
 
 
 def check_lede(article: str) -> GateIssue | None:
-    """Require H1 → ## Summary → summary prose → hero image → next H2."""
+    """Require H1 → ## Key takeaways → takeaways → hero image → next H2."""
     text = (article or "").replace("\r\n", "\n").strip()
     if not text:
         return GateIssue(
             "lede_missing",
-            f"Opening missing — need ## Summary ({LEDE_MIN_WORDS}–{LEDE_MAX_WORDS} words) "
+            f"Opening missing — need ## Key takeaways ({LEDE_MIN_WORDS}–{LEDE_MAX_WORDS} words) "
             "then a hero image immediately after H1.",
         )
     h1 = _H1.search(text)
@@ -179,13 +180,14 @@ def check_lede(article: str) -> GateIssue | None:
     if not h2s:
         return GateIssue(
             "summary_missing",
-            'First block after H1 must be "## Summary", then prose, then a hero image.',
+            'First block after H1 must be "## Key takeaways", then takeaways, then a hero image.',
         )
     first_h2 = h2s[0].group(0).strip()
-    if not _SUMMARY_H2.match(first_h2):
+    if not _OPENING_TAKEAWAYS_H2.match(first_h2):
         return GateIssue(
             "summary_heading",
-            'First H2 after H1 must be "## Summary" (order: H1 → Summary → Image → content).',
+            'First H2 after H1 must be "## Key takeaways" '
+            "(order: H1 → Key takeaways → Image → content). Do not use ## Summary.",
         )
     zone_end = h2s[1].start() if len(h2s) > 1 else len(after_h1)
     zone = after_h1[h2s[0].end() : zone_end]
@@ -193,7 +195,7 @@ def check_lede(article: str) -> GateIssue | None:
     if not img:
         return GateIssue(
             "summary_image",
-            "Place a hero image immediately after the Summary prose, before the next H2 "
+            "Place a hero image immediately after the Key takeaways block, before the next H2 "
             "(`![descriptive alt text](IMAGE: slug)`).",
         )
     prose = zone[: img.start()].strip()
@@ -201,20 +203,20 @@ def check_lede(article: str) -> GateIssue | None:
     if trailing and _word_tokens(trailing):
         return GateIssue(
             "summary_order",
-            "Order must be H1 → ## Summary → summary prose → image → next H2 "
+            "Order must be H1 → ## Key takeaways → takeaways → image → next H2 "
             "(no extra body prose between the image and the next H2).",
         )
     if not prose:
         return GateIssue(
             "lede_missing",
-            f"## Summary prose missing — need {LEDE_MIN_WORDS}–{LEDE_MAX_WORDS} words "
+            f"## Key takeaways content missing — need {LEDE_MIN_WORDS}–{LEDE_MAX_WORDS} words "
             "before the hero image.",
         )
     n = len(_word_tokens(prose))
     if n < LEDE_MIN_WORDS or n > LEDE_MAX_WORDS:
         return GateIssue(
             "lede_length",
-            f"## Summary is {n} words; required {LEDE_MIN_WORDS}-{LEDE_MAX_WORDS}.",
+            f"## Key takeaways is {n} words; required {LEDE_MIN_WORDS}-{LEDE_MAX_WORDS}.",
         )
     return None
 
@@ -260,7 +262,7 @@ def check_cited_numbers(article: str) -> list[GateIssue]:
 
 
 def check_no_late_takeaways(article: str) -> GateIssue | None:
-    """Fail if a 'key takeaways' / 'what you'll learn' heading appears after the Summary block."""
+    """Fail if takeaways/summary headings appear again after the opening Key takeaways block."""
     text = (article or "").replace("\r\n", "\n").strip()
     if not text:
         return None
@@ -269,18 +271,18 @@ def check_no_late_takeaways(article: str) -> GateIssue | None:
         return None
     after_h1 = text[h1.end():]
     h2s = list(_H2.finditer(after_h1))
-    # Skip the first H2 (## Summary) — only scan the rest of the body.
-    body_after_summary = after_h1[h2s[1].start():] if len(h2s) > 1 else ""
-    if not body_after_summary:
+    # Skip the first H2 (## Key takeaways) — only scan the rest of the body.
+    body_after_opening = after_h1[h2s[1].start():] if len(h2s) > 1 else ""
+    if not body_after_opening:
         return None
-    m = _TAKEAWAY_H2.search(body_after_summary)
+    m = _LATE_OPENING_H2.search(body_after_opening)
     if m:
         heading = m.group(0).strip()
         return GateIssue(
             "late_takeaways",
             f'"{heading}" must not appear in the article body. '
-            "Key takeaways belong only in the ## Summary at the top of the article, "
-            "not at the end. Remove or merge this section into ## Summary.",
+            "Key takeaways belong only in the ## Key takeaways block at the top — "
+            "not as ## Summary and not repeated later. Merge into the opening block.",
         )
     return None
 
@@ -573,7 +575,7 @@ def evaluate_article_gates(
     else:
         report.lede_words = len(_word_tokens(extract_lede_text(article)))
 
-    # Block "Key takeaways" / "What you'll learn" headings anywhere after the Summary block.
+    # Block duplicate takeaways / Summary headings anywhere after the opening Key takeaways block.
     takeaway_issue = check_no_late_takeaways(article)
     if takeaway_issue:
         report.issues.append(takeaway_issue)
@@ -626,15 +628,16 @@ def _repair_article_llm(
     user = (
         f"{report.as_prompt_block()}\n\n"
         "Rules:\n"
-        f"- Opening order: `# H1` → `## Summary` ({LEDE_MIN_WORDS}–{LEDE_MAX_WORDS} words) "
-        "→ hero `![alt](IMAGE: …)` → first content H2.\n"
+        f"- Opening order: `# H1` → `## Key takeaways` ({LEDE_MIN_WORDS}–{LEDE_MAX_WORDS} words) "
+        "→ hero `![alt](IMAGE: …)` → first content H2. "
+        "Write actionable takeaways — not an article summary/recap. Do not use ## Summary.\n"
         f"- Primary keyword exact match once in first {FIRST_N_BODY_WORDS} body words; "
         "no further exact body repeats.\n"
         "- Every concrete price / % / fee needs an inline HTTPS citation in the same "
         "paragraph, or remove/generalize the number.\n"
         "- Remove any FLAGGED claims and FAIL URLs.\n"
-        "- If [late_takeaways] failed: remove or merge the 'Key takeaways' / 'What you'll learn' "
-        "heading and its content into the existing ## Summary at the top — do not keep it at the end.\n"
+        "- If [late_takeaways] failed: remove duplicate 'Key takeaways' / 'Summary' / "
+        "'What you'll learn' headings from the body and keep a single ## Key takeaways at the top.\n"
         "- FAQ questions must match the approved/PAA bank when those gates failed.\n"
         f"- Each FAQ answer must be {FAQ_ANSWER_MIN_SENTENCES}–{FAQ_ANSWER_MAX_SENTENCES} "
         "sentences/lines.\n"

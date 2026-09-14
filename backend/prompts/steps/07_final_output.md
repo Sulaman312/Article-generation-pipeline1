@@ -78,13 +78,13 @@ TASK 3 — FINAL SEO & READABILITY CHECK (article body only)
   Run through this checklist in order. Fix any item that fails — minimal edit only.
   [ ] H1 is no more than 60 characters and 5–12 words
   [ ] H1 contains the primary keyword once (exact or near-exact)
-  [ ] Opening order: `# H1` → `## Summary` (40–80 words) → hero `![alt](IMAGE: …)` → first content H2
-  [ ] No "Key takeaways", "What you'll learn", or similar headings anywhere after the Summary block — remove them if present
+  [ ] Opening order: `# H1` → `## Key takeaways` (40–80 words of takeaways, not a summary) → hero `![alt](IMAGE: …)` → first content H2
+  [ ] No second "Key takeaways", "## Summary", "What you'll learn", or similar headings later in the body — remove them if present
   [ ] Primary keyword appears once in the first 100 body words and nowhere else exactly in body prose
   [ ] Each secondary keyword appears at most once across headings/body
   [ ] At least one H2 contains a secondary keyword — natural placement only
   [ ] Article body stays within target and is not padded relative to SERP norms
-  [ ] 2–3 in-text image placeholders use `![alt](IMAGE: …)` with descriptive alt text (first after Summary)
+  [ ] 2–3 in-text image placeholders use `![alt](IMAGE: …)` with descriptive alt text (first after Key takeaways)
   [ ] External links: 3–5 valid inline HTTPS markdown links (E-E-A-T — real sources only)
   [ ] Proof points and cited claims preserved from draft — no invented brands, stats, or prices added;
       every concrete price/% keeps its citation or is generalized
@@ -106,7 +106,8 @@ OUTPUT FORMAT — follow exactly:
 
 RULES:
 - Do NOT rewrite content broadly — only add CTAs, links, images, trim filler, and make minimal SEO fixes
-- **Preserve the H1 → ## Summary → hero image opening** from the draft — do not flatten Summary into plain prose or remove the hero image
+- **Preserve the H1 → ## Key takeaways → hero image opening** from the draft — do not rename it to ## Summary, flatten takeaways into a recap, or remove the hero image
+- If the draft still has `## Summary`, rename it to `## Key takeaways` and rewrite the block as actionable takeaways (not an article summary)
 - **Do NOT output meta titles, meta descriptions, publishing metadata, or SEO checklist blocks** — those are generated in the separate Meta Title & Description step.
 - **Preserve the full FAQ section** from the fact-check corrected article: keep every H3 Q&A (typically 5–7). Never reduce FAQ count. Keep answers at 3–4 lines each.
 - H1 hard limits: 60 characters, 5–12 words, primary keyword once
