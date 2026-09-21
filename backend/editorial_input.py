@@ -48,7 +48,9 @@ _KEY_TO_LABEL: dict[str, str] = {
     "semrush_notes": "Semrush / keyword research",
 }
 
-_LONG_FIELD_LABELS = frozenset({"Keyword Data", "Semrush / keyword research", "Notes"})
+_LONG_FIELD_LABELS = frozenset(
+    {"Keyword Data", "Semrush / keyword research", "Notes", "Internal Links"}
+)
 _LONG_FIELD_MAX = 50_000
 _DEFAULT_FIELD_MAX = 4_000
 
@@ -367,9 +369,11 @@ def faq_editorial_notice(manual: dict | None = None) -> str:
         f"- Format: H2 `{heading}` then items from the **PAA / FAQ RESEARCH** Recommended FAQ bank.\n"
         "- Prefer bank question wording; do **not** invent a second FAQ block in another language.\n"
         "- If the PAA bank says LOW SIGNAL or KEYWORD DATA SHOWS LOW/NO DEMAND, use fewer questions — do not pad.\n"
-        "- Each item: `### Question here?` then a direct **3–4 line** answer (3–4 sentences each).\n"
+        "- Each item: `### Question here?` then a **3-4 line** answer (3-4 short sentences, "
+        "one sentence per line, about 70 words max). No long paragraphs.\n"
         "- Do not invent brands, products, or prices without a cited source.\n"
-        "- FAQ does **not** count toward the form Word Count (body prose only).\n"
+        "- FAQ does **not** count toward the form Word Count. Hit the target in the article "
+        "body sections only. Never pad FAQ to make length.\n"
     )
 
 
@@ -484,9 +488,208 @@ def external_links_editorial_notice() -> str:
         "- Place links where you cite stats, regulations, market data, or \"according to …\" claims.\n"
         "- Do **not** link to direct competitors' sales pages unless the article is explicitly "
         "a comparison piece.\n"
-        "- Internal cluster links: `[2–3 words](INTERNAL: cluster name)` inline in prose.\n"
+        "- Form-provided site pages (Internal Links field) are **separate** and mandatory when listed.\n"
+        "- Extra cluster placeholders: `[2–3 words](INTERNAL: cluster name)` only after form links are placed.\n"
         "- External links: `[2–3 words](https://…)` inline in prose — not end-of-paragraph citations.\n"
     )
+
+
+_MD_INTERNAL_LINK = re.compile(
+    r"\[([^\]]{1,120})\]\((https?://[^)\s]+|/[^)\s]+)\)",
+    re.IGNORECASE,
+)
+_BARE_INTERNAL_URL = re.compile(r"https?://[^\s\]\)\>\"',]+", re.IGNORECASE)
+_BARE_INTERNAL_PATH = re.compile(r"^(/[A-Za-z0-9._~:/?#\[\]@!$&'()*+,;=%-]+)$")
+_FORM_INTERNAL_LINK_MAX = 8
+
+
+def internal_links_raw_from_manual(manual: dict | None) -> str:
+    if not isinstance(manual, dict):
+        return ""
+    return (
+        manual.get("Internal Links") or manual.get("internal_links") or ""
+    ).strip()
+
+
+def _clean_internal_href(href: str) -> str:
+    return (href or "").strip().rstrip(".,);\"'")
+
+
+def _title_from_internal_chunk(chunk: str, href: str) -> str:
+    leftover = chunk
+    if href:
+        leftover = leftover.replace(href, " ")
+    leftover = re.sub(r"[\[\]\(\)]", " ", leftover)
+    leftover = re.sub(r"\s*[–—\-:|]+\s*$", "", leftover.strip(" \t-–—:|"))
+    leftover = re.sub(r"\s+", " ", leftover).strip(" \t-–—:|")
+    if leftover:
+        return leftover[:80]
+    path = re.sub(r"^https?://", "", href, flags=re.I).rstrip("/")
+    slug = path.rsplit("/", 1)[-1] if path else ""
+    slug = slug.replace("-", " ").replace("_", " ").strip()
+    return slug[:80] or "this page"
+
+
+def parse_form_internal_links(manual: dict | None) -> list[dict[str, str]]:
+    """Parse the article-form Internal Links field into title + href rows."""
+    raw = internal_links_raw_from_manual(manual)
+    if not raw:
+        return []
+
+    items: list[dict[str, str]] = []
+    seen: set[str] = set()
+
+    def _add(title: str, href: str, kind: str) -> None:
+        href = _clean_internal_href(href)
+        title = re.sub(r"\s+", " ", (title or "").strip())[:80]
+        key = (href or title).lower()
+        if not key or key in seen:
+            return
+        if href.startswith("http://") or href.startswith("https://"):
+            kind = "url"
+        elif href.startswith("/"):
+            kind = "path"
+        elif not href:
+            kind = "label"
+        else:
+            return
+        seen.add(key)
+        items.append(
+            {
+                "title": title or _title_from_internal_chunk(href, href),
+                "href": href,
+                "kind": kind,
+            }
+        )
+
+    for line in re.split(r"[\n;]+", raw):
+        piece = re.sub(r"^[\s>*\-•\d.)]+", "", line).strip()
+        if not piece:
+            continue
+        md_hits = list(_MD_INTERNAL_LINK.finditer(piece))
+        if md_hits:
+            for m in md_hits:
+                _add(m.group(1), m.group(2), "url")
+            piece = _MD_INTERNAL_LINK.sub(" ", piece).strip()
+            if not piece:
+                continue
+        urls = [_clean_internal_href(u) for u in _BARE_INTERNAL_URL.findall(piece)]
+        if len(urls) > 1:
+            for url in urls:
+                _add(_title_from_internal_chunk(piece, url), url, "url")
+            continue
+        if urls:
+            href = urls[0]
+            _add(_title_from_internal_chunk(piece, href), href, "url")
+            continue
+        first = piece.split()[0] if piece.split() else ""
+        path_m = _BARE_INTERNAL_PATH.match(first)
+        if path_m:
+            href = path_m.group(1)
+            rest = piece[len(href) :].strip(" \t-–—:|")
+            _add(rest or _title_from_internal_chunk(piece, href), href, "path")
+            continue
+        if len(piece) >= 3:
+            _add(piece[:80], "", "label")
+
+    return items[:_FORM_INTERNAL_LINK_MAX]
+
+
+def form_internal_link_href(item: dict[str, str] | None) -> str:
+    if not isinstance(item, dict):
+        return ""
+    href = (item.get("href") or "").strip()
+    if href:
+        return href
+    title = (item.get("title") or "").strip()
+    return f"INTERNAL: {title}" if title else ""
+
+
+def format_form_internal_links_line(links: list[dict[str, str]]) -> str:
+    parts: list[str] = []
+    for item in links:
+        title = (item.get("title") or "").strip()
+        href = (item.get("href") or "").strip()
+        if title and href:
+            parts.append(f"{title}: {href}")
+        elif href:
+            parts.append(href)
+        elif title:
+            parts.append(title)
+    return "; ".join(parts)
+
+
+def article_has_form_internal_href(article: str, href: str) -> bool:
+    """True when the article already links to this form-provided href."""
+    target = _clean_internal_href(href)
+    if not target or not article:
+        return False
+    hay = article.lower()
+    variants = {target.lower(), target.lower().rstrip("/")}
+    variants.add(target.lower().rstrip("/") + "/")
+    for variant in variants:
+        if not variant:
+            continue
+        if f"]({variant})" in hay:
+            return True
+    return False
+
+
+def missing_form_internal_links(
+    article: str, links: list[dict[str, str]] | None
+) -> list[dict[str, str]]:
+    missing: list[dict[str, str]] = []
+    for item in links or []:
+        href = (item.get("href") or "").strip()
+        if not href:
+            continue
+        if not article_has_form_internal_href(article, href):
+            missing.append(item)
+    return missing
+
+
+def apply_manual_internal_links_topic_card(
+    text: str, fields: dict[str, str] | None
+) -> str:
+    """Keep form Internal Links on the topic card so later steps cannot drop them."""
+    links = parse_form_internal_links(fields)
+    if not text or not links:
+        return text
+    line = format_form_internal_links_line(links)
+    if not line:
+        return text
+    return _replace_delimited_line(
+        text,
+        start_marker=TOPIC_CARD_START,
+        end_marker=TOPIC_CARD_END,
+        line_prefix="INTERNAL LINKS:",
+        new_line=f"INTERNAL LINKS: {line}",
+    )
+
+
+def internal_links_editorial_notice(manual: dict | None) -> str:
+    """Mandatory placement brief for Internal Links entered on the article form."""
+    links = parse_form_internal_links(manual)
+    if not links:
+        return ""
+    lines = [
+        "\n\n=== INTERNAL LINKS FROM ARTICLE FORM (MANDATORY — PLACE WHILE WRITING) ===\n",
+        "The editor listed these site pages in step 1. Weave them into the article "
+        "body as natural mid-sentence markdown links **while drafting** — do not wait "
+        "for final output, and do not replace them with generic cluster placeholders.\n",
+        "Rules:\n",
+        "- Use the **exact** URL or path below. Do not invent a different page.\n",
+        "- Anchor text: 2–3 words that fit the sentence (the page title is a hint, not required verbatim).\n",
+        "- Place each link where that page is the natural next step for the reader.\n",
+        "- Spread links across different H2 sections. Never dump them as a footer list.\n",
+        "- ATP `INTERNAL: Supporting:` placeholders are extra and must not replace these pages.\n",
+        "Required links:\n",
+    ]
+    for i, item in enumerate(links, start=1):
+        href = form_internal_link_href(item)
+        title = item.get("title") or "this page"
+        lines.append(f"{i}. {title} → `{href}`  — write: `[{title[:40]}]({href})`\n")
+    return "".join(lines)
 
 
 def draft_word_count_requirement(target: int) -> str:
@@ -496,7 +699,9 @@ def draft_word_count_requirement(target: int) -> str:
         f"Editor form Word Count: **{target:,}**.\n"
         f"Body prose MUST land in **{low:,}–{high:,}** words (FAQ excluded).\n"
         f"Aim for **{target:,}**. Going above **{high:,}** is invalid.\n"
-        f"Hit the length while writing — do not plan to 'fix later' by deleting sections.\n"
+        f"Complete this length in the article H2 sections. FAQ answers stay 3-4 short "
+        f"lines and do not count toward the total.\n"
+        f"Hit the length while writing. Do not plan to 'fix later' by deleting sections.\n"
     )
 
 
@@ -960,15 +1165,17 @@ def build_meta_seo_context(
         f'Write a meta title for a {page_type} featuring {content_description}. '
         f'Meta titles must start with the exact target keyword phrase, "{keyword}", verbatim at the very beginning (no leading words). '
         f"Keep the title to between 50 and 60 characters. Give me 5 options to choose from. "
-        f"Use varied high-CTR patterns where the content supports them — e.g. step-by-step guide, "
+        f"Use varied high-CTR patterns where the content supports them, e.g. step-by-step guide, "
         f"N steps to, how to, best (for list/comparison pieces), or complete guide. "
-        f"Only use real step or list counts from the article; do not invent numbers."
+        f"Only use real step or list counts from the article; do not invent numbers. "
+        f"Never use em dashes or en dashes (— –); use a colon, comma, or ASCII hyphen."
     )
     meta_description_prompt = (
         f"Write a meta description for a {page_type} featuring {content_description}. "
         f'Meta descriptions must include the exact target keyword phrase, "{keyword}", verbatim at least once (preferably in the first sentence). '
         f"Keep the description to between 120 and 155 characters. "
-        f"Give me 5 options to choose from."
+        f"Give me 5 options to choose from. "
+        f"Never use em dashes or en dashes (— –); use a colon, comma, or ASCII hyphen."
     )
 
     return {
@@ -1002,6 +1209,9 @@ def finalize_meta_seo_output(text: str) -> str:
     cleaned = _META_SEO_CONTENT_SUMMARY.sub("", cleaned)
     cleaned = re.sub(r"\n{3,}", "\n\n", cleaned).strip()
 
+    from .writing_format_lint import strip_em_dashes
+
+    cleaned, _ = strip_em_dashes(cleaned)
     cleaned = _sanitize_meta_seo_option_lengths(cleaned)
     from .step_markers import wrap_step_artifact
     return wrap_step_artifact("meta_seo", cleaned)
@@ -1059,6 +1269,9 @@ def _sanitize_meta_seo_option_lengths(
 
         prefix, option_text = m.group(1), m.group(2)
         option_text = option_text.strip()
+        from .writing_format_lint import strip_em_dashes
+
+        option_text, _ = strip_em_dashes(option_text)
         if not option_text:
             out.append(line)
             continue

@@ -1,3 +1,5 @@
+import { stripEmDashes } from "../utils/stripEmDashes";
+
 /** Shared markdown preview class for all article pipeline step artifacts. */
 export const PIPELINE_MARKDOWN_CLASS = "md md--artifact md--pipeline-step";
 
@@ -149,7 +151,7 @@ export function extractFactCheckEditorBlock(text) {
 
 /** Normalize pipeline artifact text before markdown parsing. */
 export function normalizePipelineMarkdown(text) {
-  return String(text || "")
+  return stripEmDashes(String(text || ""))
     .replace(/^\uFEFF/, "")
     .replace(/\r\n/g, "\n")
     .replace(/[：﹕]/g, ":")

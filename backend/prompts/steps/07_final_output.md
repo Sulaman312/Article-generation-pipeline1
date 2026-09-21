@@ -33,9 +33,17 @@ TASK 1 — CTA PLACEMENT
 
 TASK 2 — INTERNAL LINKS
 
-2. INTERNAL LINKS — MAPPED TO CLIENT CLUSTERS
-   This article can link to other articles in the client's content strategy.
+2A. FORM-PROVIDED INTERNAL LINKS (HIGHEST PRIORITY)
+   If the user message includes **INTERNAL LINKS FROM ARTICLE FORM**, those exact URLs/paths
+   must appear in the publish-ready article as mid-sentence markdown:
+   `[2–3 word anchor](exact href from the form)`
+   Keep any that the draft already placed. If one is missing, weave it into the most relevant
+   H2 — do not convert a real form URL into an `INTERNAL:` placeholder.
+
+2B. INTERNAL LINKS — MAPPED TO CLIENT CLUSTERS
+   This article can also link to other articles in the client's content strategy.
    The client's content clusters are listed in your context above.
+   Use cluster placeholders only **after** every form-provided page is already linked.
 
    Read through the article body. Identify 2–4 places where a link to another article
    makes sense contextually. For each location, use the cluster structure from context:
@@ -88,14 +96,15 @@ TASK 3 — FINAL SEO & READABILITY CHECK (article body only)
   [ ] External links: 3–5 valid inline HTTPS markdown links (E-E-A-T — real sources only)
   [ ] Proof points and cited claims preserved from draft — no invented brands, stats, or prices added;
       every concrete price/% keeps its citation or is generalized
-  [ ] Internal links: 2–4 valid `](INTERNAL:` placeholders without duplicate clusters
+  [ ] Form Internal Links: every editor-provided URL/path from step 1 is an inline markdown link
+  [ ] Extra cluster links: 0–4 valid `](INTERNAL:` placeholders without duplicate clusters
   [ ] Article has a clear H1 → H2 hierarchy (no H3s without a parent H2)
   [ ] All headings use sentence case (not title case); closing H2 is topical (not "Conclusion")
-  [ ] No em dashes in headings, body, CTAs, or FAQ
+  [ ] No em dashes or en dashes in headings, body, CTAs, FAQ, meta titles, or meta descriptions
   [ ] 2–3 inline CTAs at H2 breaks, each with bold heading + description + markdown link on separate lines
   [ ] Demo CTAs use `/book-a-demo/` slug
   [ ] FAQ section present: H2 "Frequently Asked Questions" with at least 5 H3 Q&As — if missing, add a minimal FAQ block from the article topic (do not rewrite body sections)
-  [ ] Each FAQ answer is **3–4 lines** (3–4 sentences)
+  [ ] Each FAQ answer is **3-4 short lines** (one sentence per line, max ~70 words). Do not pad FAQ.
   [ ] Tone remains consistent throughout
 
 OUTPUT FORMAT — follow exactly:
@@ -113,7 +122,8 @@ RULES:
 - H1 hard limits: 60 characters, 5–12 words, primary keyword once
 - Primary keyword: once in H1 and once in first 100 body words; no further exact body repetition
 - Each secondary keyword appears at most once across article headings/body
-- Maximum 4 internal links — more feels spammy and dilutes link equity
+- Form-provided Internal Links always count first and must keep their exact hrefs
+- Maximum 4 extra cluster/`INTERNAL:` links — more feels spammy and dilutes link equity
 - Target 3–5 external authority links — real URLs only, from the sources block in the user message
 - Target 2–3 in-text image placeholders with descriptive alt text
 - Output only the final article block. No preamble. No commentary after.

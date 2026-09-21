@@ -191,6 +191,27 @@ class HardGateUnitTests(unittest.TestCase):
         )
         self.assertTrue(report.ok, msg=report.failure_message())
 
+    def test_form_internal_links_required(self):
+        links = [
+            {
+                "title": "Patient portal",
+                "href": "https://clinic.example/portal",
+                "kind": "url",
+            }
+        ]
+        missing = hard_gates.check_form_internal_links(
+            _opening("T", GOOD_LEDE) + "\n## S\n\nNo site links here.\n",
+            links,
+        )
+        self.assertTrue(any(i.code == "form_internal_link" for i in missing))
+
+        placed = hard_gates.check_form_internal_links(
+            _opening("T", GOOD_LEDE)
+            + "\n## S\n\nOpen the [patient portal](https://clinic.example/portal) to book.\n",
+            links,
+        )
+        self.assertEqual(placed, [])
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -16,6 +16,11 @@ PUBLISHING_METADATA_END = "---PUBLISHING METADATA END---"
 CORRECTED_ARTICLE_START = "---CORRECTED ARTICLE START---"
 CORRECTED_ARTICLE_END = "---CORRECTED ARTICLE END---"
 MIN_FAQ_QUESTIONS = 5
+FAQ_ANSWER_MIN_SENTENCES = 3
+FAQ_ANSWER_MAX_SENTENCES = 4
+FAQ_ANSWER_MAX_WORDS = 70
+_FAQ_SENTENCE_SPLIT = re.compile(r"(?<=[.!?])\s+")
+_FAQ_WORD_RE = re.compile(r"\b[\w''’-]+\b", re.UNICODE)
 
 _FAQ_HEADING = re.compile(
     r"^##\s+.*\b("
@@ -61,6 +66,58 @@ _CLOSING_H2_PATTERNS = (
     r"\n##\s+In summary\b",
     r"\n##\s+Wrapping up\b",
 )
+
+
+def split_faq_sentences(answer: str) -> list[str]:
+    text = re.sub(r"\s+", " ", (answer or "").strip())
+    if not text:
+        return []
+    return [p.strip() for p in _FAQ_SENTENCE_SPLIT.split(text) if p.strip()]
+
+
+def faq_answer_word_count(answer: str) -> int:
+    return len(_FAQ_WORD_RE.findall(answer or ""))
+
+
+def trim_faq_answer(answer: str) -> str:
+    """Keep 3-4 short sentences (one per line). Drop extra length; body holds word count."""
+    sentences = split_faq_sentences(answer)
+    if not sentences:
+        return (answer or "").strip()
+    sentences = sentences[:FAQ_ANSWER_MAX_SENTENCES]
+    while (
+        len(sentences) > FAQ_ANSWER_MIN_SENTENCES
+        and faq_answer_word_count(" ".join(sentences)) > FAQ_ANSWER_MAX_WORDS
+    ):
+        sentences.pop()
+    words = faq_answer_word_count(" ".join(sentences))
+    if words > FAQ_ANSWER_MAX_WORDS and sentences:
+        kept = " ".join(sentences[:-1]).strip()
+        budget = FAQ_ANSWER_MAX_WORDS - faq_answer_word_count(kept)
+        last_tokens = _FAQ_WORD_RE.findall(sentences[-1])
+        if budget >= 8 and last_tokens:
+            clipped = " ".join(last_tokens[:budget]).rstrip(" ,;:") + "."
+            sentences = ([kept] if kept else []) + [clipped]
+            sentences = [s for s in sentences if s]
+        elif len(sentences) > FAQ_ANSWER_MIN_SENTENCES:
+            sentences = sentences[:-1]
+    return "\n".join(sentences)
+
+
+def enforce_faq_answer_length(
+    article: str, *, heading: str | None = None
+) -> str:
+    """Rewrite FAQ answers to 3-4 lines without changing the article body."""
+    pairs = extract_faq_pairs(article)
+    if not pairs:
+        return article
+    trimmed = [(q, trim_faq_answer(a)) for q, a in pairs]
+    if heading is None:
+        sections = extract_faq_sections(article)
+        heading = (
+            sections[0][0] if sections else "## Frequently Asked Questions"
+        )
+    return insert_faq_block(article, trimmed, heading=heading)
 
 
 def insert_faq_block(

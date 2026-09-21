@@ -540,15 +540,49 @@ def check_faq(
 
     for q, a in pairs:
         n = _answer_sentence_count(a)
-        if n < FAQ_ANSWER_MIN_SENTENCES or n > FAQ_ANSWER_MAX_SENTENCES:
+        words = faq_schema.faq_answer_word_count(a)
+        lines = len([ln for ln in (a or "").splitlines() if ln.strip()]) or n
+        if (
+            n < FAQ_ANSWER_MIN_SENTENCES
+            or n > FAQ_ANSWER_MAX_SENTENCES
+            or lines > FAQ_ANSWER_MAX_SENTENCES
+            or words > faq_schema.FAQ_ANSWER_MAX_WORDS
+        ):
             issues.append(
                 GateIssue(
                     "faq_answer_length",
-                    f'FAQ answer for "{q[:70]}" has {n} sentence(s); '
-                    f"need {FAQ_ANSWER_MIN_SENTENCES}–{FAQ_ANSWER_MAX_SENTENCES} lines.",
+                    f'FAQ answer for "{q[:70]}" is {n} sentence(s) / {lines} line(s) / '
+                    f"{words} words; need {FAQ_ANSWER_MIN_SENTENCES}-{FAQ_ANSWER_MAX_SENTENCES} "
+                    f"short lines (max {faq_schema.FAQ_ANSWER_MAX_WORDS} words). "
+                    "Hit the article word count in body sections, not FAQ.",
                 )
             )
     return issues
+
+
+def check_form_internal_links(
+    article: str, links: list[dict[str, str]] | None
+) -> list[GateIssue]:
+    """Require article-form Internal Links (URLs/paths) to appear as markdown links."""
+    missing = editorial_input.missing_form_internal_links(article, links)
+    if not missing:
+        return []
+    required = [item for item in (links or []) if (item.get("href") or "").strip()]
+    # Cap so a long paste does not become an impossible gate.
+    need = min(len(required), 4)
+    placed = len(required) - len(missing)
+    if placed >= need:
+        return []
+    listed = "; ".join(
+        f"{item.get('title') or 'page'} → {item.get('href')}" for item in missing[:4]
+    )
+    return [
+        GateIssue(
+            "form_internal_link",
+            "Article is missing editor-provided internal links from the article form. "
+            f"Weave these mid-sentence with 2–3 word anchors: {listed}",
+        )
+    ]
 
 
 def evaluate_article_gates(
@@ -560,6 +594,7 @@ def evaluate_article_gates(
     case_study_research: str = "",
     paa_faq_research: str = "",
     require_faq: bool = True,
+    form_internal_links: list[dict[str, str]] | None = None,
     stage: str = "draft",
 ) -> GateReport:
     article = _article_body(article_md, stage=stage)
@@ -609,6 +644,7 @@ def evaluate_article_gates(
     )
     report.issues.extend(faq_issues)
     report.faq_count = len(faq_schema.extract_faq_pairs(article))
+    report.issues.extend(check_form_internal_links(article, form_internal_links))
     return report
 
 
@@ -639,8 +675,12 @@ def _repair_article_llm(
         "- If [late_takeaways] failed: remove duplicate 'Key takeaways' / 'Summary' / "
         "'What you'll learn' headings from the body and keep a single ## Key takeaways at the top.\n"
         "- FAQ questions must match the approved/PAA bank when those gates failed.\n"
-        f"- Each FAQ answer must be {FAQ_ANSWER_MIN_SENTENCES}–{FAQ_ANSWER_MAX_SENTENCES} "
-        "sentences/lines.\n"
+        f"- Each FAQ answer must be {FAQ_ANSWER_MIN_SENTENCES}-{FAQ_ANSWER_MAX_SENTENCES} "
+        f"short sentences (one per line, max {faq_schema.FAQ_ANSWER_MAX_WORDS} words). "
+        "Do not pad FAQ; keep article word count in the body.\n"
+        "- If [form_internal_link] failed: weave each listed URL/path as "
+        "`[2–3 word anchor](exact-href)` mid-sentence. Do not invent different URLs "
+        "or dump a footer list.\n"
         "- Keep body word count inside the stated band if word_count failed.\n\n"
         "---ARTICLE---\n"
         f"{article.strip()}\n"
@@ -698,6 +738,7 @@ def enforce_article_gates(
     research_audit = _load("research_audit")
     case_study = _load("case_study_research")
     paa = _load("paa_faq_research")
+    form_internal_links = editorial_input.parse_form_internal_links(manual)
 
     current = article_md
     report = evaluate_article_gates(
@@ -708,6 +749,7 @@ def enforce_article_gates(
         case_study_research=case_study,
         paa_faq_research=paa,
         require_faq=require_faq,
+        form_internal_links=form_internal_links,
         stage=stage,
     )
 
@@ -755,6 +797,7 @@ def enforce_article_gates(
                     case_study_research=case_study,
                     paa_faq_research=paa,
                     require_faq=require_faq,
+                    form_internal_links=form_internal_links,
                     stage=stage,
                 )
         except Exception:

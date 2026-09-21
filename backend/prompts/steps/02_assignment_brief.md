@@ -68,6 +68,11 @@ EXTERNAL AUTHORITY LINKS (REQUIRED unless editor Notes say otherwise):
   - Writer must weave markdown: `[2–3 word anchor](https://full-url)` mid-sentence — URLs from SERP only.
   - Note which H2 sections should cite which source types (stats, compliance, benchmarks, etc.).
   - Require inline markdown links only: no bare URLs, broken placeholders, or footer link dumps.
+INTERNAL LINKS FROM ARTICLE FORM (REQUIRED when the user message lists them):
+  - The step-1 Internal Links field is the source of truth for on-site pages to interlink.
+  - Plan a mid-sentence placement for **every** listed URL/path: `[2–3 word anchor](exact href)`.
+  - Name which H2 each form link belongs in. Do not substitute `INTERNAL: cluster` placeholders for these pages.
+  - ATP supporting-post placeholders are extra and must not replace form-provided pages.
 
 IN-TEXT IMAGES (REQUIRED unless editor Notes say otherwise):
   - First image: hero immediately after ## Key takeaways (H1 → Key takeaways → Image → content).

@@ -16,7 +16,18 @@ MAX_PARAGRAPH_SENTENCES = 4
 DEMO_CTA_SLUG = "/book-a-demo/"
 _BANNED_DEMO_SLUGS = ("/demo", "/request-demo")
 
-_EM_DASH_CHARS = ("\u2014",)  # — only; en-dash in ranges (2–4) is allowed in stats
+# Long dashes that must never appear in published copy (article, meta, brief).
+# Includes em dash, en dash, figure dash, horizontal bar, minus, 2/3-em dashes.
+_EM_DASH_CHARS = (
+    "\u2014",  # —
+    "\u2013",  # –
+    "\u2015",  # ―
+    "\u2012",  # ‒
+    "\u2212",  # −
+    "\u2e3a",  # ⸺
+    "\u2e3b",  # ⸻
+)
+_DASH_CLASS = "".join(_EM_DASH_CHARS)
 _BANNED_CLOSING_HEADING = re.compile(
     r"^(conclusion|final thoughts|in summary|summary|closing thoughts|wrap[- ]?up)\.?$",
     re.I,
@@ -64,14 +75,23 @@ def lint(text: str, *, stage: Stage = "draft") -> LintReport:
 
 
 def strip_em_dashes(text: str) -> tuple[str, bool]:
-    """Replace Unicode em dashes with colons or commas."""
-    if not text or "\u2014" not in text:
+    """Replace Unicode em/en dashes with colons, commas, or ASCII hyphens."""
+    if not text:
         return text, False
-    out = text.replace(" — ", ": ")
-    out = out.replace(" —", ":")
-    out = out.replace("— ", ": ")
-    out = out.replace("—", ", ")
-    return out, out != text
+    original = text
+    out = text
+    out = re.sub(r"&mdash;|&#8212;|&#x2014;", ": ", out, flags=re.I)
+    out = re.sub(r"&ndash;|&#8211;|&#x2013;", "-", out, flags=re.I)
+    out = out.replace(" -- ", ": ")
+    if any(ch in out for ch in _EM_DASH_CHARS):
+        for dash in _EM_DASH_CHARS:
+            out = out.replace(f" {dash} ", ": ")
+            out = out.replace(f" {dash}", ":")
+            out = out.replace(f"{dash} ", ": ")
+        out = re.sub(rf"(?<=\d)[{_DASH_CLASS}](?=\d)", "-", out)
+        out = re.sub(r"[\u2014\u2015\u2e3a\u2e3b]", ", ", out)
+        out = re.sub(r"[\u2012\u2013\u2212]", "-", out)
+    return out, out != original
 
 
 def _lint_em_dashes_in_lines(body: str, report: LintReport) -> None:
@@ -84,7 +104,7 @@ def _lint_em_dashes_in_lines(body: str, report: LintReport) -> None:
                 report.violations.append(
                     FormatViolation(
                         "EM_DASH",
-                        "Em dash found; use commas, colons, or sentence breaks.",
+                        "Em dash or en dash found; use commas, colons, or ASCII hyphens.",
                         line=i,
                         excerpt=stripped[:120],
                     )
@@ -118,7 +138,7 @@ def _lint_outline(text: str) -> LintReport:
                 report.violations.append(
                     FormatViolation(
                         "EM_DASH",
-                        "Em dash found; use commas, colons, or sentence breaks.",
+                        "Em dash or en dash found; use commas, colons, or ASCII hyphens.",
                         line=i,
                         excerpt=stripped[:120],
                     )
@@ -174,7 +194,7 @@ def _lint_article(text: str, *, stage: Stage) -> LintReport:
                 report.violations.append(
                     FormatViolation(
                         "EM_DASH",
-                        "Em dash found; use commas, colons, or sentence breaks.",
+                        "Em dash or en dash found; use commas, colons, or ASCII hyphens.",
                         line=i,
                         excerpt=stripped[:120],
                     )

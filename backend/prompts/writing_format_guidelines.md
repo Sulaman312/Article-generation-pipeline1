@@ -24,7 +24,7 @@
 
 ## Punctuation
 
-- **No em dashes anywhere** (headings, body, CTAs, FAQs). Use commas, colons, or sentence breaks instead.
+- **No em dashes or en dashes anywhere** (headings, body, CTAs, FAQs, meta titles, meta descriptions). Use commas, colons, sentence breaks, or an ASCII hyphen (-) instead. Never write — or –.
 - In CTA markers, the separator must be a **colon**, not an em dash or hyphen.
 - Full stops go **outside** link brackets, never inside.
 

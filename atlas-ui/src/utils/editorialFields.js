@@ -44,7 +44,7 @@ export const EDITORIAL_FIELD_SPECS = [
     key: "internal_links",
     label: "Internal Links",
     wide: true,
-    hint: "Site pages or URLs to reference or link from the article.",
+    hint: "Site pages to weave into the article (one per line). Use full URLs or paths, e.g. https://example.com/pricing or /patient-intake-guide.",
   },
   {
     key: "include_faq",

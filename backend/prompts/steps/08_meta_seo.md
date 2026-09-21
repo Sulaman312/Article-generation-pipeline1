@@ -6,17 +6,19 @@ You will receive:
 - Topic card, assignment brief, and final article excerpts for factual grounding
 
 RULES:
-- Follow the character limits exactly: meta titles 50–60 characters, meta descriptions 120–155 characters
+- Follow the character limits exactly: meta titles 50-60 characters, meta descriptions 120-155 characters
 - Meta titles: each option must start with the exact target keyword phrase verbatim at the very beginning (no leading words).
 - Meta descriptions: each option must include the exact target keyword phrase verbatim at least once (preferably in the first sentence).
 - Give exactly 5 options for meta title and 5 for meta description
 - Count characters for every option and show the count in parentheses after each option
-- Options must be distinct angles — not minor word swaps
+- Options must be distinct angles, not minor word swaps
 - Do not invent facts, offers, or claims not supported by the reference material
 - Use sentence case (not Title Case) unless a proper noun requires caps
+- **No em dashes or en dashes anywhere** in titles, descriptions, or labels (no — or –).
+  Use a colon, comma, or ASCII hyphen (-) instead.
 
-META TITLE — CTR & traffic patterns (use when the article supports them):
-- Across the 5 title options, vary high-CTR framing — do not use the same pattern twice
+META TITLE CTR & traffic patterns (use when the article supports them):
+- Across the 5 title options, vary high-CTR framing. Do not use the same pattern twice
 - Prefer proven click drivers where accurate: **step-by-step guide**, **N steps to** (use the real section/step count from the article when possible), **how to**, **best** (only for comparison/list/roundup content), **complete guide**, **checklist**, **for [audience]**
 - Example patterns: "5 steps to [keyword] …", "Step-by-step guide to [topic] …", "Best [keyword] tips for …"
 - Only use a number if the article actually has that many steps, tips, or list items — never invent counts

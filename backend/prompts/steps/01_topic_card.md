@@ -25,9 +25,9 @@ You will receive one message that may combine any of the following:
   this number (e.g. `2000` → `1,900–2,100 words` or `2,000 words`). Do **not** downgrade because
   of content type, checklist format, or workspace guidelines unless Word Count is blank.
 - Angle / Hook — feeds SUGGESTED ANGLE and COMPETING CONTENT WEAKNESS when useful
-- Internal Links — optional; informs angle ("what we can link to") but do not list URLs inside the
-  topic card unless the output format already implies it — prefer one short clause in WHAT THE READER
-  WANTS or COMPETING CONTENT WEAKNESS if relevant
+- Internal Links — **required field when present**. Copy every page/URL from the form into
+  INTERNAL LINKS below (exact hrefs). Downstream draft/final steps must weave these links
+  into the article body. Also mention them in EDITORIAL CONSTRAINTS.
 - Doc Link, Deadline, Notes — **Notes are mandatory constraints** when present (language, tone,
   title rules, CTA, links, image direction, keyword usage). Surface every Notes requirement in the
   topic card and EDITORIAL CONSTRAINTS below; do not drop or soften them.
@@ -74,6 +74,7 @@ FUNNEL STAGE: [one of: awareness / consideration / decision]
 RECOMMENDED WORD COUNT: [if manual Word Count was provided, a tight range within ±10% of that number only; else infer from content type — prefer the shorter end when SERP/tool data shows top competitors run lean]
 TITLE GUIDANCE: [proposed H1 — max 60 characters, 5–12 words, primary keyword used once]
 KEYWORD USAGE RULE: [primary keyword once in H1 and once in the first 100 body words; each secondary keyword at most once across headings/body; metadata counted separately]
+INTERNAL LINKS: [exact pages from the form Internal Links field — `Title — URL` separated by semicolons. Omit this entire line only when the form field was empty.]
 EDITORIAL CONSTRAINTS: [bullet list — every requirement from Notes, Angle, Internal Links, and the SEO rules that downstream steps must honor]
 COMPETING CONTENT WEAKNESS: [1 sentence — what does existing content on this topic typically get wrong or miss entirely]
 ---TOPIC CARD END---
@@ -98,4 +99,5 @@ RULES:
   for 2,000+.
 - TITLE GUIDANCE must be no more than 60 characters and 5–12 words; verify both limits.
 - EDITORIAL CONSTRAINTS must preserve every non-empty Notes requirement.
+- When Internal Links were provided, INTERNAL LINKS must list those exact URLs/paths. Do not drop them.
 - Output ONLY the topic card. No preamble. No explanation after.

@@ -1,3 +1,5 @@
+import { stripEmDashes } from "./stripEmDashes";
+
 export const META_SEO_START = "---META SEO START---";
 export const META_SEO_END = "---META SEO END---";
 
@@ -12,11 +14,11 @@ export function parseMetaSeoOptionLines(blockText) {
     if (!trimmed) continue;
     const m = trimmed.match(OPTION_LINE);
     if (!m) continue;
-    const optionText = m[2].trim();
+    const optionText = stripEmDashes(m[2].trim());
     options.push({
       index: Number(m[1]),
       text: optionText,
-      charCount: Number(m[3]) || optionText.length,
+      charCount: optionText.length,
     });
   }
   return options;

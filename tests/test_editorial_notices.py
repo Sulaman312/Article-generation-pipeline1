@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import unittest
 
-from backend import editorial_input, prompts
+from backend import editorial_input, final_output_enforce, prompts
 
 
 class EditorialNoticeTests(unittest.TestCase):
@@ -17,6 +17,71 @@ class EditorialNoticeTests(unittest.TestCase):
     def test_empty_notes_do_not_add_noise(self):
         self.assertEqual(editorial_input.notes_editorial_notice({}), "")
         self.assertEqual(editorial_input.notes_editorial_notice(None), "")
+
+    def test_parse_form_internal_links_accepts_mixed_paste(self):
+        links = editorial_input.parse_form_internal_links(
+            {
+                "Internal Links": (
+                    "Patient portal — https://clinic.example/portal\n"
+                    "[Pricing](https://clinic.example/pricing)\n"
+                    "/intake-guide\n"
+                    "https://clinic.example/portal"
+                )
+            }
+        )
+        hrefs = [item["href"] for item in links]
+        self.assertEqual(
+            hrefs,
+            [
+                "https://clinic.example/portal",
+                "https://clinic.example/pricing",
+                "/intake-guide",
+            ],
+        )
+        self.assertEqual(links[0]["title"], "Patient portal")
+
+    def test_internal_links_notice_lists_exact_hrefs(self):
+        notice = editorial_input.internal_links_editorial_notice(
+            {"internal_links": "https://clinic.example/pricing"}
+        )
+        self.assertIn("MANDATORY", notice)
+        self.assertIn("https://clinic.example/pricing", notice)
+        self.assertEqual(editorial_input.internal_links_editorial_notice({}), "")
+
+    def test_apply_manual_internal_links_topic_card(self):
+        card = (
+            "---TOPIC CARD START---\n"
+            "PRIMARY KEYWORD: telehealth\n"
+            "---TOPIC CARD END---"
+        )
+        out = editorial_input.apply_manual_internal_links_topic_card(
+            card,
+            {"Internal Links": "Pricing — https://clinic.example/pricing"},
+        )
+        self.assertIn("INTERNAL LINKS:", out)
+        self.assertIn("https://clinic.example/pricing", out)
+
+    def test_inject_form_internal_links_weaves_missing_href(self):
+        article = (
+            "# Title\n\n"
+            "## Key takeaways\n\n"
+            "Book online and skip the waiting room when the issue is mild.\n\n"
+            "## Booking\n\n"
+            "Owners can review history in the patient portal before the call starts. "
+            "That keeps the consult focused on the current concern.\n"
+        )
+        out = final_output_enforce.inject_form_internal_links(
+            article,
+            [
+                {
+                    "title": "Patient portal",
+                    "href": "https://clinic.example/portal",
+                    "kind": "url",
+                }
+            ],
+        )
+        self.assertIn("](https://clinic.example/portal)", out)
+        self.assertNotIn("](https://clinic.example/portal)", article)
 
     def test_keyword_contract_is_consistent(self):
         notice = editorial_input.seo_readability_notice()
@@ -125,6 +190,25 @@ class EditorialNoticeTests(unittest.TestCase):
         self.assertIn("META SEO END", out)
         self.assertIn("PAGE TYPE:", out)
         self.assertIn("META TITLE OPTIONS", out)
+
+    def test_finalize_meta_seo_strips_em_dashes_from_options(self):
+        sample = (
+            "---META SEO START---\n"
+            "PAGE TYPE: blog page\n"
+            "TARGET KEYWORD: online vet visit\n"
+            "META TITLE OPTIONS (50–60 characters):\n"
+            "  1. Online vet visit guide — book faster (41 characters)\n"
+            "META DESCRIPTION OPTIONS (120–155 characters):\n"
+            "  1. Book an online vet visit – skip the waiting room and get advice today. (72 characters)\n"
+            "---META SEO END---\n"
+        )
+        out = editorial_input.finalize_meta_seo_output(sample)
+        self.assertNotIn("\u2014", out)
+        self.assertNotIn("\u2013", out)
+        parsed = editorial_input.parse_meta_seo_artifact(out)
+        self.assertTrue(parsed["title_options"])
+        self.assertNotIn("\u2014", parsed["title_options"][0])
+        self.assertNotIn("\u2013", parsed["description_options"][0])
 
     def test_parse_and_inject_meta_seo_into_publishing_metadata(self):
         meta = (

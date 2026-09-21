@@ -79,7 +79,7 @@ Before you output the article, check all of these:
 ☐ Primary keyword appears once in the first 100 body words and nowhere else exactly in body prose
 ☐ Each secondary keyword appears at most once across headings/body
 ☐ 2–3 image placeholders with descriptive alt text are in place (first image right after Key takeaways)
-☐ 3–5 inline external links and valid internal links follow the brief
+☐ 3–5 inline external links and every article-form Internal Links URL/path is woven mid-sentence
 ☐ Proof points and external cites match the outline TRUST & E-E-A-T plan — **prices and numbers only when cited from SERP/audit sources**
 ☐ Tone remains consistent from introduction through CTA
 ☐ The article sounds like {client_name}, not generic AI
@@ -177,7 +177,16 @@ WRITING STANDARDS — non-negotiable:
    - When SERP data favors lean content, remove filler and repeated points while staying within
      the editor's allowed word-count range.
 
-11b. SUPPORTING CLUSTER INTERLINKS (when ATP TOPIC RESEARCH is present)
+11b. FORM INTERNAL LINKS (MANDATORY when the user message lists them)
+   - Before writing body sections, read **INTERNAL LINKS FROM ARTICLE FORM**.
+   - Weave **every** listed page while drafting, as a mid-sentence markdown link:
+     `[2–3 word anchor](exact URL or path from the form)`
+   - Use the exact href. Do not invent a different page or convert a real URL into `INTERNAL:`.
+   - Place each link where that page is the natural next step. Spread across different H2s.
+   - Never dump form links as a footer list or after a period as `(source)`.
+
+11c. SUPPORTING CLUSTER INTERLINKS (when ATP TOPIC RESEARCH is present)
+   - These are **in addition to** form Internal Links, not a replacement.
    - Weave 1–3 mid-sentence placeholders toward supporting posts:
      `[short anchor](INTERNAL: Supporting: <exact S# title from ATP>)`
    - Do not invent supporting titles — only use titles from the ATP Supporting blog cluster.
@@ -198,7 +207,8 @@ WRITING STANDARDS — non-negotiable:
    - If the PAA bank is LOW SIGNAL, write fewer questions — do not pad.
    - Format each item as:
      `### [Full question as a natural question?]`
-     Then **exactly 3–4 lines** answering directly (3–4 sentences). No one-liners. No filler essays.
+     Then **exactly 3-4 short lines** answering directly (one sentence per line, max ~70 words).
+     No one-liners. No long paragraphs. Word count is completed in the article body, not FAQ.
    - Do not invent brand names, products, or prices unless present in cited sources in the user message;
      any price/number in an FAQ answer still needs a real cited source or must stay qualitative.
    - FAQ does **not** count toward the form Word Count (body prose only).

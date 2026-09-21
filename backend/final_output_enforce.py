@@ -270,6 +270,95 @@ def inject_internal_links_programmatic(
     return "\n\n".join(out)
 
 
+def inject_form_internal_links(
+    article: str, links: list[dict[str, str]] | None, max_links: int = 6
+) -> str:
+    """Weave missing article-form Internal Links into body prose mid-sentence."""
+    missing = editorial_input.missing_form_internal_links(article, links)
+    if not missing:
+        return article
+
+    paragraphs = article.split("\n\n")
+    used = 0
+    link_i = 0
+    out: list[str] = []
+    skip_next_body = False
+    for para in paragraphs:
+        if used >= max_links or link_i >= len(missing):
+            out.append(para)
+            continue
+        stripped = para.strip()
+        heading_m = re.match(
+            r"^##\s+(key\s+takeaways?|frequently asked|questions)",
+            stripped,
+            re.I,
+        )
+        if heading_m:
+            skip_next_body = True
+            out.append(para)
+            continue
+        if (
+            not stripped
+            or stripped.startswith("#")
+            or "[INTERNAL LINK:" in stripped
+            or len(stripped) < 70
+            or skip_next_body
+        ):
+            if stripped:
+                skip_next_body = False
+            out.append(para)
+            continue
+
+        item = missing[link_i]
+        href = editorial_input.form_internal_link_href(item)
+        if not href or editorial_input.article_has_form_internal_href(stripped, href):
+            out.append(para)
+            continue
+
+        title_words = re.findall(r"[A-Za-z0-9]{3,}", item.get("title") or "")
+        hay = stripped.lower()
+        title_hit = sum(1 for w in title_words if w.lower() in hay) >= max(1, min(2, len(title_words)))
+        if not title_hit and used == 0 and link_i == 0:
+            # First missing link can go in the first suitable body paragraph.
+            title_hit = True
+        elif not title_hit and used > 0:
+            # Prefer a later paragraph that mentions the page title.
+            remaining = "\n\n".join(paragraphs[len(out) + 1 :])
+            if any(w.lower() in remaining.lower() for w in title_words[:3]):
+                out.append(para)
+                continue
+
+        sentences = re.split(r"(?<=[.!?])\s+", stripped)
+        target_i = next(
+            (
+                i
+                for i, s in enumerate(sentences)
+                if s.strip() and not re.search(r"\]\([^)]+\)", s)
+            ),
+            0,
+        )
+        phrase = None
+        sent = sentences[target_i]
+        for n in (3, 2):
+            chunk = " ".join(title_words[:n])
+            if chunk and re.search(re.escape(chunk), sent, re.I):
+                phrase = re.search(re.escape(chunk), sent, re.I).group(0)
+                break
+        if not phrase:
+            phrase = _pick_phrase_for_link(sent) or _short_anchor(
+                item.get("title") or href
+            )
+        if phrase and phrase.lower() in sent.lower():
+            sentences[target_i] = _wrap_first_phrase(sent, phrase, href)
+        else:
+            anchor = _short_anchor(item.get("title") or href)
+            sentences[target_i] = f"{sent.rstrip()} [{anchor}]({href})"
+        out.append(" ".join(sentences))
+        used += 1
+        link_i += 1
+    return "\n\n".join(out)
+
+
 def count_external_markdown_links(markdown: str) -> int:
     if not markdown:
         return 0
@@ -396,7 +485,8 @@ def _inject_faq_llm(
         f"Return ONLY the full article markdown. Write exactly ONE FAQ section in "
         f"{language_label} using H2 `{heading}`. Prefer the provided FAQ bank questions. "
         "Do not add FAQ blocks in any other language. Do not invent brands, products, or prices. "
-        "Each FAQ answer must be exactly 3–4 sentences (3–4 lines)."
+        "Each FAQ answer must be 3-4 short sentences (one per line, max ~70 words). "
+        "Do not pad FAQ to hit article word count."
     )
     bank = faq_bank_prompt.strip() or (
         "No FAQ bank provided — write only as many specific questions as the topic supports "
@@ -644,6 +734,9 @@ def enforce_final_output(
 
     clusters = extract_for_step_7(client_id).get("clusters") or []
     article = normalize_article_links(article, clusters)
+    form_links = editorial_input.parse_form_internal_links(manual)
+    if form_links:
+        article = inject_form_internal_links(article, form_links)
 
     if _needs_faq(article, manual):
         article = inject_faq_template(
@@ -664,6 +757,8 @@ def enforce_final_output(
         stage="final",
         allow_llm_repair=allow_llm_repair,
     )
+    if form_links:
+        article = inject_form_internal_links(article, form_links)
 
     if word_target:
         _, high = editorial_input.word_count_bounds(word_target)
@@ -681,6 +776,7 @@ def enforce_final_output(
     article = faq_schema.consolidate_faq_sections(
         article, heading=faq_heading, lang=lang
     )
+    article = faq_schema.enforce_faq_answer_length(article, heading=faq_heading)
 
     if faq_schema.FINAL_OUTPUT_START in text:
         text = faq_schema.replace_final_article_body(text, article)

@@ -393,8 +393,14 @@ def save_artifact(client_id: str, run_id: str, step_name: str, content: str) -> 
     from .step_markers import STEP_MARKER_LABELS, ensure_step_markers
 
     step_name = _validate_step_name(step_name)
-    if step_name in STEP_MARKER_LABELS:
-        content = ensure_step_markers(step_name, content)
+    from .writing_format_lint import strip_em_dashes
+
+    if step_name == "meta_seo":
+        content = editorial_input.finalize_meta_seo_output(content)
+    else:
+        content, _ = strip_em_dashes(content or "")
+        if step_name in STEP_MARKER_LABELS:
+            content = ensure_step_markers(step_name, content)
     path = get_run_dir(client_id, run_id) / f"{step_name}.md"
     path.write_text(content, encoding="utf-8")
     logger.info("artifact saved %s", path)
@@ -409,7 +415,11 @@ def load_artifact(client_id: str, run_id: str, step_name: str) -> str:
         raise FileNotFoundError(
             f"Artifact not found at expected path: {path}"
         )
-    return path.read_text(encoding="utf-8")
+    text = path.read_text(encoding="utf-8")
+    from .writing_format_lint import strip_em_dashes
+
+    cleaned, _ = strip_em_dashes(text)
+    return cleaned
 
 
 _context_text_cache: dict[tuple[str, str], tuple[int, str]] = {}

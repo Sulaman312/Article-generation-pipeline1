@@ -78,6 +78,14 @@ describe("step boundary markers", () => {
     expect(out).toContain("## Snapshot");
   });
 
+  test("strips em dashes from preview markdown", () => {
+    const raw = "Learn more — then book. Range 2–4 weeks.";
+    const out = normalizePipelineMarkdown(raw);
+    expect(out).not.toMatch(/[\u2013\u2014]/);
+    expect(out).toContain("Learn more: then book.");
+    expect(out).toContain("2-4 weeks");
+  });
+
   test("still strips internal fact-check sub-section markers", () => {
     const raw = [
       "---FACT CHECK START---",

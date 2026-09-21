@@ -74,6 +74,22 @@ class WritingFormatLintTests(unittest.TestCase):
         self.assertNotIn("\u2014", fixed)
         self.assertIn("Foo: bar", fixed)
 
+    def test_strip_en_dashes_and_ranges(self):
+        text = "Learn more – then book. Range 2–4 weeks."
+        fixed, changed = lint.strip_em_dashes(text)
+        self.assertTrue(changed)
+        self.assertNotIn("\u2013", fixed)
+        self.assertIn("Learn more: then book.", fixed)
+        self.assertIn("2-4 weeks", fixed)
+
+    def test_strip_html_mdash_and_double_hyphen(self):
+        text = "Scope &mdash; cost. Next -- then book."
+        fixed, changed = lint.strip_em_dashes(text)
+        self.assertTrue(changed)
+        self.assertNotIn("&mdash;", fixed)
+        self.assertIn("Scope :", fixed)
+        self.assertIn("Next: then book.", fixed)
+
 
 if __name__ == "__main__":
     unittest.main()

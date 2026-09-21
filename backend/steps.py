@@ -100,6 +100,9 @@ def _editorial_notices_for_run(client_id: str, run_id: str) -> str:
     )
     return (
         notes
+        + editorial_input.internal_links_editorial_notice(
+            manual if isinstance(manual, dict) else None
+        )
         + editorial_input.seo_readability_notice()
         + editorial_input.writing_format_guidelines_notice()
         + _faq_notice_for_run(client_id, run_id)
@@ -183,13 +186,15 @@ def _ensure_draft_word_count(
         shortage = max(50, target - current)
         expand_user = (
             f"The draft below is TOO SHORT and must be expanded.\n"
-            f"- Current word count: {current:,}\n"
+            f"- Current BODY word count: {current:,} (FAQ is excluded from this count)\n"
             f"- Editor form target: {target:,} words\n"
             f"- Acceptable minimum: {low:,} words (maximum ~{high:,})\n"
-            f"- Add approximately {shortage:,} more words of substantive prose.\n\n"
+            f"- Add approximately {shortage:,} more words of substantive BODY prose.\n\n"
             f"Rules:\n"
             f"- Keep the same H1/H2 structure and markdown format.\n"
-            f"- Expand every major section with examples, steps, and detail.\n"
+            f"- Expand every major BODY H2 with examples, steps, and detail.\n"
+            f"- Do NOT add words to the FAQ section. FAQ answers stay 3-4 short lines.\n"
+            f"- Hit the word count in the article content only. FAQ does not count.\n"
             f"- Stay under {high:,} body words after expansion.\n"
             f"- Do not add filler, repetition, or meta-commentary.\n"
             f"- Output ONLY the full expanded article in markdown.\n\n"
@@ -258,6 +263,7 @@ def run_step_1(client_id: str, run_id: str, previous_artifact: str = "") -> str:
     user_msg = (built or previous_artifact or "").strip()
     if isinstance(manual, dict):
         user_msg += editorial_input.notes_editorial_notice(manual)
+        user_msg += editorial_input.internal_links_editorial_notice(manual)
     user_msg += editorial_input.seo_readability_notice()
     if wc_target:
         user_msg += editorial_input.mandatory_word_count_notice(wc_target)
@@ -275,6 +281,8 @@ def run_step_1(client_id: str, run_id: str, previous_artifact: str = "") -> str:
             output, manual, semrush_notes=""
         )
     output = wrap_step_artifact(step_name, output)
+    if isinstance(manual, dict):
+        output = editorial_input.apply_manual_internal_links_topic_card(output, manual)
     artifacts.save_artifact(client_id, run_id, step_name, output)
     logger.info("step complete %s", step_name)
     return output
@@ -839,7 +847,16 @@ Instead of generic corporate language, use:
             )
             words = editorial_input.count_article_words(output)
         logger.info("draft final word count %s (target %s)", words, wc_target)
+    from . import final_output_enforce
     from . import hard_gates
+
+    form_links = editorial_input.parse_form_internal_links(
+        (artifacts.read_run_manifest(client_id, run_id) or {}).get("manual_inputs")
+    )
+    if form_links:
+        output = final_output_enforce.inject_form_internal_links(output, form_links)
+
+    output = faq_schema.enforce_faq_answer_length(output)
 
     output = hard_gates.enforce_article_gates(
         output,
@@ -906,7 +923,7 @@ def run_step_6(client_id: str, run_id: str, previous_artifact: str = "") -> str:
             f"({draft_words:,} words; form target {wc_target:,}, band {low:,}–{high:,}).\n"
             f"In ---CORRECTED ARTICLE--- keep nearly the same body length. "
             f"Fix facts/clarity; do NOT expand into a longer rewrite. "
-            f"FAQ may stay as-is (it does not count toward the band).\n"
+            f"FAQ answers stay 3-4 short lines and do not count toward the band.\n"
         )
     claude_out = _chat_complete(system_msg, user_msg, step_label)
     # Keep corrected article inside the generation band when possible.
@@ -934,6 +951,20 @@ def run_step_6(client_id: str, run_id: str, previous_artifact: str = "") -> str:
                         + "\n"
                         + claude_out[end:]
                     )
+    corrected = faq_schema.extract_corrected_article_body(claude_out)
+    if corrected:
+        tightened = faq_schema.enforce_faq_answer_length(corrected)
+        if tightened != corrected:
+            start = claude_out.find(faq_schema.CORRECTED_ARTICLE_START)
+            end = claude_out.find(faq_schema.CORRECTED_ARTICLE_END)
+            if start != -1 and end != -1 and end > start:
+                claude_out = (
+                    claude_out[: start + len(faq_schema.CORRECTED_ARTICLE_START)]
+                    + "\n"
+                    + tightened.strip()
+                    + "\n"
+                    + claude_out[end:]
+                )
     claude_out = wrap_step_artifact(step_name, claude_out)
     combined = (
         "---PERPLEXITY WEB FACT-CHECK (raw audit trail)---\n"
@@ -952,11 +983,24 @@ def run_step_7(client_id: str, run_id: str, previous_artifact: str = "") -> str:
     context = artifacts.load_context(client_id, step_name)
     extracted = extract_for_step_7(client_id)
 
+    form_links = editorial_input.parse_form_internal_links(
+        (artifacts.read_run_manifest(client_id, run_id) or {}).get("manual_inputs")
+    )
+    form_link_lines = (
+        "\n".join(
+            f"- {item.get('title') or 'page'} → {editorial_input.form_internal_link_href(item)}"
+            for item in form_links
+        )
+        if form_links
+        else "None listed on the article form."
+    )
     cluster_section = f"""
 ---INTERNAL LINKING GUIDE---
+ARTICLE-FORM INTERNAL LINKS (place these first, exact hrefs):
+{form_link_lines}
 These are the content clusters for this client:
 {chr(10).join([f'{i+1}. {cluster}' for i, cluster in enumerate(extracted['clusters'])]) if extracted['clusters'] else 'No clusters defined'}
-When linking, reference only these cluster names.
+When adding extra cluster placeholders, reference only these cluster names.
 CTA Philosophy: {extracted['cta_philosophy']}
 ---END LINKING GUIDE---
 """

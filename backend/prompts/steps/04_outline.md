@@ -67,9 +67,11 @@ and how the final sentence sets up the CTA naturally.
 The draft's final H2 must be a unique topical heading — never "Conclusion", "Final thoughts", or "In summary".]
 
 CTA NOTE: [exact placement at H2 transitions + type (soft/direct) — plan 2–3 CTAs spread inline, not clustered at the end]
-INTERNAL LINK NOTE: [From ATP supporting cluster — plan 2–4 mid-sentence placeholders:
+INTERNAL LINK NOTE: [**First:** plan a mid-sentence placement for every URL/path from the
+  article-form Internal Links field — `[short anchor](exact href)`. Name the H2 for each.
+  **Then** (optional extra) ATP supporting cluster placeholders:
   `[short anchor](INTERNAL: Supporting: <title from ATP>)` and/or client cluster names.
-  Prefer ATP interlink blueprint when present.]
+  Form-provided pages always win over invented cluster names.]
 IMAGE PLAN: [First image = hero right after ## Key takeaways. Plus 1–2 mid-body placements —
 section + alt text + `![alt](IMAGE: slug)` slug for each; 2–3 total]
 TOTAL ESTIMATED WORD COUNT: [sum of all sections + Key takeaways + conclusion — must match brief target ±10%; prefer the lower end when SERP competitors are shorter]
