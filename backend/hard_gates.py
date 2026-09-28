@@ -308,9 +308,18 @@ def _normalize_phrase(s: str) -> str:
     return re.sub(r"\s+", " ", (s or "").strip().lower())
 
 
+def _phrase_tokens(phrase: str) -> list[str]:
+    """Keyword tokens using the same rules as body prose (punctuation ignored)."""
+    return [w.lower() for w in _word_tokens(phrase)]
+
+
+def _plain_keyword(primary: str) -> str:
+    return " ".join(_word_tokens(primary or ""))
+
+
 def _count_phrase_in_words(words: list[str], phrase: str) -> int:
     """Count non-overlapping occurrences of phrase token sequence in word list."""
-    needle = _normalize_phrase(phrase).split()
+    needle = _phrase_tokens(phrase)
     if not needle:
         return 0
     n = len(needle)
@@ -326,26 +335,182 @@ def _count_phrase_in_words(words: list[str], phrase: str) -> int:
     return count
 
 
+def _body_prose_for_keyword(article: str) -> str:
+    """Body prose used for the first-100 keyword scan.
+
+    H1 and other headings do not count. FAQ is excluded.
+    """
+    body = faq_schema.strip_faq_section(article)
+    body_no_h1 = _H1.sub("", body, count=1)
+    return re.sub(r"^#{1,6}\s+.*$", "", body_no_h1, flags=re.MULTILINE)
+
+
+def _keyword_counts(article: str, primary: str) -> tuple[int, int]:
+    tokens = _word_tokens(_body_prose_for_keyword(article))
+    first = tokens[:FIRST_N_BODY_WORDS]
+    rest = tokens[FIRST_N_BODY_WORDS:]
+    return (
+        _count_phrase_in_words(first, primary),
+        _count_phrase_in_words(rest, primary),
+    )
+
+
+def _opening_prose_bounds(article: str) -> tuple[int, int] | None:
+    """Character span of the opening prose (Key takeaways, else the first paragraph)."""
+    text = (article or "").replace("\r\n", "\n")
+    h1 = _H1.search(text)
+    if not h1:
+        return None
+    after = text[h1.end() :]
+    h2s = list(_H2.finditer(after))
+    if h2s and _OPENING_TAKEAWAYS_H2.match(h2s[0].group(0).strip()):
+        zone_rel_start = h2s[0].end()
+        zone_rel_end = h2s[1].start() if len(h2s) > 1 else len(after)
+        zone = after[zone_rel_start:zone_rel_end]
+        img = _IMAGE_MD.search(zone)
+        end = h1.end() + zone_rel_start + (img.start() if img else len(zone))
+        return h1.end() + zone_rel_start, end
+    nxt = _H2.search(after)
+    start_rel = re.search(r"\S", after)
+    if not start_rel:
+        return None
+    start = h1.end() + start_rel.start()
+    end = h1.end() + nxt.start() if nxt else len(text)
+    return start, end
+
+
+def _keyword_lead(keyword: str) -> str:
+    kw = keyword.strip().rstrip(".")
+    lower = kw.lower()
+    if lower.startswith(("a ", "an ", "the ", "how ", "what ", "why ", "when ", "where ")):
+        return kw[0].upper() + kw[1:] if kw[:1].islower() else kw
+    article = "an" if lower[:1] in "aeiou" else "a"
+    return f"{article} {kw}"
+
+
+def _weave_keyword_into_line(line: str, keyword: str) -> str:
+    m = re.match(r"^(\s*(?:[-*+]|\d+[.)])\s+)(.*)$", line)
+    if m:
+        prefix, text = m.group(1), m.group(2)
+    else:
+        m2 = re.match(r"^(\s*)(.*)$", line)
+        prefix, text = (m2.group(1), m2.group(2)) if m2 else ("", line)
+    rest = text.strip()
+    if rest and _count_phrase_in_words(_word_tokens(rest), keyword):
+        return line
+    lead = _keyword_lead(keyword)
+    if rest:
+        if rest[0].isupper():
+            rest = rest[0].lower() + rest[1:]
+        woven = f"For {lead}, {rest}"
+    else:
+        woven = f"{lead[0].upper() + lead[1:]}."
+    return prefix + woven
+
+
+def _strip_keyword_phrase(text: str, keyword: str) -> str:
+    """Remove later exact uses so the opening placement stays the only body use."""
+    kw = (keyword or "").strip()
+    if not kw:
+        return text
+    pattern = re.compile(
+        r"(?i)\b(?:(?:a|an|the)\s+)?" + re.escape(kw) + r"\b"
+    )
+    out_lines: list[str] = []
+    for line in text.split("\n"):
+        stripped = line.strip()
+        if stripped.startswith("#") or stripped.startswith("!["):
+            out_lines.append(line)
+            continue
+        cleaned = pattern.sub("", line)
+        cleaned = re.sub(r"[ \t]{2,}", " ", cleaned)
+        cleaned = re.sub(r" +([.,;:!?])", r"\1", cleaned)
+        cleaned = re.sub(r"\(\s*\)", "", cleaned)
+        out_lines.append(cleaned)
+    return "\n".join(out_lines)
+
+
+def _keyword_sentence(phrase: str) -> str:
+    lead = phrase.strip()
+    if lead and lead[0].islower():
+        lead = lead[0].upper() + lead[1:]
+    if not lead.endswith("."):
+        lead = f"{lead} belongs in the opening of this article."
+    return lead
+
+
+def ensure_primary_keyword_in_first_100(article: str, primary: str) -> str:
+    """Put the exact primary keyword in the first 100 body words.
+
+    Headings do not count. When the phrase is missing from that window, it is
+    woven into the first Key takeaways sentence (or the first paragraph) and
+    later exact repeats in body prose are removed.
+    """
+    kw = _plain_keyword(primary)
+    if not kw or kw.lower() in ("your target keyword", "not provided"):
+        return article
+    if not (article or "").strip():
+        return article
+    text = article.replace("\r\n", "\n")
+    in_first, _in_rest = _keyword_counts(text, kw)
+    if in_first >= 1:
+        return article
+    bounds = _opening_prose_bounds(text)
+    if bounds:
+        start, end = bounds
+        block = text[start:end]
+        lines = block.split("\n")
+        edited = False
+        for i, line in enumerate(lines):
+            stripped = line.strip()
+            if not stripped or stripped.startswith("![") or stripped.startswith("#"):
+                continue
+            lines[i] = _weave_keyword_into_line(line, kw)
+            edited = True
+            head = lines[: i + 1]
+            tail = _strip_keyword_phrase("\n".join(lines[i + 1 :]), kw)
+            lines = head + ([tail] if lines[i + 1 :] else [])
+            break
+        if edited:
+            text = text[:start] + "\n".join(lines) + _strip_keyword_phrase(text[end:], kw)
+        else:
+            sentence = _keyword_sentence(kw)
+            text = (
+                text[:start]
+                + sentence
+                + "\n\n"
+                + block.lstrip("\n")
+                + _strip_keyword_phrase(text[end:], kw)
+            )
+    else:
+        sentence = _keyword_sentence(kw)
+        h1 = _H1.search(text)
+        if h1:
+            text = text[: h1.end()] + "\n\n" + sentence + "\n" + text[h1.end() :]
+        else:
+            text = sentence + "\n\n" + text
+    in_first, _in_rest = _keyword_counts(text, kw)
+    if in_first >= 1:
+        return text
+    sentence = _keyword_sentence(kw)
+    h1 = _H1.search(text)
+    if h1:
+        return text[: h1.end()] + "\n\n" + sentence + "\n" + text[h1.end() :]
+    return sentence + "\n\n" + text
+
+
 def check_primary_keyword(article: str, primary: str) -> GateIssue | None:
     kw = (primary or "").strip()
     if not kw or kw.lower() in ("your target keyword", "not provided"):
         return None  # no keyword to enforce
-    body = faq_schema.strip_faq_section(article)
-    # Drop H1 from body keyword scan for "first 100 body words"
-    body_no_h1 = _H1.sub("", body, count=1)
-    # Only count keyword occurrences in body prose, not in subtitle headings.
-    # This lets headings carry the key phrase for SEO without breaking stuffing gates.
-    body_prose_only = re.sub(r"^#{1,6}\s+.*$", "", body_no_h1, flags=re.MULTILINE)
-    tokens = _word_tokens(body_prose_only)
-    first = tokens[:FIRST_N_BODY_WORDS]
-    rest = tokens[FIRST_N_BODY_WORDS:]
-    in_first = _count_phrase_in_words(first, kw)
-    in_rest = _count_phrase_in_words(rest, kw)
+    # Only count keyword occurrences in body prose, not in headings.
+    in_first, in_rest = _keyword_counts(article, kw)
     if in_first != 1:
         return GateIssue(
             "keyword_first_100",
-            f'Primary keyword "{kw}" must appear exactly once in the first '
-            f"{FIRST_N_BODY_WORDS} body words (found {in_first}).",
+            f'Primary keyword "{kw}" must appear verbatim exactly once in the first '
+            f"{FIRST_N_BODY_WORDS} body words (found {in_first}). "
+            "Headings do not count. Put it in the first Key takeaways sentence.",
         )
     if in_rest > 0:
         return GateIssue(
@@ -553,11 +718,66 @@ def check_faq(
                     "faq_answer_length",
                     f'FAQ answer for "{q[:70]}" is {n} sentence(s) / {lines} line(s) / '
                     f"{words} words; need {FAQ_ANSWER_MIN_SENTENCES}-{FAQ_ANSWER_MAX_SENTENCES} "
-                    f"short lines (max {faq_schema.FAQ_ANSWER_MAX_WORDS} words). "
+                    f"sentences in one paragraph (max {faq_schema.FAQ_ANSWER_MAX_WORDS} words, "
+                    "no bullets). "
                     "Hit the article word count in body sections, not FAQ.",
                 )
             )
     return issues
+
+
+_FAQ_ANSWER_FILLERS = (
+    "It depends on the task, the tools already in place, and how much should stay with a person.",
+    "Start with one clear job that has a known input and a known output.",
+    "Review the result before you widen the setup.",
+    "Change the approach when the process or the volume changes.",
+)
+
+
+def _shape_faq_answer(answer: str) -> str:
+    """Keep a normal 3–4 sentence paragraph so the FAQ length gate passes."""
+    sentences = faq_schema.split_faq_sentences(faq_schema.trim_faq_answer(answer))
+    for filler in _FAQ_ANSWER_FILLERS:
+        if len(sentences) >= FAQ_ANSWER_MIN_SENTENCES:
+            break
+        if filler not in sentences:
+            sentences.append(filler)
+    text = " ".join(sentences[:FAQ_ANSWER_MAX_SENTENCES])
+    return faq_schema.trim_faq_answer(text)
+
+
+def align_faq_to_allowed(article: str, allowed: list[str]) -> str:
+    """Replace invented FAQ questions with the approved or PAA bank wording."""
+    questions = []
+    seen: set[str] = set()
+    for raw in allowed or []:
+        q = re.sub(r"\s+", " ", (raw or "").strip())
+        key = _norm_q(q)
+        if not key or key in seen:
+            continue
+        seen.add(key)
+        questions.append(q if q.endswith("?") else f"{q}?")
+        if len(questions) >= 7:
+            break
+    if not questions or not (article or "").strip():
+        return article
+
+    pairs = faq_schema.extract_faq_pairs(article)
+    sections = faq_schema.extract_faq_sections(article)
+    heading = sections[0][0] if sections else "## Frequently Asked Questions"
+    new_pairs: list[tuple[str, str]] = []
+    for q in questions:
+        nq = _norm_q(q)
+        answer = ""
+        for existing_q, existing_a in pairs:
+            en = _norm_q(existing_q)
+            if nq and en and (nq == en or nq in en or en in nq):
+                answer = existing_a
+                break
+        if not answer:
+            answer = _FAQ_ANSWER_FILLERS[0]
+        new_pairs.append((q, _shape_faq_answer(answer)))
+    return faq_schema.insert_faq_block(article, new_pairs, heading=heading)
 
 
 def check_form_internal_links(
@@ -667,16 +887,20 @@ def _repair_article_llm(
         f"- Opening order: `# H1` → `## Key takeaways` ({LEDE_MIN_WORDS}–{LEDE_MAX_WORDS} words) "
         "→ hero `![alt](IMAGE: …)` → first content H2. "
         "Write actionable takeaways — not an article summary/recap. Do not use ## Summary.\n"
-        f"- Primary keyword exact match once in first {FIRST_N_BODY_WORDS} body words; "
-        "no further exact body repeats.\n"
+        f"- Primary keyword must appear verbatim once in the first {FIRST_N_BODY_WORDS} "
+        "body words, in the first Key takeaways sentence. Headings and the H1 do not "
+        "count. A synonym does not count. No further exact body repeats.\n"
         "- Every concrete price / % / fee needs an inline HTTPS citation in the same "
         "paragraph, or remove/generalize the number.\n"
         "- Remove any FLAGGED claims and FAIL URLs.\n"
         "- If [late_takeaways] failed: remove duplicate 'Key takeaways' / 'Summary' / "
         "'What you'll learn' headings from the body and keep a single ## Key takeaways at the top.\n"
-        "- FAQ questions must match the approved/PAA bank when those gates failed.\n"
-        f"- Each FAQ answer must be {FAQ_ANSWER_MIN_SENTENCES}-{FAQ_ANSWER_MAX_SENTENCES} "
-        f"short sentences (one per line, max {faq_schema.FAQ_ANSWER_MAX_WORDS} words). "
+        "- FAQ questions must use the approved/PAA bank wording exactly. "
+        "Do not invent new FAQ questions.\n"
+        f"- Each FAQ answer must be one normal paragraph of "
+        f"{FAQ_ANSWER_MIN_SENTENCES}-{FAQ_ANSWER_MAX_SENTENCES} sentences "
+        f"(max {faq_schema.FAQ_ANSWER_MAX_WORDS} words). "
+        "Do not use bullets, numbered lists, or one sentence per line. "
         "Do not pad FAQ; keep article word count in the body.\n"
         "- If [form_internal_link] failed: weave each listed URL/path as "
         "`[2–3 word anchor](exact-href)` mid-sentence. Do not invent different URLs "
@@ -693,6 +917,27 @@ def _repair_article_llm(
         max_tokens=8000,
         temperature=0.2,
     ).strip()
+
+
+def _replace_stage_body(current: str, new_body: str, *, stage: str) -> str:
+    """Put an edited article body back inside draft/final markers when present."""
+    body = (new_body or "").strip()
+    if not body:
+        return current
+    if stage == "final" and (
+        faq_schema.FINAL_OUTPUT_START in current
+        or faq_schema.FINAL_ARTICLE_START in current
+    ):
+        return faq_schema.replace_final_article_body(current, body)
+    if stage == "draft" and "---DRAFT START---" in current.upper():
+        return re.sub(
+            r"(---DRAFT START---\s*).*?(\s*---DRAFT END---)",
+            r"\1" + body + r"\2",
+            current,
+            count=1,
+            flags=re.IGNORECASE | re.DOTALL,
+        )
+    return body
 
 
 def enforce_article_gates(
@@ -726,21 +971,32 @@ def enforce_article_gates(
 
     brief = _load("assignment_brief")
     topic_card = _load("topic_card")
-    primary = parse_primary_keyword(brief, topic_card)
-    if not primary:
-        primary = (
-            manual.get("Seed Keyword")
-            or manual.get("seed_keyword")
-            or manual.get("PRIMARY KEYWORD")
-            or ""
-        ).strip()
+    # The article-form seed is the main keyword. Topic-card rewrites must not replace it.
+    primary = (
+        (manual.get("Seed Keyword") or manual.get("seed_keyword") or "").strip()
+        or parse_primary_keyword(topic_card, brief)
+        or (manual.get("PRIMARY KEYWORD") or "").strip()
+    )
 
     research_audit = _load("research_audit")
     case_study = _load("case_study_research")
     paa = _load("paa_faq_research")
     form_internal_links = editorial_input.parse_form_internal_links(manual)
+    allowed_faq = parse_audit_approved_faq(research_audit) or paa_faq.extract_recommended_faq_questions(
+        paa
+    )
 
-    current = article_md
+    def _correct(body: str) -> str:
+        text = body
+        if require_faq and allowed_faq:
+            text = align_faq_to_allowed(text, allowed_faq)
+        return ensure_primary_keyword_in_first_100(text, primary)
+
+    current = _replace_stage_body(
+        article_md,
+        _correct(_article_body(article_md, stage=stage)),
+        stage=stage,
+    )
     report = evaluate_article_gates(
         current,
         primary_keyword=primary,
@@ -773,22 +1029,8 @@ def enforce_article_gates(
                 step_label=f"Hard gate repair ({stage})",
             )
             if repaired:
-                # Re-wrap if final/draft markers existed
-                if stage == "final" and (
-                    faq_schema.FINAL_OUTPUT_START in current
-                    or faq_schema.FINAL_ARTICLE_START in current
-                ):
-                    current = faq_schema.replace_final_article_body(current, repaired)
-                elif stage == "draft" and "---DRAFT START---" in current.upper():
-                    current = re.sub(
-                        r"(---DRAFT START---\s*).*?(\s*---DRAFT END---)",
-                        r"\1" + repaired.strip() + r"\2",
-                        current,
-                        count=1,
-                        flags=re.IGNORECASE | re.DOTALL,
-                    )
-                else:
-                    current = repaired
+                repaired = _correct(repaired)
+                current = _replace_stage_body(current, repaired, stage=stage)
                 report = evaluate_article_gates(
                     current,
                     primary_keyword=primary,

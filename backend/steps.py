@@ -193,7 +193,7 @@ def _ensure_draft_word_count(
             f"Rules:\n"
             f"- Keep the same H1/H2 structure and markdown format.\n"
             f"- Expand every major BODY H2 with examples, steps, and detail.\n"
-            f"- Do NOT add words to the FAQ section. FAQ answers stay 3-4 short lines.\n"
+            f"- Do NOT add words to the FAQ section. FAQ answers stay 3-4 sentence paragraphs.\n"
             f"- Hit the word count in the article content only. FAQ does not count.\n"
             f"- Stay under {high:,} body words after expansion.\n"
             f"- Do not add filler, repetition, or meta-commentary.\n"
@@ -923,7 +923,7 @@ def run_step_6(client_id: str, run_id: str, previous_artifact: str = "") -> str:
             f"({draft_words:,} words; form target {wc_target:,}, band {low:,}–{high:,}).\n"
             f"In ---CORRECTED ARTICLE--- keep nearly the same body length. "
             f"Fix facts/clarity; do NOT expand into a longer rewrite. "
-            f"FAQ answers stay 3-4 short lines and do not count toward the band.\n"
+            f"FAQ answers stay 3-4 sentence paragraphs and do not count toward the band.\n"
         )
     claude_out = _chat_complete(system_msg, user_msg, step_label)
     # Keep corrected article inside the generation band when possible.

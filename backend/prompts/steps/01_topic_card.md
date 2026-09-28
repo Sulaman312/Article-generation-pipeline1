@@ -73,7 +73,7 @@ WHAT THEY DO NOT WANT: [1–2 sentences — what would frustrate, waste their ti
 FUNNEL STAGE: [one of: awareness / consideration / decision]
 RECOMMENDED WORD COUNT: [if manual Word Count was provided, a tight range within ±10% of that number only; else infer from content type — prefer the shorter end when SERP/tool data shows top competitors run lean]
 TITLE GUIDANCE: [proposed H1 — max 60 characters, 5–12 words, primary keyword used once]
-KEYWORD USAGE RULE: [primary keyword once in H1 and once in the first 100 body words; each secondary keyword at most once across headings/body; metadata counted separately]
+KEYWORD USAGE RULE: [exact primary keyword once in H1 and once in the first 100 body words, in the first Key takeaways sentence; headings do not count; each secondary keyword at most once across headings/body; metadata counted separately]
 INTERNAL LINKS: [exact pages from the form Internal Links field — `Title — URL` separated by semicolons. Omit this entire line only when the form field was empty.]
 EDITORIAL CONSTRAINTS: [bullet list — every requirement from Notes, Angle, Internal Links, and the SEO rules that downstream steps must honor]
 COMPETING CONTENT WEAKNESS: [1 sentence — what does existing content on this topic typically get wrong or miss entirely]

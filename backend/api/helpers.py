@@ -31,6 +31,28 @@ def reject_run_id(run_id: str):
     return None
 
 
+def slugify_client_id(raw: str) -> str:
+    """Turn a multi-word workspace name into a filesystem-safe id."""
+    text = str(raw or "").strip().lower().replace("'", "").replace("’", "")
+    text = re.sub(r"[^a-z0-9]+", "-", text).strip("-")
+    if len(text) > 80:
+        text = text[:80].rstrip("-")
+    return text
+
+
+def resolve_client_id(raw: str):
+    """Accept a typed workspace name. Multi-word names become a hyphenated id."""
+    cid = str(raw or "").strip()
+    ok, err = safe_client_id(cid)
+    if ok:
+        return cid, None
+    slug = slugify_client_id(cid)
+    ok, err = safe_client_id(slug)
+    if not ok:
+        return None, ("Workspace name must include at least one letter or number", 400)
+    return slug, None
+
+
 def safe_client_id(client_id: str):
     if not client_id or not str(client_id).strip():
         return False, ("client_id is required", 400)

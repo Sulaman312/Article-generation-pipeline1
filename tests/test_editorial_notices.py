@@ -85,11 +85,12 @@ class EditorialNoticeTests(unittest.TestCase):
 
     def test_keyword_contract_is_consistent(self):
         notice = editorial_input.seo_readability_notice()
-        self.assertIn("once in the first 100 body words", notice)
+        self.assertIn("exact primary keyword once in the first 100 body words", notice)
         self.assertIn("do not repeat that exact phrase", notice)
         self.assertIn("## Key takeaways", notice)
         self.assertIn("E-E-A-T", notice)
-        self.assertIn("3–4 lines", notice)
+        self.assertIn("one normal paragraph of **3–4 sentences**", notice)
+        self.assertNotIn("one sentence per line", notice)
         self.assertNotIn("once in H1 only", notice)
 
         combined_prompts = "\n".join(

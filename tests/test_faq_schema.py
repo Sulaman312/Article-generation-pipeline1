@@ -89,7 +89,23 @@ class FaqSchemaTests(unittest.TestCase):
             faq_schema.faq_answer_word_count(trimmed),
             faq_schema.FAQ_ANSWER_MAX_WORDS,
         )
-        self.assertEqual(trimmed.count("\n") + 1, len(sentences))
+        self.assertNotIn("\n", trimmed)
+
+    def test_trim_faq_answer_flattens_bullets_into_prose(self):
+        listed = (
+            "- Start in the clinic portal and pick a telehealth slot.\n"
+            "- Upload recent photos before the call begins.\n"
+            "- Join a few minutes early so audio works.\n"
+            "1. Have the medication list ready for the clinician."
+        )
+        trimmed = faq_schema.trim_faq_answer(listed)
+        self.assertNotIn("\n", trimmed)
+        self.assertFalse(trimmed.startswith("-"))
+        self.assertNotIn("- Start", trimmed)
+        self.assertGreaterEqual(
+            len(faq_schema.split_faq_sentences(trimmed)),
+            faq_schema.FAQ_ANSWER_MIN_SENTENCES,
+        )
 
     def test_enforce_faq_answer_length_keeps_body_word_count(self):
         body = (

@@ -79,9 +79,23 @@ def faq_answer_word_count(answer: str) -> int:
     return len(_FAQ_WORD_RE.findall(answer or ""))
 
 
+def _flatten_faq_answer_text(answer: str) -> str:
+    """Turn bullets or one-sentence-per-line answers into one prose paragraph."""
+    parts: list[str] = []
+    for raw in (answer or "").splitlines():
+        s = raw.strip()
+        if not s:
+            continue
+        s = re.sub(r"^[-*•]\s+", "", s)
+        s = re.sub(r"^\d+[.)]\s+", "", s)
+        if s:
+            parts.append(s)
+    return " ".join(parts).strip()
+
+
 def trim_faq_answer(answer: str) -> str:
-    """Keep 3-4 short sentences (one per line). Drop extra length; body holds word count."""
-    sentences = split_faq_sentences(answer)
+    """Keep 3-4 short sentences as one normal paragraph. Drop extra length."""
+    sentences = split_faq_sentences(_flatten_faq_answer_text(answer))
     if not sentences:
         return (answer or "").strip()
     sentences = sentences[:FAQ_ANSWER_MAX_SENTENCES]
@@ -101,13 +115,13 @@ def trim_faq_answer(answer: str) -> str:
             sentences = [s for s in sentences if s]
         elif len(sentences) > FAQ_ANSWER_MIN_SENTENCES:
             sentences = sentences[:-1]
-    return "\n".join(sentences)
+    return " ".join(sentences)
 
 
 def enforce_faq_answer_length(
     article: str, *, heading: str | None = None
 ) -> str:
-    """Rewrite FAQ answers to 3-4 lines without changing the article body."""
+    """Rewrite FAQ answers to 3-4 sentence paragraphs without changing the article body."""
     pairs = extract_faq_pairs(article)
     if not pairs:
         return article

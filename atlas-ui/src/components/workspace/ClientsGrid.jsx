@@ -154,16 +154,20 @@ export default function ClientsGrid({
         createOpts.logo_base64 = await readImageFileAsBase64(logoFile);
         createOpts.logo_filename = logoFile.name;
       }
-      await api.createClient(name, { ...createOpts, display_name: name });
+      const created = await api.createClient(name, {
+        ...createOpts,
+        display_name: name,
+      });
+      const id = created?.created || name;
       if (logoFile) {
-        onClientLogoSaved?.(name);
+        onClientLogoSaved?.(id);
       }
       const writes = [];
       for (const entry of pipelineEntries) {
         const fn = entry.filename;
         const body = (seedContext[fn] || "").trim();
         if (body) {
-          writes.push(api.saveContextFile(name, fn, body));
+          writes.push(api.saveContextFile(id, fn, body));
         }
       }
       if (writes.length > 0) {
@@ -171,7 +175,7 @@ export default function ClientsGrid({
       }
       resetForm();
       await load();
-      onOpenClient(name);
+      onOpenClient(id);
     } catch (err) {
       setError(err?.message || String(err));
     } finally {
@@ -233,7 +237,7 @@ export default function ClientsGrid({
               <input
                 id="new-client"
                 className="input"
-                placeholder="e.g. Gauchat or acme_co"
+                placeholder="e.g. Gauchat or Acme Corp"
                 value={newName}
                 onChange={(e) => setNewName(e.target.value)}
                 autoFocus

@@ -1,4 +1,5 @@
 from pathlib import Path
+from urllib.parse import unquote
 
 from flask import Response, jsonify, request, send_from_directory
 
@@ -6,7 +7,7 @@ from backend import artifacts
 from backend import config
 from backend import runner
 from backend.api.blueprint import api_bp
-from backend.api.helpers import list_workspace_dir_names, reject_client
+from backend.api.helpers import list_workspace_dir_names, reject_client, resolve_client_id
 
 _LOGO_CACHE_HEADERS = {
     "Cache-Control": "public, max-age=31536000, immutable",
@@ -27,10 +28,13 @@ def list_clients():
 
 @api_bp.post("/clients/<client_id>")
 def create_client(client_id: str):
-    bad = reject_client(client_id)
-    if bad:
-        return bad
+    raw_name = unquote(client_id).strip()
+    client_id, err = resolve_client_id(raw_name)
+    if err:
+        return jsonify(detail=err[0]), err[1]
     base = Path(config.CLIENTS_DIR) / client_id
+    if base.exists():
+        return jsonify(detail="A workspace with this name already exists"), 409
     (base / "context").mkdir(parents=True, exist_ok=True)
     (base / "runs").mkdir(parents=True, exist_ok=True)
     body = request.get_json(silent=True) or {}
@@ -43,7 +47,7 @@ def create_client(client_id: str):
             )
         except ValueError as e:
             return jsonify(detail=str(e)), 400
-    display_name = str(body.get("display_name") or client_id).strip() or client_id
+    display_name = str(body.get("display_name") or raw_name).strip() or client_id
     artifacts.write_workspace_meta(client_id, {"display_name": display_name})
     return jsonify(created=client_id, display_name=display_name)
 

@@ -31,7 +31,7 @@
 ## Structure / BLUF
 
 - **Opening (required):** Immediately after the H1, use this exact order:
-  1. `## Key takeaways` — **40–80 words** of **actionable takeaways** (what the reader should know, decide, or do). Prefer **3–5 short bullets** or 2–3 dense takeaway sentences. This is **not** an article summary/recap of sections. Use the primary keyword once, in the **first takeaway**. Do **not** title this block `## Summary`.
+  1. `## Key takeaways` — **40–80 words** of **actionable takeaways** (what the reader should know, decide, or do). Prefer **3–5 short bullets** or 2–3 dense takeaway sentences. This is **not** an article summary/recap of sections. Use the **exact** primary keyword once, in the **first sentence** of this block, so it falls inside the first 100 body words. A synonym or a heading does not count. Do **not** title this block `## Summary`.
   2. **Hero image** — `![descriptive alt text](IMAGE: slug-or-description)` on the next line after the Key takeaways content.
   3. Then the first content H2.
 - Do **not** put body prose or CTAs between the Key takeaways image and the first content H2.

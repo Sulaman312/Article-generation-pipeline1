@@ -76,14 +76,14 @@ Before you output the article, check all of these:
 ☐ I have 3+ specific numbers or insights
 ☐ H1 is no more than 60 characters, 5–12 words, with primary keyword once
 ☐ **Opening:** `# H1` → `## Key takeaways` (40–80 words of takeaways, not a summary) → hero `![alt](IMAGE: …)` → first content H2
-☐ Primary keyword appears once in the first 100 body words and nowhere else exactly in body prose
+☐ Exact primary keyword appears once in the first 100 body words (first Key takeaways sentence). Headings do not count. Nowhere else exactly in body prose
 ☐ Each secondary keyword appears at most once across headings/body
 ☐ 2–3 image placeholders with descriptive alt text are in place (first image right after Key takeaways)
 ☐ 3–5 inline external links and every article-form Internal Links URL/path is woven mid-sentence
 ☐ Proof points and external cites match the outline TRUST & E-E-A-T plan — **prices and numbers only when cited from SERP/audit sources**
 ☐ Tone remains consistent from introduction through CTA
 ☐ The article sounds like {client_name}, not generic AI
-☐ FAQ answers are each **3–4 lines** (3–4 sentences)
+☐ FAQ answers are each one normal paragraph of **3–4 sentences** (no bullets)
 
 If any checkbox is false, do NOT submit. REWRITE until all are true.
 
@@ -94,7 +94,7 @@ WRITING STANDARDS — non-negotiable:
      `![descriptive alt text](IMAGE: hero-slug)` → `## First content H2`
    - Write **key takeaways** (what to know / decide / do) — **not** a summary of what the article covers.
    - Prefer **3–5 short bullets** or 2–3 dense takeaway sentences. No "In this article we will…" framing.
-   - Use the primary keyword once naturally in the first takeaway or first 100 body words total.
+   - Use the **exact** primary keyword once in the first sentence of Key takeaways (this is inside the first 100 body words). Headings do not count. Do not swap in a synonym for that use.
    - Do **not** use `## Summary`. Do **not** skip Key takeaways or place the hero image before takeaways.
    - Do **not** open with filler ("In today's world…", "If you're reading this…").
    - Follow the outline **KEY TAKEAWAYS NOTE** (or LEDE / SUMMARY NOTE); convert any planned "summary" into takeaways.
@@ -115,6 +115,9 @@ WRITING STANDARDS — non-negotiable:
    - The pipeline lints and auto-repairs violations after generation.
    - Key constraints: sentence-case headings, BLUF under H2/H3, max 30 words per sentence,
      max 4 sentences per paragraph, no em dashes, one bullet group per section.
+   - Use numbered lists for sequential steps and bullets for non-sequential items in the body.
+   - Bold only for terms or actions that genuinely need emphasis — maximum 2–3 per section.
+     Do not bold entire sentences.
 
 4. EARN EVERY SECTION
    - Each section must give the reader something concrete and specific
@@ -169,7 +172,7 @@ WRITING STANDARDS — non-negotiable:
 
 11. SEO & KEYWORD DISCIPLINE (NON-NEGOTIABLE)
    - H1: max 60 characters, 5–12 words, primary keyword once.
-   - Body: use the primary keyword once in the first 100 words, then use synonyms instead of
+   - Body: use the **exact** primary keyword once in the first 100 words, in the first Key takeaways sentence. Headings do not count. Then use synonyms instead of
      repeating that exact phrase. Use each secondary keyword at most once across H2s/body.
    - Prefer long-tails / high-intent phrases from **ATP TOPIC RESEARCH** marked for the main article
      (at most once each). Do not force every ATP phrase into the draft.
@@ -207,15 +210,14 @@ WRITING STANDARDS — non-negotiable:
    - If the PAA bank is LOW SIGNAL, write fewer questions — do not pad.
    - Format each item as:
      `### [Full question as a natural question?]`
-     Then **exactly 3-4 short lines** answering directly (one sentence per line, max ~70 words).
-     No one-liners. No long paragraphs. Word count is completed in the article body, not FAQ.
+     Then **one normal paragraph** of 3–4 sentences (max ~70 words).
+     Write it the way a typical FAQ answer reads: flowing prose, not a list.
+     No bullets, no numbered points, and no one-sentence-per-line stacking.
+     No one-liners. No long multi-paragraph answers. Word count is completed in the article body, not FAQ.
    - Do not invent brand names, products, or prices unless present in cited sources in the user message;
      any price/number in an FAQ answer still needs a real cited source or must stay qualitative.
    - FAQ does **not** count toward the form Word Count (body prose only).
    - Do not use an accordion shortcode — plain markdown only.
-   - Use numbered lists for sequential steps, bullets for non-sequential items
-   - Bold only for terms or actions that genuinely need emphasis — maximum 2–3 per section
-   - Do not bold entire sentences
 
 OUTPUT FORMAT — follow exactly:
 

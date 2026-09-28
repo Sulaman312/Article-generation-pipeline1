@@ -88,7 +88,7 @@ TASK 3 — FINAL SEO & READABILITY CHECK (article body only)
   [ ] H1 contains the primary keyword once (exact or near-exact)
   [ ] Opening order: `# H1` → `## Key takeaways` (40–80 words of takeaways, not a summary) → hero `![alt](IMAGE: …)` → first content H2
   [ ] No second "Key takeaways", "## Summary", "What you'll learn", or similar headings later in the body — remove them if present
-  [ ] Primary keyword appears once in the first 100 body words and nowhere else exactly in body prose
+  [ ] Exact primary keyword appears once in the first 100 body words (first Key takeaways sentence). Headings do not count. Nowhere else exactly in body prose
   [ ] Each secondary keyword appears at most once across headings/body
   [ ] At least one H2 contains a secondary keyword — natural placement only
   [ ] Article body stays within target and is not padded relative to SERP norms
@@ -104,7 +104,7 @@ TASK 3 — FINAL SEO & READABILITY CHECK (article body only)
   [ ] 2–3 inline CTAs at H2 breaks, each with bold heading + description + markdown link on separate lines
   [ ] Demo CTAs use `/book-a-demo/` slug
   [ ] FAQ section present: H2 "Frequently Asked Questions" with at least 5 H3 Q&As — if missing, add a minimal FAQ block from the article topic (do not rewrite body sections)
-  [ ] Each FAQ answer is **3-4 short lines** (one sentence per line, max ~70 words). Do not pad FAQ.
+  [ ] Each FAQ answer is **one normal paragraph of 3-4 sentences** (max ~70 words). No bullets, numbered lists, or one sentence per line. Do not pad FAQ.
   [ ] Tone remains consistent throughout
 
 OUTPUT FORMAT — follow exactly:
@@ -120,7 +120,7 @@ RULES:
 - **Do NOT output meta titles, meta descriptions, publishing metadata, or SEO checklist blocks** — those are generated in the separate Meta Title & Description step.
 - **Preserve the full FAQ section** from the fact-check corrected article: keep every H3 Q&A (typically 5–7). Never reduce FAQ count. Keep answers at 3–4 lines each.
 - H1 hard limits: 60 characters, 5–12 words, primary keyword once
-- Primary keyword: once in H1 and once in first 100 body words; no further exact body repetition
+- Primary keyword: once in H1, and the exact phrase once in the first 100 body words (first Key takeaways sentence; headings do not count); no further exact body repetition
 - Each secondary keyword appears at most once across article headings/body
 - Form-provided Internal Links always count first and must keep their exact hrefs
 - Maximum 4 extra cluster/`INTERNAL:` links — more feels spammy and dilutes link equity

@@ -101,6 +101,60 @@ class HardGateUnitTests(unittest.TestCase):
         self.assertIsNotNone(issue)
         self.assertEqual(issue.code, "keyword_repeat")
 
+    def test_keyword_is_placed_in_first_100_when_missing(self):
+        lede = (
+            "Busy owners can skip the waiting room for mild issues and prepare photos first. "
+            "You will learn the red flags and how to choose a reputable provider "
+            "without wasting time on the wrong option for your pet today."
+        )
+        art = (
+            _opening("How to book care", lede)
+            + "\n## Details\n\n"
+            + " ".join(["clinic"] * 120)
+            + " Book an online vet appointment only after the opening.\n"
+        )
+        issue = hard_gates.check_primary_keyword(art, "online vet appointment")
+        self.assertEqual(issue.code, "keyword_first_100")
+
+        fixed = hard_gates.ensure_primary_keyword_in_first_100(
+            art, "online vet appointment"
+        )
+        self.assertIsNone(
+            hard_gates.check_primary_keyword(fixed, "online vet appointment")
+        )
+        self.assertIn("online vet appointment", fixed.lower().split("## details")[0])
+
+    def test_unapproved_faq_is_replaced_with_bank(self):
+        lede = (
+            "An online vet appointment helps owners get advice without a long clinic wait. "
+            "This guide explains who telehealth fits, what to prepare, and when an exam "
+            "in person is still the safer choice for your animal."
+        )
+        art = (
+            _opening("How to book telehealth care", lede)
+            + "\n## When telehealth works\n\n"
+            "Use remote care for mild issues and triage decisions carefully.\n\n"
+            "## Frequently Asked Questions\n\n"
+            f"### What is the meaning of life?\n\n{FAQ_ANSWER}\n\n"
+            f"### How does an AI agent differ from a virtual assistant?\n\n{FAQ_ANSWER}\n"
+        )
+        bank = [
+            "How do I book an online visit?",
+            "What does an online visit cost?",
+            "Is telehealth safe for cats?",
+            "When should I go in person?",
+            "Can I get prescriptions online?",
+        ]
+        fixed = hard_gates.align_faq_to_allowed(art, bank)
+        issues = hard_gates.check_faq(
+            fixed, require_faq=True, approved_faq=bank, paa_bank=[]
+        )
+        self.assertFalse(any(i.code == "faq_unapproved" for i in issues), msg=issues)
+        self.assertFalse(any(i.code == "faq_answer_length" for i in issues), msg=issues)
+        questions = [q for q, _a in hard_gates.faq_schema.extract_faq_pairs(fixed)]
+        self.assertIn("How do I book an online visit?", questions)
+        self.assertNotIn("What is the meaning of life?", questions)
+
     def test_flagged_claim_detected(self):
         art = (
             _opening("T", GOOD_LEDE)

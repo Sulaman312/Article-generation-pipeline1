@@ -27,7 +27,7 @@ ALTERNATIVE TITLES:
   2. [option — different framing; same title-length and keyword-once rules]
 PRIMARY KEYWORD: [from topic card — exact match]
 SECONDARY KEYWORDS: [from topic card + ATP high-intent / long-tails — may add 1–2 with justification]
-KEYWORD USAGE RULE: [Primary keyword once in H1 and once in the first 100 body words, with no further exact-match body repetition. Each secondary keyword at most once across headings/body. Metadata counted separately.]
+KEYWORD USAGE RULE: [Exact primary keyword once in H1 and once in the first 100 body words (first Key takeaways sentence; headings do not count), with no further exact-match body repetition. Each secondary keyword at most once across headings/body. Metadata counted separately.]
 SUPPORTING CONTENT CLUSTER (from ATP TOPIC RESEARCH):
   - [List 3–5 supporting post titles from ATP — or fewer if LOW SIGNAL]
   - [For each: target angle + which long-tails belong there vs the main article]
@@ -85,7 +85,7 @@ FAQ SECTION (REQUIRED unless editor Notes say otherwise):
   - H2: Frequently Asked Questions / localized heading when Notes require another language:
     [one line: capture PAA / objection-handling for featured snippets]
   - List the PAA bank questions (or fewer if LOW SIGNAL). One line each on what the answer must cover.
-  - Each FAQ answer in the draft must be **3–4 lines** (3–4 sentences).
+  - Each FAQ answer in the draft must be **one paragraph of 3–4 sentences** (not bullets).
   - Do not invent a second FAQ set in another language.
   - Allocate ~200–350 words total for FAQ in the word count budget.
 TONE: [describe the voice in 2–3 adjectives + one example sentence. Require consistent tone from intro through CTA.]

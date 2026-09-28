@@ -35,6 +35,19 @@ class SecurityApiTests(unittest.TestCase):
         auth_store.reset_memory_store_for_tests()
         self.temp.cleanup()
 
+    def test_creates_workspace_from_multi_word_name(self):
+        client = self.app.test_client()
+        response = client.post(
+            "/clients/Acme%20Corp",
+            headers=self.headers,
+            json={"display_name": "Acme Corp"},
+        )
+        self.assertEqual(response.status_code, 200, msg=response.get_data(as_text=True))
+        payload = response.get_json()
+        self.assertEqual(payload["created"], "acme-corp")
+        self.assertEqual(payload["display_name"], "Acme Corp")
+        self.assertTrue((config.CLIENTS_DIR / "acme-corp").is_dir())
+
     def test_rejects_path_traversal_client_and_step(self):
         client = self.app.test_client()
         r1 = client.get(
