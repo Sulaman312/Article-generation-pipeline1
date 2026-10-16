@@ -85,7 +85,7 @@ FAQ SECTION (REQUIRED unless editor Notes say otherwise):
   - H2: Frequently Asked Questions / localized heading when Notes require another language:
     [one line: capture PAA / objection-handling for featured snippets]
   - List the PAA bank questions (or fewer if LOW SIGNAL). One line each on what the answer must cover.
-  - Each FAQ answer in the draft must be **one paragraph of 3–4 sentences** (not bullets).
+  - Each FAQ answer in the draft must be **one paragraph of 2–4 sentences** (min 2, max 4; not bullets).
   - Do not invent a second FAQ set in another language.
   - Allocate ~200–350 words total for FAQ in the word count budget.
 TONE: [describe the voice in 2–3 adjectives + one example sentence. Require consistent tone from intro through CTA.]

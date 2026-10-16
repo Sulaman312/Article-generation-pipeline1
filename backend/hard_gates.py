@@ -20,7 +20,7 @@ logger = logging.getLogger(__name__)
 LEDE_MIN_WORDS = 40
 LEDE_MAX_WORDS = 80
 FIRST_N_BODY_WORDS = 100
-FAQ_ANSWER_MIN_SENTENCES = 3
+FAQ_ANSWER_MIN_SENTENCES = 2
 FAQ_ANSWER_MAX_SENTENCES = 4
 
 _H1 = re.compile(r"^#\s+(.+)$", re.MULTILINE)
@@ -549,7 +549,18 @@ def parse_audit_approved_faq(audit: str) -> list[str]:
     section = _section(audit, r"Approved FAQ questions")
     if not section:
         return []
-    return [m.group(1).strip() for m in _APPROVED_FAQ_NUM.finditer(section) if m.group(1).strip()]
+    out: list[str] = []
+    seen: set[str] = set()
+    for m in _APPROVED_FAQ_NUM.finditer(section):
+        q = paa_faq.clean_faq_question(m.group(1))
+        if not q:
+            continue
+        key = _norm_q(q)
+        if not key or key in seen:
+            continue
+        seen.add(key)
+        out.append(q)
+    return out
 
 
 def parse_audit_case_study(audit: str) -> dict:
@@ -726,18 +737,91 @@ def check_faq(
     return issues
 
 
-_FAQ_ANSWER_FILLERS = (
-    "It depends on the task, the tools already in place, and how much should stay with a person.",
-    "Start with one clear job that has a known input and a known output.",
-    "Review the result before you widen the setup.",
-    "Change the approach when the process or the volume changes.",
-)
+_FAQ_ANSWER_FILLERS_BY_LANG: dict[str, tuple[str, ...]] = {
+    "en": (
+        "It depends on your situation, your constraints, and what you can prepare first.",
+        "Start with one clear step that has a result you can check.",
+        "Adjust based on that result before you widen the approach.",
+    ),
+    "fr": (
+        "Cela dépend de votre situation, de vos contraintes et de ce que vous pouvez préparer d'abord.",
+        "Commencez par une étape claire avec un résultat simple à vérifier.",
+        "Ajustez ensuite selon ce résultat avant d'élargir.",
+    ),
+    "de": (
+        "Das hängt von Ihrer Situation, Ihren Rahmenbedingungen und dem ab, was Sie zuerst vorbereiten können.",
+        "Beginnen Sie mit einem klaren Schritt, dessen Ergebnis Sie prüfen können.",
+        "Passen Sie den Ansatz danach an, bevor Sie ihn ausweiten.",
+    ),
+    "es": (
+        "Depende de tu situación, tus límites y de lo que puedas preparar primero.",
+        "Empieza con un paso claro que tenga un resultado fácil de comprobar.",
+        "Ajusta según ese resultado antes de ampliar el enfoque.",
+    ),
+    "it": (
+        "Dipende dalla tua situazione, dai vincoli e da ciò che puoi preparare per primo.",
+        "Inizia con un passo chiaro che abbia un risultato verificabile.",
+        "Poi regola l'approccio in base a quel risultato prima di allargarlo.",
+    ),
+}
 
 
-def _shape_faq_answer(answer: str) -> str:
-    """Keep a normal 3–4 sentence paragraph so the FAQ length gate passes."""
+def _faq_fillers_for_lang(lang: str) -> tuple[str, ...]:
+    return _FAQ_ANSWER_FILLERS_BY_LANG.get(
+        (lang or "en").lower(), _FAQ_ANSWER_FILLERS_BY_LANG["en"]
+    )
+
+
+def _detect_faq_language(
+    article: str,
+    *,
+    lang_hint: str = "",
+    questions: list[str] | None = None,
+) -> str:
+    hint = (lang_hint or "").strip().lower()
+    if hint in _FAQ_ANSWER_FILLERS_BY_LANG and hint != "en":
+        return hint
+    sections = faq_schema.extract_faq_sections(article or "")
+    if sections:
+        heading = sections[0][0].lower()
+        if "fréquent" in heading or "foire aux" in heading:
+            return "fr"
+        if "häufig" in heading:
+            return "de"
+        if "preguntas" in heading:
+            return "es"
+        if "domande" in heading:
+            return "it"
+    sample = " ".join(questions or [])
+    if not sample and sections:
+        sample = " ".join(q for _h, pairs in sections for q, _a in pairs)
+    low = sample.lower()
+    if re.search(
+        r"\b(comment|pourquoi|quel(?:le)?s?|combien|quand|où|est-ce|d['’]|qu['’])\b"
+        r"|[àâäéèêëïîôùûüç]",
+        low,
+    ):
+        return "fr"
+    if hint in _FAQ_ANSWER_FILLERS_BY_LANG:
+        return hint
+    return "en"
+
+
+def _shape_faq_answer(answer: str, *, lang: str = "en") -> str:
+    """Keep a normal 2–4 sentence paragraph so the FAQ length gate passes."""
+    fillers = _faq_fillers_for_lang(lang)
     sentences = faq_schema.split_faq_sentences(faq_schema.trim_faq_answer(answer))
-    for filler in _FAQ_ANSWER_FILLERS:
+    # Drop stale English automation fillers when writing a non-English FAQ.
+    if lang != "en":
+        english = set(_FAQ_ANSWER_FILLERS_BY_LANG["en"])
+        legacy_en = {
+            "It depends on the task, the tools already in place, and how much should stay with a person.",
+            "Start with one clear job that has a known input and a known output.",
+            "Review the result before you widen the setup.",
+            "Change the approach when the process or the volume changes.",
+        }
+        sentences = [s for s in sentences if s not in english and s not in legacy_en]
+    for filler in fillers:
         if len(sentences) >= FAQ_ANSWER_MIN_SENTENCES:
             break
         if filler not in sentences:
@@ -746,12 +830,19 @@ def _shape_faq_answer(answer: str) -> str:
     return faq_schema.trim_faq_answer(text)
 
 
-def align_faq_to_allowed(article: str, allowed: list[str]) -> str:
+def align_faq_to_allowed(
+    article: str,
+    allowed: list[str],
+    *,
+    lang: str = "",
+) -> str:
     """Replace invented FAQ questions with the approved or PAA bank wording."""
     questions = []
     seen: set[str] = set()
     for raw in allowed or []:
-        q = re.sub(r"\s+", " ", (raw or "").strip())
+        q = paa_faq.clean_faq_question(raw)
+        if not q:
+            continue
         key = _norm_q(q)
         if not key or key in seen:
             continue
@@ -762,11 +853,17 @@ def align_faq_to_allowed(article: str, allowed: list[str]) -> str:
     if not questions or not (article or "").strip():
         return article
 
+    faq_lang = _detect_faq_language(article, lang_hint=lang, questions=questions)
     pairs = faq_schema.extract_faq_pairs(article)
     sections = faq_schema.extract_faq_sections(article)
-    heading = sections[0][0] if sections else "## Frequently Asked Questions"
+    heading = (
+        sections[0][0]
+        if sections
+        else editorial_input.faq_heading_for_language(faq_lang)
+    )
+    fillers = _faq_fillers_for_lang(faq_lang)
     new_pairs: list[tuple[str, str]] = []
-    for q in questions:
+    for idx, q in enumerate(questions):
         nq = _norm_q(q)
         answer = ""
         for existing_q, existing_a in pairs:
@@ -774,10 +871,40 @@ def align_faq_to_allowed(article: str, allowed: list[str]) -> str:
             if nq and en and (nq == en or nq in en or en in nq):
                 answer = existing_a
                 break
+        # Index fallback when wording drifted but answers already exist.
+        if not answer and idx < len(pairs):
+            answer = pairs[idx][1]
+        if answer and faq_lang != "en" and _looks_wrong_faq_lang(answer, faq_lang):
+            # Don't keep English stub answers under French (etc.) questions.
+            answer = ""
         if not answer:
-            answer = _FAQ_ANSWER_FILLERS[0]
-        new_pairs.append((q, _shape_faq_answer(answer)))
+            answer = fillers[0]
+        new_pairs.append((q, _shape_faq_answer(answer, lang=faq_lang)))
     return faq_schema.insert_faq_block(article, new_pairs, heading=heading)
+
+
+def _looks_wrong_faq_lang(answer: str, lang: str) -> bool:
+    """True when a fallback answer is clearly not in the article FAQ language."""
+    text = (answer or "").strip()
+    if not text or lang == "en":
+        return False
+    low = text.lower()
+    if lang == "fr":
+        has_fr = bool(
+            re.search(
+                r"\b(le|la|les|des|une|pour|avec|dans|vous|votre|cela|commencez|"
+                r"préparez|ajoutez|selon)\b|[àâäéèêëïîôùûüç]",
+                low,
+            )
+        )
+        has_en = bool(
+            re.search(
+                r"\b(the|and|with|your|start|depends|review|before|tools|task)\b",
+                low,
+            )
+        )
+        return has_en and not has_fr
+    return False
 
 
 def check_form_internal_links(
@@ -985,11 +1112,16 @@ def enforce_article_gates(
     allowed_faq = parse_audit_approved_faq(research_audit) or paa_faq.extract_recommended_faq_questions(
         paa
     )
+    faq_lang = editorial_input.article_language_from_manual(manual)
+    if faq_lang == "en":
+        paa_lang = paa_faq.extract_faq_language(paa)
+        if paa_lang:
+            faq_lang = paa_lang
 
     def _correct(body: str) -> str:
         text = body
         if require_faq and allowed_faq:
-            text = align_faq_to_allowed(text, allowed_faq)
+            text = align_faq_to_allowed(text, allowed_faq, lang=faq_lang)
         return ensure_primary_keyword_in_first_100(text, primary)
 
     current = _replace_stage_body(

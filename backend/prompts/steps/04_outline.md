@@ -53,11 +53,11 @@ H2: Frequently Asked Questions
   PURPOSE: [Answer the highest-intent questions the reader still has after the body — objections, cost, timeline, compliance, "how do I start", vs alternatives]
   QUESTIONS TO ANSWER (plan only — do not write full answers here):
     - Q: [copy from PAA / FAQ RESEARCH Recommended FAQ bank — exact wording when possible]
-      ANSWER NOTE: [what the draft answer must cover in **one paragraph of 3–4 sentences**]
+      ANSWER NOTE: [what the draft answer must cover in **one paragraph of 2–4 sentences**]
     - Q: [question 2 from PAA bank]
       ANSWER NOTE: [coverage]
     [Use only bank questions with evidence; if LOW SIGNAL, list fewer — do not invent filler]
-  FORMAT: H2 + H3 per question (question as H3 heading) + one **3–4 sentence paragraph** under each (no bullets)
+  FORMAT: H2 + H3 per question (question as H3 heading) + one **2–4 sentence paragraph** under each (no bullets)
   WORD COUNT: [~200–350 words total for all FAQ answers combined]
 
 CONCLUSION NOTE: [2–3 sentences on what the closing section must do.
@@ -88,7 +88,7 @@ RULES:
 - Opening is **H1 → ## Key takeaways → hero image → first content H2** — plan takeaways in KEY TAKEAWAYS / LEDE NOTE (~40–80 words; not an article summary)
 - Intro and conclusion are not counted as main H2 sections — they are separate notes (Key takeaways is the opening H2)
 - FAQ is required (separate FAQ SECTION block) — place after main H2s, before conclusion in the draft
-- FAQ answers must be planned as **one 3–4 sentence paragraph each** (not a bullet list); FAQ word count is **not** included in TOTAL ESTIMATED WORD COUNT
+- FAQ answers must be planned as **one 2–4 sentence paragraph each** (not a bullet list); FAQ word count is **not** included in TOTAL ESTIMATED WORD COUNT
 - PROOF POINT SLOT must be used where company context is available — do not leave it empty
 - Plan 2–3 IMAGE SLOT entries — first after Key takeaways, rest across H2 sections — do not cluster them together
 - Keep H1 within 60 characters and 5–12 words

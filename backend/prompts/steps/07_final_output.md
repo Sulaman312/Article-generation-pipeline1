@@ -24,8 +24,13 @@ TASK 1 — CTA PLACEMENT
     - Each CTA uses **three separate lines** (preserve spacing; do not collapse into one paragraph):
       1. **Bold heading** (product or action line)
       2. One-to-two-sentence description
-      3. Markdown link with button label, e.g. `[Book a demo](/book-a-demo/)`
-    - Demo slug: `/book-a-demo/` only (never `/demo` or `/request-demo`).
+      3. Markdown link with button label pointing at the **Required CTA markdown href**
+         from the INTERNAL LINKING GUIDE (workspace artifacts). Example shape:
+         `[Contactez-nous](https://example.com/contact)` or `[Get in touch](/contact)`.
+    - Prefer CTA Guidelines wording/tone; the href must be the project live URL + `/contact`
+      (or the explicit CTA URL from `cta_guidelines.md`). Never use `/demo`, `/request-demo`,
+      or another client's demo slug such as `/book-a-demo/` unless that exact path is the
+      Required CTA markdown href for this workspace.
     - Use a **colon** as the separator in CTA markers, never an em dash or hyphen.
     - No em dashes anywhere in CTA copy.
   CTA tone must match article tone — if article is direct and no-nonsense, CTA must be too.
@@ -102,9 +107,10 @@ TASK 3 — FINAL SEO & READABILITY CHECK (article body only)
   [ ] All headings use sentence case (not title case); closing H2 is topical (not "Conclusion")
   [ ] No em dashes or en dashes in headings, body, CTAs, FAQ, meta titles, or meta descriptions
   [ ] 2–3 inline CTAs at H2 breaks, each with bold heading + description + markdown link on separate lines
-  [ ] Demo CTAs use `/book-a-demo/` slug
-  [ ] FAQ section present: H2 "Frequently Asked Questions" with at least 5 H3 Q&As — if missing, add a minimal FAQ block from the article topic (do not rewrite body sections)
-  [ ] Each FAQ answer is **one normal paragraph of 3-4 sentences** (max ~70 words). No bullets, numbered lists, or one sentence per line. Do not pad FAQ.
+  [ ] CTAs use the Required CTA markdown href from workspace artifacts (live site + `/contact` unless guidelines specify another path)
+  [ ] FAQ section present: H2 "Frequently Asked Questions" / localized equivalent with at least 5 H3 Q&As — if missing, add a minimal FAQ block from the article topic (do not rewrite body sections)
+  [ ] FAQ H3 questions are clean question text only (no SOURCE SIGNAL / CITATION / competitor notes)
+  [ ] Each FAQ answer is **one normal paragraph of 2-4 sentences** (min 2, max 4; max ~70 words), in the article language. No bullets, numbered lists, or one sentence per line. Do not pad FAQ.
   [ ] Tone remains consistent throughout
 
 OUTPUT FORMAT — follow exactly:

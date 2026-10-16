@@ -369,8 +369,9 @@ def faq_editorial_notice(manual: dict | None = None) -> str:
         f"- Format: H2 `{heading}` then items from the **PAA / FAQ RESEARCH** Recommended FAQ bank.\n"
         "- Prefer bank question wording; do **not** invent a second FAQ block in another language.\n"
         "- If the PAA bank says LOW SIGNAL or KEYWORD DATA SHOWS LOW/NO DEMAND, use fewer questions — do not pad.\n"
-        "- Each item: `### Question here?` then one normal paragraph of **3–4 sentences** "
-        "(about 70 words max). Do not use bullets, numbered lists, or one sentence per line.\n"
+        "- Each item: `### Question here?` then one normal paragraph of **2–4 sentences** "
+        "(minimum 2, maximum 4; about 70 words max). Do not use bullets, numbered lists, "
+        "or one sentence per line. Never append SOURCE SIGNAL / CITATION notes to the H3.\n"
         "- Do not invent brands, products, or prices without a cited source.\n"
         "- FAQ does **not** count toward the form Word Count. Hit the target in the article "
         "body sections only. Never pad FAQ to make length.\n"
@@ -435,8 +436,8 @@ def seo_readability_notice() -> str:
         "- **E-E-A-T (in-body):** proof points where planned, 3–5 credible external links, honest limits — "
         "never a standalone \"Why trust us\" section; **prices and numbers must be real and cited** "
         "(inline HTTPS in the same paragraph) or generalized without inventing figures.\n"
-        "- **FAQ answers:** each answer is one normal paragraph of **3–4 sentences** "
-        "(about 70 words). No bullets or one-sentence-per-line formatting.\n"
+        "- **FAQ answers:** each answer is one normal paragraph of **2–4 sentences** "
+        "(minimum 2, maximum 4; about 70 words). No bullets or one-sentence-per-line formatting.\n"
         "- **Length:** honor the form Word Count target. When competitors are lean, write toward "
         "the lower end of the allowed range by cutting filler, not useful detail.\n"
         "- **Links:** weave 3-5 working external authority links and 2-4 internal cluster links "
@@ -467,12 +468,15 @@ def outline_format_guidelines_notice() -> str:
     )
 
 
-def cta_format_guidelines_notice() -> str:
+def cta_format_guidelines_notice(cta_href: str | None = None) -> str:
     """Final-output CTA reminder (enforced by lint + repair)."""
+    href = (cta_href or "").strip() or writing_format_lint.DEFAULT_CTA_HREF
     return (
         "\n\n=== CTA PLACEMENT CHECKLIST ===\n"
         "2–3 inline CTAs at H2 section breaks; each CTA: bold heading, description, "
-        f"markdown link on separate lines; demo slug `{writing_format_lint.DEMO_CTA_SLUG}` only. "
+        f"markdown link on separate lines. Use this project CTA URL exactly: `{href}` "
+        "(from workspace CTA guidelines / live site + `/contact`). "
+        "Never use `/demo`, `/request-demo`, or a different client's demo slug. "
         "Violations are auto-checked after generation.\n"
     )
 
@@ -701,7 +705,7 @@ def draft_word_count_requirement(target: int) -> str:
         f"Editor form Word Count: **{target:,}**.\n"
         f"Body prose MUST land in **{low:,}–{high:,}** words (FAQ excluded).\n"
         f"Aim for **{target:,}**. Going above **{high:,}** is invalid.\n"
-        f"Complete this length in the article H2 sections. FAQ answers stay 3-4 sentence "
+        f"Complete this length in the article H2 sections. FAQ answers stay 2-4 sentence "
         f"paragraphs and do not count toward the total.\n"
         f"Hit the length while writing. Do not plan to 'fix later' by deleting sections.\n"
     )

@@ -155,6 +155,76 @@ class HardGateUnitTests(unittest.TestCase):
         self.assertIn("How do I book an online visit?", questions)
         self.assertNotIn("What is the meaning of life?", questions)
 
+    def test_align_faq_strips_source_and_uses_french_fillers(self):
+        art = (
+            _opening("Guide repas", GOOD_LEDE)
+            + "\n## Repas\n\nPréparez des menus simples.\n\n"
+            "## Questions fréquentes\n\n"
+            "### Ancienne question?\n\n"
+            "Gardez la vinaigrette à part. Ajoutez-la juste avant de manger.\n"
+        )
+        bank = [
+            "Comment éviter qu'une salade ne se détrempe au bureau ? "
+            "(source signal: competitor H2: ptitchef.com; same caveat)?",
+            "Comment préparer un dîner équilibré en moins de 20 minutes ? "
+            "(source signal: competitor H2: quiquandcomment.com, URL unverified)?",
+        ]
+        fixed = hard_gates.align_faq_to_allowed(art, bank, lang="fr")
+        pairs = hard_gates.faq_schema.extract_faq_pairs(fixed)
+        self.assertEqual(len(pairs), 2)
+        for q, a in pairs:
+            self.assertNotIn("source signal", q.lower())
+            self.assertNotIn("ptitchef", q.lower())
+            self.assertNotIn("It depends on the task", a)
+            self.assertTrue(
+                "Cela dépend" in a or "Commencez" in a or "Gardez" in a,
+                msg=a,
+            )
+        issues = hard_gates.check_faq(
+            fixed,
+            require_faq=True,
+            approved_faq=[
+                "Comment éviter qu'une salade ne se détrempe au bureau ?",
+                "Comment préparer un dîner équilibré en moins de 20 minutes ?",
+            ],
+            paa_bank=[],
+        )
+        self.assertFalse(any(i.code == "faq_unapproved" for i in issues), msg=issues)
+        self.assertFalse(any(i.code == "faq_answer_length" for i in issues), msg=issues)
+
+    def test_french_questions_detect_lang_without_notes(self):
+        art = (
+            _opening("Guide", GOOD_LEDE)
+            + "\n## Body\n\nText.\n\n"
+            "## Frequently Asked Questions\n\n"
+            "### Old?\n\nOne English leftover. Two English leftover.\n"
+        )
+        bank = [
+            "Comment éviter qu'une salade ne se détrempe au bureau ?",
+            "Pourquoi préparer la vinaigrette à part ?",
+        ]
+        fixed = hard_gates.align_faq_to_allowed(art, bank, lang="en")
+        answers = " ".join(a for _q, a in hard_gates.faq_schema.extract_faq_pairs(fixed))
+        self.assertIn("Cela dépend", answers)
+        self.assertNotIn("It depends on the task", answers)
+
+    def test_two_sentence_faq_answer_passes(self):
+        art = (
+            _opening("T", GOOD_LEDE)
+            + "\n## S\n\nBody.\n\n"
+            "## Frequently Asked Questions\n\n"
+            "### How do I book an online visit?\n\n"
+            "Open the clinic portal and choose a telehealth slot. "
+            "Join a few minutes early so audio works.\n"
+        )
+        issues = hard_gates.check_faq(
+            art,
+            require_faq=True,
+            approved_faq=["How do I book an online visit?"],
+            paa_bank=[],
+        )
+        self.assertFalse(any(i.code == "faq_answer_length" for i in issues), msg=issues)
+
     def test_flagged_claim_detected(self):
         art = (
             _opening("T", GOOD_LEDE)

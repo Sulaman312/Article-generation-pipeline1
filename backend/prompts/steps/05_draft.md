@@ -83,7 +83,8 @@ Before you output the article, check all of these:
 ☐ Proof points and external cites match the outline TRUST & E-E-A-T plan — **prices and numbers only when cited from SERP/audit sources**
 ☐ Tone remains consistent from introduction through CTA
 ☐ The article sounds like {client_name}, not generic AI
-☐ FAQ answers are each one normal paragraph of **3–4 sentences** (no bullets)
+☐ FAQ answers are each one normal paragraph of **2–4 sentences** (min 2, max 4; no bullets)
+☐ FAQ H3 questions are clean question text only (no SOURCE SIGNAL / CITATION notes)
 
 If any checkbox is false, do NOT submit. REWRITE until all are true.
 
@@ -210,7 +211,7 @@ WRITING STANDARDS — non-negotiable:
    - If the PAA bank is LOW SIGNAL, write fewer questions — do not pad.
    - Format each item as:
      `### [Full question as a natural question?]`
-     Then **one normal paragraph** of 3–4 sentences (max ~70 words).
+     Then **one normal paragraph** of 2–4 sentences (min 2, max 4; max ~70 words), in the article language.
      Write it the way a typical FAQ answer reads: flowing prose, not a list.
      No bullets, no numbered points, and no one-sentence-per-line stacking.
      No one-liners. No long multi-paragraph answers. Word count is completed in the article body, not FAQ.

@@ -53,6 +53,32 @@ class PaaFaqTests(unittest.TestCase):
         self.assertIn("book an online vet", qs[0])
         self.assertIn("consultation", qs[1])
 
+    def test_clean_faq_question_strips_source_signal(self):
+        dirty = (
+            "Comment éviter qu'une salade ne se détrempe au bureau ? "
+            "(source signal: competitor H2: ptitchef.com; same caveat)?"
+        )
+        cleaned = paa_faq.clean_faq_question(dirty)
+        self.assertEqual(
+            cleaned,
+            "Comment éviter qu'une salade ne se détrempe au bureau ?",
+        )
+        self.assertNotIn("source signal", cleaned.lower())
+        self.assertNotIn("ptitchef", cleaned.lower())
+
+    def test_extract_strips_source_from_q_heading(self):
+        sample = """
+## Recommended FAQ bank (use these in the article)
+### Q1: Comment préparer un dîner équilibré ? (source signal: competitor H2: quiquandcomment.com, URL unverified by pipeline; use for answer framing only)?
+- SOURCE SIGNAL: competitor H2
+## Language
+- FAQ LANGUAGE: fr
+"""
+        qs = paa_faq.extract_recommended_faq_questions(sample)
+        self.assertEqual(len(qs), 1)
+        self.assertEqual(qs[0], "Comment préparer un dîner équilibré ?")
+        self.assertEqual(paa_faq.extract_faq_language(sample), "fr")
+
     def test_format_faq_bank_mentions_low_signal(self):
         block = paa_faq.format_faq_bank_for_prompt(SAMPLE_PAA)
         self.assertIn("1. How do I book", block)

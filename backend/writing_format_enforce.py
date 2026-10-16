@@ -29,18 +29,30 @@ def enforce_outline(
     outline: str,
     *,
     allow_llm_repair: bool = True,
+    cta_href: str | None = None,
 ) -> str:
     """Lint and repair outline artifacts."""
-    return _enforce(outline, stage="outline", allow_llm_repair=allow_llm_repair)
+    return _enforce(
+        outline,
+        stage="outline",
+        allow_llm_repair=allow_llm_repair,
+        cta_href=cta_href,
+    )
 
 
 def enforce_brief(
     brief: str,
     *,
     allow_llm_repair: bool = True,
+    cta_href: str | None = None,
 ) -> str:
     """Lint and repair assignment brief artifacts."""
-    return _enforce(brief, stage="brief", allow_llm_repair=allow_llm_repair)
+    return _enforce(
+        brief,
+        stage="brief",
+        allow_llm_repair=allow_llm_repair,
+        cta_href=cta_href,
+    )
 
 
 def enforce_article(
@@ -48,9 +60,15 @@ def enforce_article(
     *,
     stage: lint_mod.Stage = "draft",
     allow_llm_repair: bool = True,
+    cta_href: str | None = None,
 ) -> str:
     """Lint and repair draft or final article markdown."""
-    return _enforce(article, stage=stage, allow_llm_repair=allow_llm_repair)
+    return _enforce(
+        article,
+        stage=stage,
+        allow_llm_repair=allow_llm_repair,
+        cta_href=cta_href,
+    )
 
 
 def _enforce(
@@ -58,15 +76,16 @@ def _enforce(
     *,
     stage: lint_mod.Stage,
     allow_llm_repair: bool,
+    cta_href: str | None = None,
 ) -> str:
     if not (text or "").strip():
         return text
 
-    current, fix_log = lint_mod.apply_deterministic_fixes(text)
+    current, fix_log = lint_mod.apply_deterministic_fixes(text, cta_href=cta_href)
     for entry in fix_log:
         logger.info("writing_format deterministic: %s", entry)
 
-    report = lint_mod.lint(current, stage=stage)
+    report = lint_mod.lint(current, stage=stage, cta_href=cta_href)
     if report.ok:
         return current
 
@@ -81,17 +100,23 @@ def _enforce(
         return current
 
     for round_i in range(_MAX_REPAIR_ROUNDS):
-        report = lint_mod.lint(current, stage=stage)
+        report = lint_mod.lint(current, stage=stage, cta_href=cta_href)
         if report.ok:
             break
         try:
-            current = _repair_llm(current, report, stage=stage, round_i=round_i + 1)
+            current = _repair_llm(
+                current,
+                report,
+                stage=stage,
+                round_i=round_i + 1,
+                cta_href=cta_href,
+            )
         except Exception:
             logger.exception("writing_format LLM repair failed (stage=%s)", stage)
             break
-        current, _ = lint_mod.apply_deterministic_fixes(current)
+        current, _ = lint_mod.apply_deterministic_fixes(current, cta_href=cta_href)
 
-    final = lint_mod.lint(current, stage=stage)
+    final = lint_mod.lint(current, stage=stage, cta_href=cta_href)
     if not final.ok:
         logger.warning(
             "writing_format still has %s violation(s) after repair: %s",
@@ -107,10 +132,13 @@ def _repair_llm(
     *,
     stage: lint_mod.Stage,
     round_i: int,
+    cta_href: str | None = None,
 ) -> str:
+    preferred = (cta_href or lint_mod.DEFAULT_CTA_HREF).strip()
     user = (
         f"Stage: {stage}\n"
-        f"Repair round: {round_i}\n\n"
+        f"Repair round: {round_i}\n"
+        f"Preferred CTA href for this client: {preferred}\n\n"
         f"Fix these format violations only:\n{report.summary()}\n\n"
         f"---DOCUMENT---\n{markdown.strip()}\n"
     )

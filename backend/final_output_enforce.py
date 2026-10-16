@@ -485,7 +485,7 @@ def _inject_faq_llm(
         f"Return ONLY the full article markdown. Write exactly ONE FAQ section in "
         f"{language_label} using H2 `{heading}`. Prefer the provided FAQ bank questions. "
         "Do not add FAQ blocks in any other language. Do not invent brands, products, or prices. "
-        "Each FAQ answer must be one normal paragraph of 3-4 sentences (max ~70 words). "
+        "Each FAQ answer must be one normal paragraph of 2-4 sentences (max ~70 words). "
         "Do not use bullets, numbered lists, or one sentence per line. "
         "Do not pad FAQ to hit article word count."
     )
@@ -753,10 +753,14 @@ def enforce_final_output(
 
     article = normalize_article_links(article, clusters)
 
+    from .context_extractor import resolve_cta_href
+
+    cta_href = resolve_cta_href(client_id)
     article = writing_format_enforce.enforce_article(
         article,
         stage="final",
         allow_llm_repair=allow_llm_repair,
+        cta_href=cta_href,
     )
     if form_links:
         article = inject_form_internal_links(article, form_links)

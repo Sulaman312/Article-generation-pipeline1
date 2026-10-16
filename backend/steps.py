@@ -193,7 +193,7 @@ def _ensure_draft_word_count(
             f"Rules:\n"
             f"- Keep the same H1/H2 structure and markdown format.\n"
             f"- Expand every major BODY H2 with examples, steps, and detail.\n"
-            f"- Do NOT add words to the FAQ section. FAQ answers stay 3-4 sentence paragraphs.\n"
+            f"- Do NOT add words to the FAQ section. FAQ answers stay 2-4 sentence paragraphs.\n"
             f"- Hit the word count in the article content only. FAQ does not count.\n"
             f"- Stay under {high:,} body words after expansion.\n"
             f"- Do not add filler, repetition, or meta-commentary.\n"
@@ -923,7 +923,7 @@ def run_step_6(client_id: str, run_id: str, previous_artifact: str = "") -> str:
             f"({draft_words:,} words; form target {wc_target:,}, band {low:,}–{high:,}).\n"
             f"In ---CORRECTED ARTICLE--- keep nearly the same body length. "
             f"Fix facts/clarity; do NOT expand into a longer rewrite. "
-            f"FAQ answers stay 3-4 sentence paragraphs and do not count toward the band.\n"
+            f"FAQ answers stay 2-4 sentence paragraphs and do not count toward the band.\n"
         )
     claude_out = _chat_complete(system_msg, user_msg, step_label)
     # Keep corrected article inside the generation band when possible.
@@ -994,6 +994,14 @@ def run_step_7(client_id: str, run_id: str, previous_artifact: str = "") -> str:
         if form_links
         else "None listed on the article form."
     )
+    cta_href = (extracted.get("cta_href") or "").strip() or "/contact"
+    website = (extracted.get("website") or "").strip()
+    cta_examples = extracted.get("cta_examples") or []
+    cta_example_lines = (
+        "\n".join(f"- {ex}" for ex in cta_examples)
+        if cta_examples
+        else "- (follow CTA guidelines tone; link to the project CTA URL below)"
+    )
     cluster_section = f"""
 ---INTERNAL LINKING GUIDE---
 ARTICLE-FORM INTERNAL LINKS (place these first, exact hrefs):
@@ -1002,6 +1010,10 @@ These are the content clusters for this client:
 {chr(10).join([f'{i+1}. {cluster}' for i, cluster in enumerate(extracted['clusters'])]) if extracted['clusters'] else 'No clusters defined'}
 When adding extra cluster placeholders, reference only these cluster names.
 CTA Philosophy: {extracted['cta_philosophy']}
+CTA examples:
+{cta_example_lines}
+Project live site: {website or '[not set in context.md]'}
+Required CTA markdown href (use exactly): {cta_href}
 ---END LINKING GUIDE---
 """
     wc_target = _word_count_target_for_run(client_id, run_id)
@@ -1027,7 +1039,7 @@ CTA Philosophy: {extracted['cta_philosophy']}
         "---END SOURCES---\n"
     )
     user_msg += _editorial_notices_for_run(client_id, run_id)
-    user_msg += editorial_input.cta_format_guidelines_notice()
+    user_msg += editorial_input.cta_format_guidelines_notice(cta_href)
     if wc_target:
         user_msg += editorial_input.mandatory_word_count_notice(wc_target)
         user_msg += editorial_input.draft_word_count_requirement(wc_target)

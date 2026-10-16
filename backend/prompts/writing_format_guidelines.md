@@ -51,4 +51,6 @@
 
 - Place **two to three** CTA blocks per article, inline at natural section breaks (transitions between H2s). Never cluster them at the end or mid-paragraph.
 - Each CTA has **three elements on separate lines**: bold heading, one-to-two-sentence description, and a markdown link with the button label. Preserve the markdown and spacing; do not collapse into one paragraph.
-- Demo CTA slug is `/book-a-demo/` (never `/demo` or `/request-demo`).
+- CTA href comes from the client workspace artifacts: prefer an explicit URL/path in
+  `cta_guidelines.md`, otherwise use the live Website from `context.md` with `/contact`
+  (e.g. `https://example.com/contact`). Never use `/demo` or `/request-demo`.

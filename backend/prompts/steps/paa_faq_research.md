@@ -83,15 +83,18 @@ Order by searcher urgency / snippet potential. Do NOT write full answers — onl
 If fewer than 6 questions have verifiable evidence, output only those and add on its own line:
 `LOW SIGNAL TOPIC — only N questions had verifiable demand evidence.`]
 
-### Q1: [exact question text?]
+### Q1: [exact question text only — no source notes in the heading]
 - INTENT CLUSTER: [cost | timeline | how-to | compliance | vs-alternatives | ROI | eligibility | edge-case | other]
 - WHY IT MATTERS: [1 sentence — what the searcher needs]
 - ANSWER NOTE: [2–4 bullets the draft answer must cover; no fabricated stats, brands, or prices]
 - SOURCE SIGNAL: [PAA | related search | competitor H2 | forum | keyword-tool | related_questions API | INFERRED]
-  (use only these values — no new categories)
+  (use only these values — no new categories; keep this on its own bullet, NEVER inside the Q heading)
 - CITATION: [required unless SOURCE SIGNAL is INFERRED — fetched https:// URL OR exact string from
   ## Related questions (API). If SOURCE SIGNAL is `related_questions API`, CITATION must match a line
   in that section verbatim. If you cannot produce one, SOURCE SIGNAL MUST be INFERRED — no exceptions.]
+
+CRITICAL: The `### Qn:` line must be publishable question text only.
+Do NOT append `(source signal: …)`, citation hosts, "URL unverified", or "same caveat" to the question.
 
 ### Q2: […]
 …

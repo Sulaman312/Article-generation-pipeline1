@@ -52,6 +52,8 @@ Start with the first ## section. Do **not** emit `---RESEARCH AUDIT START---` /
 1. […]
 2. […]
 [Keep fewer if thin. Do not invent.]
+[Each line must be clean publishable question text only — never include SOURCE SIGNAL,
+CITATION, competitor hostnames, or "URL unverified" notes in the question.]
 
 ## Approved supporting blog cluster
 ### S1: [title]

@@ -13,7 +13,9 @@ BRIEF_END = "---BRIEF END---"
 
 MAX_SENTENCE_WORDS = 30
 MAX_PARAGRAPH_SENTENCES = 4
+# Legacy Arsuno default — prefer resolve_cta_href() from workspace artifacts.
 DEMO_CTA_SLUG = "/book-a-demo/"
+DEFAULT_CTA_HREF = "/contact"
 _BANNED_DEMO_SLUGS = ("/demo", "/request-demo")
 
 # Long dashes that must never appear in published copy (article, meta, brief).
@@ -65,13 +67,18 @@ class LintReport:
         return "\n".join(lines)
 
 
-def lint(text: str, *, stage: Stage = "draft") -> LintReport:
+def lint(
+    text: str,
+    *,
+    stage: Stage = "draft",
+    cta_href: str | None = None,
+) -> LintReport:
     """Run stage-appropriate format checks."""
     if stage == "outline":
         return _lint_outline(text)
     if stage == "brief":
         return _lint_brief(text)
-    return _lint_article(text, stage=stage)
+    return _lint_article(text, stage=stage, cta_href=cta_href)
 
 
 def strip_em_dashes(text: str) -> tuple[str, bool]:
@@ -164,7 +171,9 @@ def _lint_outline(text: str) -> LintReport:
     return report
 
 
-def _lint_article(text: str, *, stage: Stage) -> LintReport:
+def _lint_article(
+    text: str, *, stage: Stage, cta_href: str | None = None
+) -> LintReport:
     report = LintReport(stage=stage)
     body = _article_body(text)
     lines = body.splitlines()
@@ -209,7 +218,7 @@ def _lint_article(text: str, *, stage: Stage) -> LintReport:
     _lint_sections_end_on_bullets(lines, report)
 
     if stage == "final":
-        _lint_cta_slugs(body, report)
+        _lint_cta_slugs(body, report, cta_href=cta_href)
 
     return report
 
@@ -381,7 +390,18 @@ def _check_section_ends_on_bullet(
         break
 
 
-def _lint_cta_slugs(body: str, report: LintReport) -> None:
+def _preferred_cta_href(cta_href: str | None) -> str:
+    href = (cta_href or "").strip()
+    if href:
+        return href.rstrip("/")
+    return DEFAULT_CTA_HREF
+
+
+def _lint_cta_slugs(
+    body: str, report: LintReport, *, cta_href: str | None = None
+) -> None:
+    preferred = _preferred_cta_href(cta_href)
+    # Relative banned paths only (absolute URLs are checked separately below).
     for m in re.finditer(r"\]\((/[^)]+)\)", body):
         slug = m.group(1).rstrip("/") + "/"
         norm = slug if slug.startswith("/") else f"/{slug}"
@@ -391,13 +411,27 @@ def _lint_cta_slugs(body: str, report: LintReport) -> None:
                 report.violations.append(
                     FormatViolation(
                         "CTA_DEMO_SLUG",
-                        f"Demo CTA must use {DEMO_CTA_SLUG}, not {banned}.",
+                        f"CTA must use {preferred}, not {banned}.",
                         excerpt=m.group(0)[:80],
                     )
                 )
+    # Hardcoded legacy Arsuno demo slug is wrong when this client uses /contact.
+    if preferred.rstrip("/") != DEMO_CTA_SLUG.rstrip("/"):
+        for m in re.finditer(
+            rf"\]\({re.escape(DEMO_CTA_SLUG.rstrip('/'))}/?\)", body, re.I
+        ):
+            report.violations.append(
+                FormatViolation(
+                    "CTA_WRONG_HREF",
+                    f"CTA must use the project CTA URL ({preferred}), not {DEMO_CTA_SLUG}.",
+                    excerpt=m.group(0)[:80],
+                )
+            )
 
 
-def apply_deterministic_fixes(text: str) -> tuple[str, list[str]]:
+def apply_deterministic_fixes(
+    text: str, *, cta_href: str | None = None
+) -> tuple[str, list[str]]:
     """Safe mechanical fixes before LLM repair. Returns (text, log)."""
     log: list[str] = []
     if not (text or "").strip():
@@ -411,6 +445,13 @@ def apply_deterministic_fixes(text: str) -> tuple[str, list[str]]:
     if not body:
         return current, log
 
+    preferred = _preferred_cta_href(cta_href)
+    # Absolute preferred URLs keep no forced trailing slash; relative keep one.
+    if preferred.startswith("http://") or preferred.startswith("https://"):
+        replacement = preferred
+    else:
+        replacement = preferred if preferred.endswith("/") else preferred + "/"
+
     fixed = body
     for banned in _BANNED_DEMO_SLUGS:
         pattern = re.compile(
@@ -418,8 +459,18 @@ def apply_deterministic_fixes(text: str) -> tuple[str, list[str]]:
             re.I,
         )
         if pattern.search(fixed):
-            fixed = pattern.sub(f"]({DEMO_CTA_SLUG.rstrip('/')}/)", fixed)
-            log.append(f"Replaced demo slug {banned} → {DEMO_CTA_SLUG}")
+            fixed = pattern.sub(f"]({replacement})", fixed)
+            log.append(f"Replaced demo slug {banned} → {replacement}")
+
+    # Replace legacy /book-a-demo/ when this workspace uses a different CTA.
+    if preferred.rstrip("/") != DEMO_CTA_SLUG.rstrip("/"):
+        demo_pat = re.compile(
+            rf"\]\({re.escape(DEMO_CTA_SLUG.rstrip('/'))}/?\)",
+            re.I,
+        )
+        if demo_pat.search(fixed):
+            fixed = demo_pat.sub(f"]({replacement})", fixed)
+            log.append(f"Replaced {DEMO_CTA_SLUG} → {replacement}")
 
     if fixed == body and not em_fixed:
         return text, log

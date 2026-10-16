@@ -16,7 +16,7 @@ PUBLISHING_METADATA_END = "---PUBLISHING METADATA END---"
 CORRECTED_ARTICLE_START = "---CORRECTED ARTICLE START---"
 CORRECTED_ARTICLE_END = "---CORRECTED ARTICLE END---"
 MIN_FAQ_QUESTIONS = 5
-FAQ_ANSWER_MIN_SENTENCES = 3
+FAQ_ANSWER_MIN_SENTENCES = 2
 FAQ_ANSWER_MAX_SENTENCES = 4
 FAQ_ANSWER_MAX_WORDS = 70
 _FAQ_SENTENCE_SPLIT = re.compile(r"(?<=[.!?])\s+")
@@ -51,9 +51,12 @@ def extract_corrected_article_body(text: str) -> str:
 def format_faq_block(
     pairs: list[tuple[str, str]], *, heading: str = "## Frequently Asked Questions"
 ) -> str:
+    from . import paa_faq
+
     lines = [heading.strip(), ""]
     for q, a in pairs:
-        lines.append(f"### {q}")
+        q_clean = paa_faq.clean_faq_question(q) or q
+        lines.append(f"### {q_clean}")
         lines.append("")
         lines.append(a)
         lines.append("")
@@ -94,7 +97,7 @@ def _flatten_faq_answer_text(answer: str) -> str:
 
 
 def trim_faq_answer(answer: str) -> str:
-    """Keep 3-4 short sentences as one normal paragraph. Drop extra length."""
+    """Keep 2-4 short sentences as one normal paragraph. Drop extra length."""
     sentences = split_faq_sentences(_flatten_faq_answer_text(answer))
     if not sentences:
         return (answer or "").strip()
@@ -121,11 +124,15 @@ def trim_faq_answer(answer: str) -> str:
 def enforce_faq_answer_length(
     article: str, *, heading: str | None = None
 ) -> str:
-    """Rewrite FAQ answers to 3-4 sentence paragraphs without changing the article body."""
+    """Rewrite FAQ answers to 2-4 sentence paragraphs without changing the article body."""
+    from . import paa_faq
+
     pairs = extract_faq_pairs(article)
     if not pairs:
         return article
-    trimmed = [(q, trim_faq_answer(a)) for q, a in pairs]
+    trimmed = [
+        (paa_faq.clean_faq_question(q) or q, trim_faq_answer(a)) for q, a in pairs
+    ]
     if heading is None:
         sections = extract_faq_sections(article)
         heading = (
@@ -245,6 +252,8 @@ def extract_faq_sections(markdown: str) -> list[tuple[str, list[tuple[str, str]]
 
 def extract_faq_pairs(markdown: str) -> list[tuple[str, str]]:
     """Parse all FAQ H2 blocks and merge Q&A pairs (deduped by question text)."""
+    from . import paa_faq
+
     sections = extract_faq_sections(markdown)
     if not sections:
         return []
@@ -253,11 +262,12 @@ def extract_faq_pairs(markdown: str) -> list[tuple[str, str]]:
     merged: list[tuple[str, str]] = []
     for _heading, pairs in sections:
         for q, a in pairs:
-            key = q.lower().strip()
+            cleaned = paa_faq.clean_faq_question(q) or q
+            key = cleaned.lower().strip()
             if key in seen:
                 continue
             seen.add(key)
-            merged.append((q, a))
+            merged.append((cleaned, a))
     return merged
 
 

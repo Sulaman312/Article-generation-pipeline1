@@ -89,7 +89,7 @@ class EditorialNoticeTests(unittest.TestCase):
         self.assertIn("do not repeat that exact phrase", notice)
         self.assertIn("## Key takeaways", notice)
         self.assertIn("E-E-A-T", notice)
-        self.assertIn("one normal paragraph of **3–4 sentences**", notice)
+        self.assertIn("one normal paragraph of **2–4 sentences**", notice)
         self.assertNotIn("one sentence per line", notice)
         self.assertNotIn("once in H1 only", notice)
 
@@ -145,9 +145,12 @@ class EditorialNoticeTests(unittest.TestCase):
         self.assertIn("Conclusion", notice)
 
     def test_cta_format_notice(self):
-        notice = editorial_input.cta_format_guidelines_notice()
-        self.assertIn("/book-a-demo/", notice)
+        notice = editorial_input.cta_format_guidelines_notice(
+            "https://methodeapna.fr/contact"
+        )
+        self.assertIn("https://methodeapna.fr/contact", notice)
         self.assertIn("auto-checked", notice.lower())
+        self.assertNotIn("/book-a-demo/", notice)
 
     def test_build_meta_seo_context_fills_prompts(self):
         topic_card = (

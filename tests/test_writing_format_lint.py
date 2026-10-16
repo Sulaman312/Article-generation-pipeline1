@@ -35,8 +35,20 @@ class WritingFormatLintTests(unittest.TestCase):
 
     def test_deterministic_demo_slug_fix(self):
         text = "## Section\n\n[Book a demo](/request-demo/)"
-        fixed, log = lint.apply_deterministic_fixes(text)
-        self.assertIn("/book-a-demo/", fixed)
+        fixed, log = lint.apply_deterministic_fixes(
+            text, cta_href="https://methodeapna.fr/contact"
+        )
+        self.assertIn("https://methodeapna.fr/contact", fixed)
+        self.assertNotIn("/request-demo", fixed)
+        self.assertTrue(log)
+
+    def test_replaces_legacy_book_a_demo_with_project_cta(self):
+        text = "## Section\n\n[Book a demo](/book-a-demo/)"
+        fixed, log = lint.apply_deterministic_fixes(
+            text, cta_href="https://methodeapna.fr/contact"
+        )
+        self.assertIn("https://methodeapna.fr/contact", fixed)
+        self.assertNotIn("/book-a-demo", fixed)
         self.assertTrue(log)
 
     def test_outline_title_case_flag(self):
