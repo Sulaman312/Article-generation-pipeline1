@@ -27,6 +27,21 @@ CLAUDE_MODEL = (os.getenv("CLAUDE_MODEL") or "claude-sonnet-4-6").strip()
 MAX_TOKENS = 4000
 TEMPERATURE = 0.7
 
+# Prompt caching (Anthropic via OpenRouter or direct). Phase 2: stable system +
+# shared-docs user block with cache_control; session_id pins OpenRouter routing.
+PROMPT_CACHE_ENABLED = (os.getenv("PROMPT_CACHE_ENABLED") or "1").strip().lower() not in (
+    "0",
+    "false",
+    "no",
+    "off",
+)
+# Empty = provider default (5m). Set "1h" for longer interactive article runs.
+PROMPT_CACHE_TTL = (os.getenv("PROMPT_CACHE_TTL") or "1h").strip()
+try:
+    PROMPT_CACHE_MIN_TOKENS = int(os.getenv("PROMPT_CACHE_MIN_TOKENS") or "1024")
+except ValueError:
+    PROMPT_CACHE_MIN_TOKENS = 1024
+
 MONGODB_URI = (os.getenv("MONGODB_URI") or "").strip() or None
 MONGODB_DB = (
     os.getenv("MONGODB_DB") or "article_generation_pipeline"

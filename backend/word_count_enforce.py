@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+from typing import Any
 
 from . import editorial_input
 from .integrations import anthropic as claude
@@ -16,12 +17,36 @@ def _max_tokens_for_target(target: int | None) -> int:
     return min(8192, max(2048, int(target * 2.2) + 800))
 
 
+def _claude_trim_call(
+    system_msg: Any,
+    trim_user: str,
+    *,
+    step_label: str,
+    max_tokens: int,
+) -> str:
+    from .prompt_cache import CachedPrompt
+
+    if isinstance(system_msg, CachedPrompt):
+        return claude.chat_complete(
+            system_msg.with_unique(trim_user, step_label=step_label),
+            max_tokens=max_tokens,
+            temperature=0.3,
+        ).strip()
+    return claude.chat_complete(
+        system_msg,
+        trim_user,
+        step_label=step_label,
+        max_tokens=max_tokens,
+        temperature=0.3,
+    ).strip()
+
+
 def trim_section_body(
     *,
     heading: str,
     body: str,
     cap_words: int,
-    system_msg: str,
+    system_msg: Any,
     step_label: str,
 ) -> str:
     """Tighten one H2 body to a word cap without dropping the section."""
@@ -39,13 +64,12 @@ def trim_section_body(
         f"- Output ONLY the section starting with the H2 line, then its body.\n\n"
         f"---SECTION---\n{heading.strip()}\n{body.strip()}\n"
     )
-    trimmed = claude.chat_complete(
+    trimmed = _claude_trim_call(
         system_msg,
         trim_user,
         step_label=step_label,
         max_tokens=min(4096, _max_tokens_for_target(cap_words * 2)),
-        temperature=0.3,
-    ).strip()
+    )
     if trimmed.startswith("## "):
         parts = trimmed.split("\n", 1)
         return parts[1].strip() if len(parts) > 1 else ""
@@ -56,7 +80,7 @@ def trim_article_by_sections(
     article: str,
     target: int,
     *,
-    system_msg: str | None = None,
+    system_msg: Any = None,
     outline: str = "",
     step_label: str = "section trim",
     max_passes: int = 3,

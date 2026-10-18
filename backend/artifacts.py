@@ -448,8 +448,8 @@ def _read_context_file_cached(client_id: str, filename: str, path: Path) -> str 
     return text
 
 
-def load_context(client_id: str, step_name: str) -> str:
-    filenames = config.STEP_CONTEXT_FILES.get(step_name, [])
+def load_context_files(client_id: str, filenames: list[str] | tuple[str, ...]) -> str:
+    """Load named client context files in the given order (stable for prompt caching)."""
     if not filenames:
         return ""
 
@@ -466,6 +466,11 @@ def load_context(client_id: str, step_name: str) -> str:
             parts.append(f"{header} [NOT YET PROVIDED]")
 
     return "\n\n".join(parts)
+
+
+def load_context(client_id: str, step_name: str) -> str:
+    filenames = config.STEP_CONTEXT_FILES.get(step_name, [])
+    return load_context_files(client_id, filenames)
 
 
 def load_context_debug(client_id: str, step_name: str) -> str:

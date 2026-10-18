@@ -44,6 +44,18 @@ npm start
 
 Pipeline step jobs run **in-process** (single Gunicorn worker). Cancel signals abort Claude streaming and interrupt waiting on Perplexity; active in-memory jobs are lost on restart.
 
+## Prompt caching (Phase 2)
+
+Claude steps share a stable cacheable prefix:
+
+1. **System** — client context only (brand voice, banned words, format guidelines, personas, company, clusters)
+2. **User (cached)** — shared run docs in fixed order: topic card → SERP analysis → ATP → PAA → audit → brief
+3. **User (uncached)** — step prompt (`01_`…`08_`, audit, supporting) + step-unique input
+
+OpenRouter requests send a per-run `session_id` for sticky provider routing. Logs include `prompt_cache read=… write=… hit_rate=…`.
+
+**Verify on one article:** run a full pipeline, then in the OpenRouter dashboard confirm cache hit rate moves off 0% and cost/article drops. If hits stay at 0%, keep model/provider routing stable and ensure the cached prefix is above the model minimum (~1024 tokens for Sonnet 4.6). Env knobs: `PROMPT_CACHE_ENABLED`, `PROMPT_CACHE_TTL` (default `1h`).
+
 ## Push to GitHub
 
 ```powershell
