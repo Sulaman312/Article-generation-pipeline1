@@ -255,7 +255,18 @@ def hydrate_cache(*, clear: bool = True) -> int:
             target.parent.mkdir(parents=True, exist_ok=True)
             temp = target.with_name(f".{target.name}.mongo-tmp")
             temp.parent.mkdir(parents=True, exist_ok=True)
-            stream = bucket.open_download_stream(doc["gridfs_id"])
+            try:
+                stream = bucket.open_download_stream(doc["gridfs_id"])
+            except Exception as exc:
+                # Orphan metadata (GridFS blob deleted) must not block startup.
+                logger.warning(
+                    "Skipping MongoDB file %r — GridFS blob %s missing (%s: %s)",
+                    rel,
+                    doc.get("gridfs_id"),
+                    type(exc).__name__,
+                    exc,
+                )
+                continue
             with temp.open("wb") as handle:
                 while chunk := stream.read(1024 * 1024):
                     handle.write(chunk)

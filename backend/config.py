@@ -133,7 +133,7 @@ CONTEXT_FILE_LABELS: dict[str, str] = {
     "personas.md": "Audience personas",
     "brand_voice.md": "Brand voice",
     "writing_guidelines.md": "Writing guidelines",
-    "cta_guidelines.md": "CTA guidelines",
+    "cta_guidelines.md": "CTA guidelines (tone, URL, optional HTML template)",
     "internal_links.md": "Internal linking & clusters",
 }
 

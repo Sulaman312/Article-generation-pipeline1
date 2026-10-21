@@ -33,6 +33,9 @@ TASK 1 — CTA PLACEMENT
       Required CTA markdown href for this workspace.
     - Use a **colon** as the separator in CTA markers, never an em dash or hyphen.
     - No em dashes anywhere in CTA copy.
+    - Do **not** paste raw HTML CTA markup yourself. If this workspace has an HTML CTA
+      Template in `cta_guidelines.md`, keep markdown CTAs; the pipeline converts them to
+      that HTML after generation (statements change; contact URL stays fixed).
   CTA tone must match article tone — if article is direct and no-nonsense, CTA must be too.
   Do NOT add urgency language ("act now", "limited spots") unless CTA Guidelines explicitly call for it.
 

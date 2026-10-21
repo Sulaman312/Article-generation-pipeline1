@@ -114,15 +114,43 @@ def _builtin_specs_by_filename() -> dict[str, dict]:
         row["builtin"] = True
         row["removable"] = False
         out[row["filename"]] = row
+    _CTA_GUIDELINES_PLACEHOLDER = (
+        "# CTA guidelines\n\n"
+        "### 1. CTA Philosophy\n\n"
+        "Invite readers to a conversation, not a hard sell.\n\n"
+        "Primary CTA URL: /contact\n\n"
+        "### HTML CTA Template\n\n"
+        "Paste your workspace HTML/CSS shell below. Use placeholders "
+        "`{{headline}}`, `{{body}}`, `{{button}}`, `{{href}}` — or paste a full "
+        "example block (first h3, p, and button link are replaced per article).\n\n"
+        "```html\n"
+        '<div class="workspace-cta">\n'
+        "  <h3>{{headline}}</h3>\n"
+        "  <p>{{body}}</p>\n"
+        '  <a class="workspace-cta__btn" href="{{href}}">{{button}}</a>\n'
+        "</div>\n"
+        "```\n"
+    )
     for fn in config.pipeline_context_filenames_ordered():
         if fn in out:
             continue
         label = config.CONTEXT_FILE_LABELS.get(fn, fn)
+        placeholder = (
+            _CTA_GUIDELINES_PLACEHOLDER
+            if fn == "cta_guidelines.md"
+            else f"# {label}\n"
+        )
+        description = (
+            "CTA tone, contact URL, and optional HTML embed template "
+            "(shell fixed per workspace; headline/body/button change per article)."
+            if fn == "cta_guidelines.md"
+            else f"Pipeline context — {label}."
+        )
         out[fn] = {
             "filename": fn,
             "title": label,
-            "description": f"Pipeline context — {label}.",
-            "placeholder": f"# {label}\n",
+            "description": description,
+            "placeholder": placeholder,
             "builtin": True,
             "removable": False,
         }

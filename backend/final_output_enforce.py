@@ -754,6 +754,7 @@ def enforce_final_output(
     article = normalize_article_links(article, clusters)
 
     from .context_extractor import resolve_cta_href
+    from . import cta_html
 
     cta_href = resolve_cta_href(client_id)
     article = writing_format_enforce.enforce_article(
@@ -761,6 +762,10 @@ def enforce_final_output(
         stage="final",
         allow_llm_repair=allow_llm_repair,
         cta_href=cta_href,
+    )
+    # Lint expects markdown CTAs; convert to workspace HTML shell afterward.
+    article = cta_html.apply_workspace_cta_html(
+        article, client_id=client_id, cta_href=cta_href
     )
     if form_links:
         article = inject_form_internal_links(article, form_links)

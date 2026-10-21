@@ -203,6 +203,14 @@ def build_client_system_prompt(client_id: str) -> str:
     )
     cta_href = (extracted7.get("cta_href") or "").strip() or "/contact"
     website = (extracted7.get("website") or "").strip()
+    html_note = (
+        "Workspace HTML CTA template: YES — still write markdown CTAs "
+        "(bold heading + description + markdown link). The pipeline wraps them "
+        "in the workspace HTML shell after generation; only the three statements "
+        "change per article; the contact URL stays fixed.\n"
+        if extracted7.get("has_cta_html_template")
+        else "Workspace HTML CTA template: NO — leave CTAs as markdown links.\n"
+    )
     parts.append(
         "---INTERNAL LINKING & CTA (client-level)---\n"
         "These are the content clusters for this client:\n"
@@ -213,6 +221,7 @@ def build_client_system_prompt(client_id: str) -> str:
         f"{cta_example_lines}\n"
         f"Project live site: {website or '[not set in context.md]'}\n"
         f"Required CTA markdown href (use exactly): {cta_href}\n"
+        f"{html_note}"
         "---END INTERNAL LINKING & CTA---\n"
     )
 

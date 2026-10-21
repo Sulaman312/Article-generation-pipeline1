@@ -54,3 +54,6 @@
 - CTA href comes from the client workspace artifacts: prefer an explicit URL/path in
   `cta_guidelines.md`, otherwise use the live Website from `context.md` with `/contact`
   (e.g. `https://example.com/contact`). Never use `/demo` or `/request-demo`.
+- If the workspace `cta_guidelines.md` includes an **HTML CTA Template**, still write the
+  three-line markdown CTAs above. Post-processing wraps them in that HTML shell: only the
+  headline, body, and button label change per article; CSS and contact URL stay fixed.

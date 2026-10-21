@@ -468,15 +468,25 @@ def outline_format_guidelines_notice() -> str:
     )
 
 
-def cta_format_guidelines_notice(cta_href: str | None = None) -> str:
+def cta_format_guidelines_notice(
+    cta_href: str | None = None, *, has_html_template: bool = False
+) -> str:
     """Final-output CTA reminder (enforced by lint + repair)."""
     href = (cta_href or "").strip() or writing_format_lint.DEFAULT_CTA_HREF
+    html_line = (
+        "This workspace has an HTML CTA template — still output markdown CTAs "
+        "(bold + description + link); the pipeline converts them to the workspace "
+        "HTML shell afterward (copy changes per article; href stays fixed).\n"
+        if has_html_template
+        else ""
+    )
     return (
         "\n\n=== CTA PLACEMENT CHECKLIST ===\n"
         "2–3 inline CTAs at H2 section breaks; each CTA: bold heading, description, "
         f"markdown link on separate lines. Use this project CTA URL exactly: `{href}` "
         "(from workspace CTA guidelines / live site + `/contact`). "
         "Never use `/demo`, `/request-demo`, or a different client's demo slug. "
+        f"{html_line}"
         "Violations are auto-checked after generation.\n"
     )
 

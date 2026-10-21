@@ -920,6 +920,7 @@ def run_step_7(client_id: str, run_id: str, previous_artifact: str = "") -> str:
         else "None listed on the article form."
     )
     cta_href = (extracted.get("cta_href") or "").strip() or "/contact"
+    has_html_cta = bool(extracted.get("has_cta_html_template"))
     wc_target = _word_count_target_for_run(client_id, run_id)
     step_label = _step_label(step_name)
     serp_digest = _load_prior_artifact(client_id, run_id, "serp_research")
@@ -938,7 +939,9 @@ def run_step_7(client_id: str, run_id: str, previous_artifact: str = "") -> str:
         "---END SOURCES---\n"
     )
     unique += _editorial_notices_for_run(client_id, run_id)
-    unique += editorial_input.cta_format_guidelines_notice(cta_href)
+    unique += editorial_input.cta_format_guidelines_notice(
+        cta_href, has_html_template=has_html_cta
+    )
     if wc_target:
         unique += editorial_input.mandatory_word_count_notice(wc_target)
         unique += editorial_input.draft_word_count_requirement(wc_target)

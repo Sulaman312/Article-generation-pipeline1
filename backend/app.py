@@ -110,6 +110,9 @@ def create_app() -> Flask:
     def require_hydrated_workspace():
         if mongo_storage.runtime_ready():
             return None
+        # Let CORS preflight succeed while Mongo is still hydrating.
+        if request.method == "OPTIONS":
+            return None
         path = request.path or "/"
         if path in {"/", "/health", "/ready", "/auth/login"} or path.startswith(
             ("/static/", "/assets/")

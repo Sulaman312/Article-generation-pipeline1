@@ -392,6 +392,7 @@ def extract_for_step_7(client_id: str) -> dict:
         links_text = _read(links_file) or ""
         clusters = _cluster_titles(links_text)
 
+    cta_text = ""
     cta_file = context_path / "cta_guidelines.md"
     if cta_file.is_file():
         cta_text = _read(cta_file) or ""
@@ -410,12 +411,18 @@ def extract_for_step_7(client_id: str) -> dict:
     cta_href = resolve_cta_href(client_id)
     website = extract_website_url(client_id)
 
+    from .cta_html import extract_cta_html_template
+
+    cta_html_template = extract_cta_html_template(cta_text) or ""
+
     return {
         "clusters": clusters,
         "cta_philosophy": cta_philosophy,
         "cta_examples": cta_examples,
         "cta_href": cta_href,
         "website": website,
+        "cta_html_template": cta_html_template,
+        "has_cta_html_template": bool(cta_html_template),
     }
 
 
