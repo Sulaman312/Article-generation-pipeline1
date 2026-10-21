@@ -114,6 +114,7 @@ TASK 3 — FINAL SEO & READABILITY CHECK (article body only)
   [ ] FAQ section present: H2 "Frequently Asked Questions" / localized equivalent with at least 5 H3 Q&As — if missing, add a minimal FAQ block from the article topic (do not rewrite body sections)
   [ ] FAQ H3 questions are clean question text only (no SOURCE SIGNAL / CITATION / competitor notes)
   [ ] Each FAQ answer is **one normal paragraph of 2-4 sentences** (min 2, max 4; max ~70 words), in the article language. No bullets, numbered lists, or one sentence per line. Do not pad FAQ.
+  [ ] Transition words: ≥30% of body sentences use a natural connector (Yoast); add short connectors when splitting ideas — do not leave unlinked sentence stacks
   [ ] Tone remains consistent throughout
 
 OUTPUT FORMAT — follow exactly:

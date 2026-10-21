@@ -90,6 +90,8 @@ class EditorialNoticeTests(unittest.TestCase):
         self.assertIn("## Key takeaways", notice)
         self.assertIn("E-E-A-T", notice)
         self.assertIn("one normal paragraph of **2–4 sentences**", notice)
+        self.assertIn("Transition words", notice)
+        self.assertIn("30%", notice)
         self.assertNotIn("one sentence per line", notice)
         self.assertNotIn("once in H1 only", notice)
 
@@ -109,6 +111,7 @@ class EditorialNoticeTests(unittest.TestCase):
         combined = prompts.with_writing_format_guidelines(base)
         self.assertIn("WRITING FORMAT GUIDELINES (canonical", combined)
         self.assertIn("No em dashes", combined)
+        self.assertIn("Transition words (Yoast)", combined)
         self.assertEqual(
             prompts.with_writing_format_guidelines(combined).rstrip(),
             combined.rstrip(),

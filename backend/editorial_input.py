@@ -446,6 +446,13 @@ def seo_readability_notice() -> str:
         "`![descriptive alt text](IMAGE: slug-or-description)`.\n"
         "- **Tone:** keep brand voice, formality, perspective, and energy consistent from the "
         "introduction through the CTA.\n"
+        "- **Transition words (Yoast/readability):** at least **30%** of body sentences must "
+        "include a natural transition word in the article language (EN: however, therefore, "
+        "for example, in addition, also, next, finally, meanwhile, as a result, because, so, "
+        "first, then, instead, specifically; FR: cependant, donc, par exemple, de plus, aussi, "
+        "ensuite, enfin, ainsi, toutefois, d'abord, autrement dit, en revanche). Prefer short "
+        "connectors at sentence starts when splitting long ideas — do not leave choppy "
+        "unlinked sentence stacks.\n"
     )
 
 

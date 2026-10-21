@@ -82,6 +82,7 @@ Before you output the article, check all of these:
 ☐ 3–5 inline external links and every article-form Internal Links URL/path is woven mid-sentence
 ☐ Proof points and external cites match the outline TRUST & E-E-A-T plan — **prices and numbers only when cited from SERP/audit sources**
 ☐ Tone remains consistent from introduction through CTA
+☐ Transition words: ≥30% of body sentences use a natural connector (Yoast); no unlinked short-sentence stacks
 ☐ The article sounds like {client_name}, not generic AI
 ☐ FAQ answers are each one normal paragraph of **2–4 sentences** (min 2, max 4; no bullets)
 ☐ FAQ H3 questions are clean question text only (no SOURCE SIGNAL / CITATION notes)
@@ -115,7 +116,8 @@ WRITING STANDARDS — non-negotiable:
    - Follow **WRITING FORMAT GUIDELINES** in your system prompt (canonical rules).
    - The pipeline lints and auto-repairs violations after generation.
    - Key constraints: sentence-case headings, BLUF under H2/H3, max 30 words per sentence,
-     max 4 sentences per paragraph, no em dashes, one bullet group per section.
+     max 4 sentences per paragraph, ≥30% sentences with transition words (Yoast), no em dashes,
+     one bullet group per section.
    - Use numbered lists for sequential steps and bullets for non-sequential items in the body.
    - Bold only for terms or actions that genuinely need emphasis — maximum 2–3 per section.
      Do not bold entire sentences.
