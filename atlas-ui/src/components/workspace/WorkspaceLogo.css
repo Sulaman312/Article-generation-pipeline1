@@ -1,0 +1,78 @@
+.ws-logo-frame {
+  display: block;
+  flex-shrink: 0;
+  border-radius: 10px;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  background: #fff;
+  padding: 2px;
+  box-sizing: border-box;
+}
+
+.ws-logo-frame--favicon {
+  padding: 3px;
+}
+
+.ws-logo-frame--favicon .ws-logo {
+  object-fit: contain;
+  object-position: center;
+}
+
+.ws-logo {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  object-position: center;
+}
+
+.ws-logo-upload {
+  margin-bottom: 16px;
+}
+
+.ws-logo-upload--compact {
+  margin-bottom: 0;
+}
+
+.ws-logo-upload--compact .manual-article-logo-row {
+  margin-bottom: 0;
+  padding-bottom: 0;
+  border-bottom: none;
+}
+
+.ws-logo-upload--inline {
+  padding: 0 14px 10px 52px;
+  margin-top: -4px;
+  margin-bottom: 4px;
+}
+
+.ws-logo-upload-inline-link {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-muted);
+  cursor: pointer;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.ws-logo-upload-inline-link:hover {
+  color: var(--text);
+}
+
+.ws-logo-upload-inline-error {
+  margin: 4px 0 0;
+  font-size: 12px;
+}
+
+.ws-logo--fallback {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 10px;
+  background: linear-gradient(135deg, #f1f5f9 0%, #e2e8f0 100%);
+  color: var(--text);
+  font-weight: 600;
+  font-size: 13px;
+  letter-spacing: 0.02em;
+  border: 1px solid var(--border);
+}

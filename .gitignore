@@ -1,0 +1,33 @@
+# Node / frontend build output
+node_modules/
+atlas-ui/node_modules/
+atlas-ui/build/
+
+# Environment and secrets
+.env
+.env.*
+!.env.example
+
+# Python virtual environments
+venv/
+.venv/
+env/
+.env/
+backend/venv/
+backend/.venv/
+backend/env/
+backend/.env/
+
+# Local client seed/backup data; production data lives in MongoDB.
+clients/
+
+# Python cache/build artifacts
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Local logs and OS/editor noise
+*.log
+.DS_Store

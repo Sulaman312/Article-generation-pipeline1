@@ -1,0 +1,41 @@
+.delete-workspace-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 7px 12px;
+  border: 1px solid #fecaca;
+  border-radius: 8px;
+  background: #fff;
+  color: var(--error-text);
+  font-size: 13px;
+  font-weight: 500;
+  line-height: 1;
+  cursor: pointer;
+  flex-shrink: 0;
+  transition:
+    background 0.15s,
+    border-color 0.15s,
+    color 0.15s;
+}
+
+.delete-workspace-btn:hover:not(:disabled) {
+  background: var(--error-soft);
+  border-color: #fca5a5;
+  color: #b91c1c;
+}
+
+.delete-workspace-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.delete-workspace-btn-icon {
+  width: 15px;
+  height: 15px;
+  color: var(--error);
+  flex-shrink: 0;
+}
+
+.delete-workspace-btn:hover:not(:disabled) .delete-workspace-btn-icon {
+  color: #dc2626;
+}
