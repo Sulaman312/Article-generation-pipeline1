@@ -135,6 +135,32 @@ class RunStepTests(unittest.TestCase):
         update.assert_called_once()
         self.assertIn("Result: updated", out)
 
+    def test_already_published_item_is_not_updated(self):
+        """PATCH would stage Queued-to-publish changes on a live post — refuse."""
+        with mock.patch.object(webflow, "create_draft_item", return_value="item-1"):
+            content_to_cms.run_content_to_cms("c", "r")
+        with mock.patch.object(webflow, "update_item") as update, mock.patch.object(
+            webflow,
+            "get_item",
+            return_value={"isDraft": False, "lastPublished": "2026-10-23T00:00:00Z"},
+        ):
+            with self.assertRaisesRegex(RuntimeError, "already published"):
+                content_to_cms.run_content_to_cms("c", "r")
+        update.assert_not_called()
+
+    def test_published_with_draft_changes_is_not_updated(self):
+        """Webflow Published + Queued to publish: still refuse so we don't stack edits."""
+        with mock.patch.object(webflow, "create_draft_item", return_value="item-1"):
+            content_to_cms.run_content_to_cms("c", "r")
+        with mock.patch.object(webflow, "update_item") as update, mock.patch.object(
+            webflow,
+            "get_item",
+            return_value={"isDraft": True, "lastPublished": "2026-10-23T00:00:00Z"},
+        ):
+            with self.assertRaisesRegex(RuntimeError, "already published"):
+                content_to_cms.run_content_to_cms("c", "r")
+        update.assert_not_called()
+
     def test_deleted_draft_in_webflow_creates_a_new_one(self):
         with mock.patch.object(webflow, "create_draft_item", return_value="item-1"):
             content_to_cms.run_content_to_cms("c", "r")

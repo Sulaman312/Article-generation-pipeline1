@@ -381,10 +381,15 @@ def run_content_to_cms(client_id: str, run_id: str, previous_artifact: str = "")
     if old_item_id and old_collection_id == collection_id:
         try:
             existing = webflow.get_item(old_item_id, **wf)
-            if existing.get("lastPublished") and not existing.get("isDraft"):
+            # Any prior publish means the live item exists. PATCH-ing fields would
+            # stage "Queued to publish" changes on top of the live post. We never
+            # auto-publish, so refuse and keep the live version untouched.
+            if existing.get("lastPublished"):
                 raise RuntimeError(
-                    "This article is already published in Webflow, so the draft "
-                    "was not changed. Edit it in Webflow instead."
+                    "This article is already published in Webflow. "
+                    "Content to CMS will not overwrite it (that would queue a "
+                    "new draft on top of the live post). Edit or re-publish in "
+                    "Webflow, or create a new article run."
                 )
         except webflow.WebflowError as e:
             if e.status != 404:
