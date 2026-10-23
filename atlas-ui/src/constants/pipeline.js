@@ -70,6 +70,13 @@ export const PIPELINE_STEPS = [
     matrixCol: "FO",
     index: 10,
   },
+  {
+    key: "content_to_cms",
+    label: "Content to CMS",
+    matrixLabel: "Send draft to CMS",
+    matrixCol: "CMS",
+    index: 11,
+  },
 ];
 
 export const PIPELINE_STEP_KEYS = PIPELINE_STEPS.map((s) => s.key);

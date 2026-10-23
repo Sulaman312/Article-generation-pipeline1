@@ -11,4 +11,8 @@ ARTICLE_STEP_ORDER = [
     "fact_check",
     "meta_seo",
     "final_output",
+    "content_to_cms",
 ]
+
+# Steps that run only when a user runs them (never in the automatic full-pipeline loop).
+MANUAL_ONLY_STEPS = frozenset({"content_to_cms"})

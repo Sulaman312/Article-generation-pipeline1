@@ -1,5 +1,6 @@
 """Registered pipeline steps shared by HTTP API (mirrors runner / manifest order)."""
 
+from . import content_to_cms
 from . import steps
 from .pipeline_steps import ARTICLE_STEP_ORDER
 
@@ -14,6 +15,7 @@ STEP_RUNNERS = {
     "fact_check": steps.run_step_6,
     "final_output": steps.run_step_7,
     "meta_seo": steps.run_meta_seo,
+    "content_to_cms": content_to_cms.run_content_to_cms,
 }
 
 STEP_ORDER = list(ARTICLE_STEP_ORDER)

@@ -75,6 +75,20 @@ export default function StepMatrixScreen({
     loadRuns({ silent: false });
   }, [loadRuns]);
 
+  // Mark articles already published in Webflow as Content to CMS done.
+  useEffect(() => {
+    let alive = true;
+    api
+      .syncCmsPublished(client)
+      .then((r) => {
+        if (alive && r?.updated?.length) loadRuns({ silent: true });
+      })
+      .catch(() => {});
+    return () => {
+      alive = false;
+    };
+  }, [client, loadRuns]);
+
   useEffect(() => {
     let timerId = null;
 

@@ -455,6 +455,24 @@ export async function getArtifact(clientId, runId, stepName) {
   return data.content ?? "";
 }
 
+/** Webflow publish status + live link for this run's Content to CMS item (read-only). */
+export async function getCmsStatus(clientId, runId) {
+  return request(
+    `/clients/${encodeURIComponent(clientId)}/runs/${encodeURIComponent(
+      runId
+    )}/cms/status`
+  );
+}
+
+/** Mark articles already published in Webflow as Content to CMS done. */
+export async function syncCmsPublished(clientId, { force = false } = {}) {
+  return request(`/clients/${encodeURIComponent(clientId)}/cms/sync`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ force }),
+  });
+}
+
 /** FAQ + external links (fast). Pass full=true for word-count trim (~1–3 min). */
 export async function repairFinalOutput(clientId, runId, { full = false } = {}) {
   const q = full ? "?full=1" : "";
@@ -568,11 +586,22 @@ export async function runFullPipeline(clientId, topic) {
   });
 }
 
-export async function updateClient(clientId, { display_name }) {
+export async function getClientSettings(clientId) {
+  return request(`/clients/${encodeURIComponent(clientId)}/settings`);
+}
+
+export async function updateClient(
+  clientId,
+  { display_name, live_url_base, cms } = {}
+) {
+  const body = {};
+  if (display_name !== undefined) body.display_name = display_name;
+  if (live_url_base !== undefined) body.live_url_base = live_url_base;
+  if (cms !== undefined) body.cms = cms;
   return request(`/clients/${encodeURIComponent(clientId)}`, {
     method: "PATCH",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ display_name }),
+    body: JSON.stringify(body),
   });
 }
 

@@ -55,6 +55,11 @@ _STEP_UI: dict[str, dict[str, str]] = {
         "matrixLabel": "Ready to publish",
         "matrixCol": "FO",
     },
+    "content_to_cms": {
+        "label": "Content to CMS",
+        "matrixLabel": "Send draft to CMS",
+        "matrixCol": "CMS",
+    },
 }
 
 

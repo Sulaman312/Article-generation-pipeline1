@@ -12,12 +12,52 @@
 }
 
 .ws-edit-modal {
-  width: min(440px, 100%);
+  width: min(560px, 100%);
+  max-height: min(90vh, 900px);
+  overflow: auto;
   background: var(--panel);
   border: 1px solid var(--border);
   border-radius: 14px;
   box-shadow: var(--shadow-lg);
   animation: wsEditModalIn 0.2s cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+.ws-edit-cms {
+  margin: 0;
+  padding: 14px 14px 16px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.ws-edit-cms-legend {
+  padding: 0 4px;
+  font-size: 13px;
+  font-weight: 650;
+  color: var(--text);
+}
+
+.ws-edit-cms-hint {
+  margin: -4px 0 0;
+}
+
+.ws-edit-token-hint {
+  font-weight: 500;
+  color: var(--text-muted);
+}
+
+.ws-edit-cms-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+
+@media (max-width: 520px) {
+  .ws-edit-cms-grid {
+    grid-template-columns: 1fr;
+  }
 }
 
 @keyframes wsEditModalIn {

@@ -30,6 +30,7 @@ import { manualInputsToDisplayFields } from "../../utils/editorialFields";
 import KeyValueStructured from "./KeyValueStructured";
 
 const FinalOutputDocEditor = lazy(() => import("./FinalOutputDocEditor"));
+const CmsPublishPanel = lazy(() => import("./CmsPublishPanel"));
 const MarkdownArtifactPanel = lazy(() =>
   import("../shared/MarkdownArtifactPanel")
 );
@@ -875,13 +876,13 @@ function ArtifactView({
                 setEditing(v);
               }}
               readOnly={readOnly}
-              canEdit={!readOnly}
+              canEdit={!readOnly && stepName !== "content_to_cms"}
               bodyClassName={formattedPreview ? "run-artifact-body--flush" : ""}
               previewNode={formattedPreview}
               savedHint={savedHint}
               footer={editorDock}
               textareaRows={22}
-              showCopy={Boolean(content)}
+              showCopy={Boolean(content) && stepName !== "content_to_cms"}
               copySource={
                 stepName === "final_output"
                   ? copyMarkdownForStep(content, stepName)
@@ -901,6 +902,11 @@ function ArtifactView({
             />
           )}
         </Suspense>
+        {stepName === "content_to_cms" && !readOnly ? (
+          <Suspense fallback={null}>
+            <CmsPublishPanel client={client} runId={runId} toast={toast} />
+          </Suspense>
+        ) : null}
       </div>
     </div>
   );

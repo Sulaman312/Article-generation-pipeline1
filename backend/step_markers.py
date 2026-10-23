@@ -19,6 +19,7 @@ STEP_MARKER_LABELS: dict[str, str] = {
     "fact_check": "FACT CHECK",
     "meta_seo": "META SEO",
     "final_output": "FINAL OUTPUT",
+    "content_to_cms": "CONTENT TO CMS",
 }
 
 # Legacy delimiter labels still accepted when reading older artifacts.
