@@ -1,12 +1,18 @@
 from pathlib import Path
+from urllib.parse import unquote
 
 from flask import Response, jsonify, request, send_from_directory
 
 from backend import artifacts
 from backend import config
+from backend import content_to_cms
 from backend import runner
 from backend.api.blueprint import api_bp
-from backend.api.helpers import list_workspace_dir_names, reject_client
+from backend.api.helpers import list_workspace_dir_names, reject_client, resolve_client_id
+
+_LOGO_CACHE_HEADERS = {
+    "Cache-Control": "public, max-age=31536000, immutable",
+}
 
 
 @api_bp.get("/clients")
@@ -23,10 +29,13 @@ def list_clients():
 
 @api_bp.post("/clients/<client_id>")
 def create_client(client_id: str):
-    bad = reject_client(client_id)
-    if bad:
-        return bad
+    raw_name = unquote(client_id).strip()
+    client_id, err = resolve_client_id(raw_name)
+    if err:
+        return jsonify(detail=err[0]), err[1]
     base = Path(config.CLIENTS_DIR) / client_id
+    if base.exists():
+        return jsonify(detail="A workspace with this name already exists"), 409
     (base / "context").mkdir(parents=True, exist_ok=True)
     (base / "runs").mkdir(parents=True, exist_ok=True)
     body = request.get_json(silent=True) or {}
@@ -39,7 +48,7 @@ def create_client(client_id: str):
             )
         except ValueError as e:
             return jsonify(detail=str(e)), 400
-    display_name = str(body.get("display_name") or client_id).strip() or client_id
+    display_name = str(body.get("display_name") or raw_name).strip() or client_id
     artifacts.write_workspace_meta(client_id, {"display_name": display_name})
     return jsonify(created=client_id, display_name=display_name)
 
@@ -52,7 +61,9 @@ def get_client_logo(client_id: str):
     path = artifacts.client_logo_path(client_id)
     if not path:
         return jsonify(detail="no logo"), 404
-    return send_from_directory(path.parent, path.name)
+    resp = send_from_directory(path.parent, path.name)
+    resp.headers.update(_LOGO_CACHE_HEADERS)
+    return resp
 
 
 @api_bp.put("/clients/<client_id>/logo")
@@ -75,6 +86,61 @@ def put_client_logo(client_id: str):
     except ValueError as e:
         return jsonify(detail=str(e)), 400
     return jsonify(saved=True, filename=stored)
+
+
+@api_bp.get("/clients/<client_id>/settings")
+def get_client_settings(client_id: str):
+    bad = reject_client(client_id)
+    if bad:
+        return bad
+    base = Path(config.CLIENTS_DIR) / client_id
+    if not base.is_dir():
+        return jsonify(detail="client not found"), 404
+    meta = artifacts.read_workspace_meta(client_id)
+    return jsonify(
+        id=client_id,
+        display_name=artifacts.workspace_display_name(client_id),
+        live_url_base=str(meta.get("live_url_base") or "").strip(),
+        cms=content_to_cms.public_cms_settings(client_id),
+    )
+
+
+@api_bp.patch("/clients/<client_id>")
+def patch_client(client_id: str):
+    bad = reject_client(client_id)
+    if bad:
+        return bad
+    base = Path(config.CLIENTS_DIR) / client_id
+    if not base.is_dir():
+        return jsonify(detail="client not found"), 404
+    body = request.get_json(silent=True) or {}
+    if not any(k in body for k in ("display_name", "live_url_base", "cms")):
+        return jsonify(detail="display_name, live_url_base, or cms is required"), 400
+
+    meta = artifacts.read_workspace_meta(client_id)
+
+    if "display_name" in body:
+        display_name = str(body.get("display_name") or "").strip()
+        if not display_name:
+            return jsonify(detail="display_name cannot be empty"), 400
+        meta["display_name"] = display_name
+
+    if "live_url_base" in body:
+        meta["live_url_base"] = str(body.get("live_url_base") or "").strip().rstrip("/")
+
+    if "cms" in body:
+        if body.get("cms") is not None and not isinstance(body.get("cms"), dict):
+            return jsonify(detail="cms must be an object"), 400
+        existing = meta.get("cms") if isinstance(meta.get("cms"), dict) else {}
+        meta["cms"] = content_to_cms.merge_cms_settings(existing, body.get("cms") or {})
+
+    artifacts.write_workspace_meta(client_id, meta)
+    return jsonify(
+        updated=True,
+        display_name=artifacts.workspace_display_name(client_id),
+        live_url_base=str(meta.get("live_url_base") or "").strip(),
+        cms=content_to_cms.public_cms_settings(client_id),
+    )
 
 
 @api_bp.delete("/clients/<client_id>")

@@ -6,11 +6,12 @@ import os
 import re
 import shutil
 import threading
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 
 from . import config
 from . import editorial_input
+from .pipeline_steps import ARTICLE_STEP_ORDER
 
 logger = logging.getLogger(__name__)
 
@@ -20,22 +21,24 @@ def _write_json_atomic(path: Path, payload: dict) -> None:
     temp = path.with_name(f".{path.name}.{threading.get_ident()}.tmp")
     temp.write_text(json.dumps(payload, indent=2), encoding="utf-8")
     os.replace(temp, path)
+    _flush_mongo_path(path)
+
+
+def _flush_mongo_path(path: Path) -> None:
+    try:
+        from . import mongo_storage
+
+        mongo_storage.flush_local_path(path)
+    except Exception:
+        logger.exception("Mongo flush failed for %s", path)
+
 
 ARTIFACTS_INDEX_FILENAME = "artifacts_index.json"
 _MAX_RUN_LOGO_BYTES = 2 * 1024 * 1024
-_RUN_LOGO_EXTS = frozenset({".png", ".jpg", ".jpeg", ".webp", ".gif", ".svg"})
+_RUN_LOGO_EXTS = frozenset({".png", ".jpg", ".jpeg", ".webp", ".gif"})
 
-# Keep a local copy of the legacy/article pipeline order to avoid import cycles.
-_ARTICLE_STEP_ORDER = [
-    "topic_card",
-    "serp_research",
-    "research",
-    "assignment_brief",
-    "outline",
-    "draft",
-    "fact_check",
-    "final_output",
-]
+# Article step order — see `backend/pipeline_steps.py`.
+_ARTICLE_STEP_ORDER = ARTICLE_STEP_ORDER
 
 _BUILTIN_SPECS: list[dict[str, str]] = [
     {
@@ -60,18 +63,13 @@ _BUILTIN_SPECS: list[dict[str, str]] = [
             "- Reading level:\n\n"
             "## Format (pipeline-enforced)\n"
             "Sentence case headings, BLUF under every H2/H3, max 30 words per sentence, "
-            "max 4 sentences per paragraph, no em dashes, 2–3 inline CTAs at H2 breaks.\n\n"
+            "max 4 sentences per paragraph, ≥30% sentences with transition words, "
+            "no em dashes, 2–3 inline CTAs at H2 breaks.\n\n"
             "## Avoid\n"
             "- …\n\n"
             "## Preferred words\n"
             "- …\n"
         ),
-    },
-    {
-        "filename": "image_style.md",
-        "title": "Image style guide",
-        "description": "Client-specific visual rules for AI image prompt generation.",
-        "placeholder": "# Image Style Guide\n",
     },
 ]
 
@@ -117,15 +115,43 @@ def _builtin_specs_by_filename() -> dict[str, dict]:
         row["builtin"] = True
         row["removable"] = False
         out[row["filename"]] = row
+    _CTA_GUIDELINES_PLACEHOLDER = (
+        "# CTA guidelines\n\n"
+        "### 1. CTA Philosophy\n\n"
+        "Invite readers to a conversation, not a hard sell.\n\n"
+        "Primary CTA URL: /contact\n\n"
+        "### HTML CTA Template\n\n"
+        "Paste your workspace HTML/CSS shell below. Use placeholders "
+        "`{{headline}}`, `{{body}}`, `{{button}}`, `{{href}}` — or paste a full "
+        "example block (first h3, p, and button link are replaced per article).\n\n"
+        "```html\n"
+        '<div class="workspace-cta">\n'
+        "  <h3>{{headline}}</h3>\n"
+        "  <p>{{body}}</p>\n"
+        '  <a class="workspace-cta__btn" href="{{href}}">{{button}}</a>\n'
+        "</div>\n"
+        "```\n"
+    )
     for fn in config.pipeline_context_filenames_ordered():
         if fn in out:
             continue
         label = config.CONTEXT_FILE_LABELS.get(fn, fn)
+        placeholder = (
+            _CTA_GUIDELINES_PLACEHOLDER
+            if fn == "cta_guidelines.md"
+            else f"# {label}\n"
+        )
+        description = (
+            "CTA tone, contact URL, and optional HTML embed template "
+            "(shell fixed per workspace; headline/body/button change per article)."
+            if fn == "cta_guidelines.md"
+            else f"Pipeline context — {label}."
+        )
         out[fn] = {
             "filename": fn,
             "title": label,
-            "description": f"Pipeline context — {label}.",
-            "placeholder": f"# {label}\n",
+            "description": description,
+            "placeholder": placeholder,
             "builtin": True,
             "removable": False,
         }
@@ -251,6 +277,7 @@ def write_context_file(client_id: str, filename: str, content: str) -> Path:
     path = _context_file_path(client_id, filename)
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(content, encoding="utf-8")
+    invalidate_context_cache(client_id)
     return path
 
 
@@ -260,6 +287,7 @@ def delete_client_workspace(client_id: str) -> bool:
     if not base.is_dir():
         return False
     shutil.rmtree(base)
+    invalidate_context_cache(client_id)
     return True
 
 
@@ -374,24 +402,83 @@ def set_run_logo_file(client_id: str, run_id: str, logo_file: str) -> None:
     _write_json_atomic(manifest_path, data)
 
 
+_STEP_NAME_RE = re.compile(r"^[a-zA-Z0-9_-]+$")
+
+
+def _validate_step_name(step_name: str) -> str:
+    name = str(step_name or "").strip()
+    if (
+        not name
+        or ".." in name
+        or "/" in name
+        or "\\" in name
+        or not _STEP_NAME_RE.match(name)
+    ):
+        raise ValueError(f"invalid step_name: {step_name!r}")
+    return name
+
+
 def save_artifact(client_id: str, run_id: str, step_name: str, content: str) -> Path:
+    from .step_markers import STEP_MARKER_LABELS, ensure_step_markers
+
+    step_name = _validate_step_name(step_name)
+    from .writing_format_lint import strip_em_dashes
+
+    if step_name == "meta_seo":
+        content = editorial_input.finalize_meta_seo_output(content)
+    else:
+        content, _ = strip_em_dashes(content or "")
+        if step_name in STEP_MARKER_LABELS:
+            content = ensure_step_markers(step_name, content)
     path = get_run_dir(client_id, run_id) / f"{step_name}.md"
     path.write_text(content, encoding="utf-8")
     logger.info("artifact saved %s", path)
+    _flush_mongo_path(path)
     return path
 
 
 def load_artifact(client_id: str, run_id: str, step_name: str) -> str:
+    step_name = _validate_step_name(step_name)
     path = config.CLIENTS_DIR / client_id / "runs" / run_id / f"{step_name}.md"
     if not path.is_file():
         raise FileNotFoundError(
             f"Artifact not found at expected path: {path}"
         )
-    return path.read_text(encoding="utf-8")
+    text = path.read_text(encoding="utf-8")
+    from .writing_format_lint import strip_em_dashes
+
+    cleaned, _ = strip_em_dashes(text)
+    return cleaned
 
 
-def load_context(client_id: str, step_name: str) -> str:
-    filenames = config.STEP_CONTEXT_FILES.get(step_name, [])
+_context_text_cache: dict[tuple[str, str], tuple[int, str]] = {}
+
+
+def invalidate_context_cache(client_id: str | None = None) -> None:
+    """Drop cached context file text (one client or all)."""
+    if client_id is None:
+        _context_text_cache.clear()
+        return
+    doomed = [key for key in _context_text_cache if key[0] == client_id]
+    for key in doomed:
+        _context_text_cache.pop(key, None)
+
+
+def _read_context_file_cached(client_id: str, filename: str, path: Path) -> str | None:
+    if not path.is_file():
+        return None
+    mtime_ns = path.stat().st_mtime_ns
+    key = (client_id, filename)
+    hit = _context_text_cache.get(key)
+    if hit and hit[0] == mtime_ns:
+        return hit[1]
+    text = path.read_text(encoding="utf-8")
+    _context_text_cache[key] = (mtime_ns, text)
+    return text
+
+
+def load_context_files(client_id: str, filenames: list[str] | tuple[str, ...]) -> str:
+    """Load named client context files in the given order (stable for prompt caching)."""
     if not filenames:
         return ""
 
@@ -401,12 +488,18 @@ def load_context(client_id: str, step_name: str) -> str:
     for filename in filenames:
         path = context_root / filename
         header = f"=== {filename} ==="
-        if path.is_file():
-            parts.append(f"{header}\n{path.read_text(encoding='utf-8')}")
+        text = _read_context_file_cached(client_id, filename, path)
+        if text is not None:
+            parts.append(f"{header}\n{text}")
         else:
             parts.append(f"{header} [NOT YET PROVIDED]")
 
     return "\n\n".join(parts)
+
+
+def load_context(client_id: str, step_name: str) -> str:
+    filenames = config.STEP_CONTEXT_FILES.get(step_name, [])
+    return load_context_files(client_id, filenames)
 
 
 def load_context_debug(client_id: str, step_name: str) -> str:
@@ -425,15 +518,52 @@ def load_context_debug(client_id: str, step_name: str) -> str:
 
 
 def _now_iso() -> str:
-    return datetime.now().isoformat(timespec="milliseconds")
+    return _format_iso_utc(datetime.now(timezone.utc))
+
+
+def _format_iso_utc(dt: datetime) -> str:
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    else:
+        dt = dt.astimezone(timezone.utc)
+    return dt.isoformat(timespec="milliseconds").replace("+00:00", "Z")
+
+
+def _epoch_iso(ts: float) -> str:
+    return _format_iso_utc(datetime.fromtimestamp(ts, tz=timezone.utc))
+
+
+def _parse_iso(ts: str) -> datetime:
+    s = str(ts).strip()
+    if s.endswith("Z"):
+        s = s[:-1] + "+00:00"
+    dt = datetime.fromisoformat(s)
+    if dt.tzinfo is None:
+        # Naive timestamps are UTC (never server-local wall clock).
+        dt = dt.replace(tzinfo=timezone.utc)
+    return dt
+
+
+def _normalize_step_timing(entry: dict) -> dict:
+    if not isinstance(entry, dict):
+        return entry
+    out = dict(entry)
+    for key in ("started_at", "finished_at"):
+        raw = out.get(key)
+        if isinstance(raw, str) and raw.strip():
+            try:
+                out[key] = _format_iso_utc(_parse_iso(raw))
+            except ValueError:
+                pass
+    return out
 
 
 def _duration_ms(started_at: str | None, finished_at: str | None) -> int | None:
     if not started_at or not finished_at:
         return None
     try:
-        start = datetime.fromisoformat(started_at)
-        end = datetime.fromisoformat(finished_at)
+        start = _parse_iso(started_at)
+        end = _parse_iso(finished_at)
     except ValueError:
         return None
     delta = int((end - start).total_seconds() * 1000)
@@ -528,8 +658,8 @@ def infer_step_timings_from_artifacts(
             continue
         mtime = path.stat().st_mtime
         duration_ms = max(0, int((mtime - prev_ts) * 1000))
-        finished_at = datetime.fromtimestamp(mtime).isoformat(timespec="milliseconds")
-        started_at = datetime.fromtimestamp(prev_ts).isoformat(timespec="milliseconds")
+        finished_at = _epoch_iso(mtime)
+        started_at = _epoch_iso(prev_ts)
         inferred[name] = {
             "started_at": started_at,
             "finished_at": finished_at,
@@ -550,9 +680,9 @@ def step_timings_for_display(client_id: str, run_id: str, manifest: dict) -> dic
     order = list(statuses.keys()) if isinstance(statuses, dict) and statuses else _ARTICLE_STEP_ORDER
     for name in order:
         if name in recorded:
-            out[name] = recorded[name]
+            out[name] = _normalize_step_timing(recorded[name])
         elif name in inferred:
-            out[name] = inferred[name]
+            out[name] = _normalize_step_timing(inferred[name])
     return out
 
 

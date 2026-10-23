@@ -21,10 +21,7 @@ export default function WorkspaceLogo({
     .toUpperCase();
   const label = formatWorkspaceLabel(clientId);
   const px = typeof size === "number" ? size : 40;
-  const src =
-    cacheKey != null && cacheKey !== 0
-      ? `${clientLogoUrl(clientId)}?v=${encodeURIComponent(String(cacheKey))}`
-      : clientLogoUrl(clientId);
+  const src = clientLogoUrl(clientId, cacheKey);
 
   if (failed) {
     return (

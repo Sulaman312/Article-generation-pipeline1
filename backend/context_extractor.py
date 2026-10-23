@@ -287,6 +287,98 @@ def _cluster_titles(links_text: str) -> list[str]:
     return names[:7]
 
 
+def extract_website_url(client_id: str) -> str:
+    """Live site URL from context.md (Website / Site / Live URL fields)."""
+    context_file = config.CLIENTS_DIR / client_id / "context" / "context.md"
+    text = _read(context_file) or ""
+    if not text:
+        return ""
+    patterns = (
+        r"(?:Website|Site|Live\s*URL|Company\s*URL|Primary\s*URL)\s*[:|]\s*"
+        r"\*?\*?\[?([^\]|\n]+?)\]?(?:\([^\)]+\))?",
+        r"(?:Website|Site|Live\s*URL)\s*\|\s*(https?://[^\s|]+)",
+        r"\b(https?://(?:www\.)?[a-z0-9][-a-z0-9.]*\.[a-z]{2,}[^|\s]*)",
+    )
+    for pat in patterns:
+        m = re.search(pat, text, re.IGNORECASE)
+        if not m:
+            continue
+        url = (m.group(1) or "").strip().rstrip(".,);]")
+        if url.startswith("http://") or url.startswith("https://"):
+            return url.rstrip("/")
+        # Table cell sometimes is markdown [label](url)
+        md = re.search(r"\((https?://[^)]+)\)", m.group(0))
+        if md:
+            return md.group(1).rstrip("/")
+    return ""
+
+
+def _join_site_path(website: str, path: str) -> str:
+    base = (website or "").rstrip("/")
+    p = (path or "").strip()
+    if not p:
+        p = "/contact"
+    if not p.startswith("/"):
+        p = "/" + p
+    p = "/" + p.strip("/")
+    if not base:
+        return p if p.endswith("/") else p + "/"
+    return f"{base}{p}"
+
+
+def extract_cta_href_from_guidelines(cta_text: str) -> str:
+    """Pick an explicit CTA destination from cta_guidelines.md when present."""
+    text = cta_text or ""
+    labeled = re.search(
+        r"(?:CTA\s*(?:URL|Link|Href|Destination)|Primary\s*CTA\s*(?:URL|Link)?)\s*[:|]\s*"
+        r"`?((?:https?://|/)?[^\s`|]+)`?",
+        text,
+        re.IGNORECASE,
+    )
+    if labeled:
+        return labeled.group(1).strip()
+
+    preferred: list[str] = []
+    for m in re.finditer(r"\]\((https?://[^)]+|/[a-z0-9][^)\s]*)\)", text, re.I):
+        href = m.group(1).strip()
+        low = href.lower()
+        if any(
+            tok in low
+            for tok in (
+                "/contact",
+                "book-a-demo",
+                "get-in-touch",
+                "rendez-vous",
+                "book-a-call",
+            )
+        ):
+            preferred.append(href)
+    if preferred:
+        return preferred[0]
+    if re.search(r"/book-a-demo/?", text, re.I):
+        return "/book-a-demo/"
+    if re.search(r"(?<![a-z])/contact(?![a-z])", text, re.I):
+        return "/contact"
+    return ""
+
+
+def resolve_cta_href(client_id: str) -> str:
+    """CTA href from workspace artifacts: guidelines first, else live site + /contact."""
+    context_path = config.CLIENTS_DIR / client_id / "context"
+    cta_text = _read(context_path / "cta_guidelines.md") or ""
+    from_guidelines = extract_cta_href_from_guidelines(cta_text)
+    website = extract_website_url(client_id)
+
+    if from_guidelines:
+        if from_guidelines.startswith("http://") or from_guidelines.startswith("https://"):
+            return from_guidelines.rstrip("/")
+        return _join_site_path(website, from_guidelines)
+
+    if website:
+        return f"{website.rstrip('/')}/contact"
+    return "/contact"
+
+
 def extract_for_step_7(client_id: str) -> dict:
     """Extract context needed for final output/internal linking."""
     context_path = config.CLIENTS_DIR / client_id / "context"
@@ -300,6 +392,7 @@ def extract_for_step_7(client_id: str) -> dict:
         links_text = _read(links_file) or ""
         clusters = _cluster_titles(links_text)
 
+    cta_text = ""
     cta_file = context_path / "cta_guidelines.md"
     if cta_file.is_file():
         cta_text = _read(cta_file) or ""
@@ -315,10 +408,21 @@ def extract_for_step_7(client_id: str) -> dict:
             ex_section = ex_section.split("❌ Phrases to Avoid", 1)[0]
             cta_examples = re.findall(r'"([^"]+)"', ex_section)[:3]
 
+    cta_href = resolve_cta_href(client_id)
+    website = extract_website_url(client_id)
+
+    from .cta_html import extract_cta_html_template
+
+    cta_html_template = extract_cta_html_template(cta_text) or ""
+
     return {
         "clusters": clusters,
         "cta_philosophy": cta_philosophy,
         "cta_examples": cta_examples,
+        "cta_href": cta_href,
+        "website": website,
+        "cta_html_template": cta_html_template,
+        "has_cta_html_template": bool(cta_html_template),
     }
 
 

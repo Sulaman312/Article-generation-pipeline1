@@ -13,12 +13,76 @@
 }
 
 .client-card {
+  position: relative;
   cursor: pointer;
   padding: 18px 18px 16px;
   transition:
     border-color 0.15s,
     box-shadow 0.15s,
     transform 0.12s;
+}
+
+.client-card-menu-wrap {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  z-index: 2;
+}
+
+.client-card-menu-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 18px;
+  line-height: 1;
+  cursor: pointer;
+  transition:
+    background 0.15s,
+    color 0.15s;
+}
+
+.client-card-menu-btn:hover,
+.client-card-menu-btn--open {
+  background: var(--surface-2, #f1f5f9);
+  color: var(--text);
+}
+
+.client-card-menu {
+  position: absolute;
+  top: calc(100% + 4px);
+  right: 0;
+  min-width: 160px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  box-shadow: var(--shadow-md);
+  padding: 4px;
+  animation: fadeIn 0.12s ease;
+}
+
+.client-card-menu-item {
+  display: block;
+  width: 100%;
+  padding: 8px 12px;
+  border: none;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--text);
+  font-size: 13.5px;
+  font-weight: 500;
+  text-align: left;
+  cursor: pointer;
+  transition: background 0.12s;
+}
+
+.client-card-menu-item:hover {
+  background: var(--surface-2, #f1f5f9);
 }
 
 .client-card:hover {

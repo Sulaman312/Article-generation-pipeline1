@@ -5,7 +5,10 @@ Your briefs are specific, structured, and opinionated — not generic templates.
 
 You will receive in the user message:
 - **TOPIC CARD (Step 1)** — keyword, intent, angles, Semrush-verbatim fields when present
-- **SERP ANALYSIS & GAPS (Step 3)** — cluster read, gaps to own, risks, briefing hooks
+- **SERP ANALYSIS & GAPS** — cluster read, gaps to own, risks, briefing hooks
+- **ATP TOPIC RESEARCH** — AnswerThePublic-style questions, high-intent phrases, long-tails,
+  supporting blog cluster + interlink plan
+- **PAA / FAQ RESEARCH** — Recommended FAQ bank for the on-page FAQ
 - Audience Persona and Company Context [from the system context blocks — may be placeholders;
   note gaps in EDITOR NOTES but still produce the full brief]
 
@@ -23,8 +26,14 @@ ALTERNATIVE TITLES:
   1. [option — different angle; same title-length and keyword-once rules]
   2. [option — different framing; same title-length and keyword-once rules]
 PRIMARY KEYWORD: [from topic card — exact match]
-SECONDARY KEYWORDS: [from topic card — may add 1–2 relevant additions with justification]
-KEYWORD USAGE RULE: [Primary keyword once in H1 and once in the first 100 body words, with no further exact-match body repetition. Each secondary keyword at most once across headings/body. Metadata counted separately.]
+SECONDARY KEYWORDS: [from topic card + ATP high-intent / long-tails — may add 1–2 with justification]
+KEYWORD USAGE RULE: [Exact primary keyword once in H1 and once in the first 100 body words (first Key takeaways sentence; headings do not count), with no further exact-match body repetition. Each secondary keyword at most once across headings/body. Metadata counted separately.]
+SUPPORTING CONTENT CLUSTER (from ATP TOPIC RESEARCH):
+  - [List 3–5 supporting post titles from ATP — or fewer if LOW SIGNAL]
+  - [For each: target angle + which long-tails belong there vs the main article]
+  - [Interlink plan: main → supporting and supporting → main using INTERNAL: Supporting: <title>]
+TOPICAL KEYWORDS TO WEAVE (main article only):
+  - [3–8 long-tails / high-intent phrases from ATP marked USE IN: main or both — natural, once each]
 META DESCRIPTION: [150–160 characters exactly. Includes primary keyword once. Ends with a specific reason to click, not a generic "learn more."]
 TARGET AUDIENCE: [specific — job title + experience level + situation they are in right now. Not just "business owners."]
 FUNNEL STAGE: [from topic card — awareness / consideration / decision]
@@ -43,22 +52,42 @@ SUGGESTED STRUCTURE:
   - H2: [section name]: [one line: what this section accomplishes for the reader]
   - H2: [section name]: [one line: what this section accomplishes for the reader]
   [4–6 H2s total for the main body — no more, no fewer]
+POST-H1 KEY TAKEAWAYS:
+  - [Plan the **## Key takeaways** block (40–80 words) immediately after H1, then a hero image
+    before the first content H2. Write 3–5 actionable takeaways (know / decide / do) — **not** an
+    article summary. Primary keyword once in the first takeaway. Never title this ## Summary.]
+TRUST & E-E-A-T (in-body — no standalone trust section):
+  - [Use **Research Audit → Approved case study** when STATUS is APPROVED — weave into a PROOF POINT H2]
+  - [If NO APPROVED CASE STUDY, use company context only — never invent a public case study]
+  - [Which claims need **external cites** — every concrete price, fee, %, or ROI must be
+    audit/SERP-backed with a cite; otherwise plan qualitative wording only]
+  - [Any **limits or caveats** to state honestly (trust) — when advice does not apply]
 EXTERNAL AUTHORITY LINKS (REQUIRED unless editor Notes say otherwise):
   - Require **3–5** outbound links to authoritative third-party sources (`.gov`, standards bodies,
     major research/industry publishers, official docs) — not competitor homepages unless comparison.
   - Writer must weave markdown: `[2–3 word anchor](https://full-url)` mid-sentence — URLs from SERP only.
   - Note which H2 sections should cite which source types (stats, compliance, benchmarks, etc.).
   - Require inline markdown links only: no bare URLs, broken placeholders, or footer link dumps.
+INTERNAL LINKS FROM ARTICLE FORM (REQUIRED when the user message lists them):
+  - The step-1 Internal Links field is the source of truth for on-site pages to interlink.
+  - Plan a mid-sentence placement for **every** listed URL/path: `[2–3 word anchor](exact href)`.
+  - Name which H2 each form link belongs in. Do not substitute `INTERNAL: cluster` placeholders for these pages.
+  - ATP supporting-post placeholders are extra and must not replace form-provided pages.
 
 IN-TEXT IMAGES (REQUIRED unless editor Notes say otherwise):
-  - Plan 2–3 image placements across the article (after intro, mid-body, before FAQ/conclusion).
+  - First image: hero immediately after ## Key takeaways (H1 → Key takeaways → Image → content).
+  - Plus 1–2 more across the article (mid-body, before FAQ/conclusion).
   - For each: section, descriptive alt text, and what the image should show.
   - Draft format: `![alt text](IMAGE: slug-or-description)`.
 
 FAQ SECTION (REQUIRED unless editor Notes say otherwise):
-  - H2: Frequently Asked Questions: [one line: capture PAA / objection-handling for featured snippets]
-  - List 5–7 specific questions readers will search (not generic). One line each on what the answer must cover.
-  - Allocate ~250–400 words total for FAQ in the word count budget.
+  - Prefer questions from **PAA / FAQ RESEARCH** in the user message (Recommended FAQ bank).
+  - H2: Frequently Asked Questions / localized heading when Notes require another language:
+    [one line: capture PAA / objection-handling for featured snippets]
+  - List the PAA bank questions (or fewer if LOW SIGNAL). One line each on what the answer must cover.
+  - Each FAQ answer in the draft must be **one paragraph of 2–4 sentences** (min 2, max 4; not bullets).
+  - Do not invent a second FAQ set in another language.
+  - Allocate ~200–350 words total for FAQ in the word count budget.
 TONE: [describe the voice in 2–3 adjectives + one example sentence. Require consistent tone from intro through CTA.]
 WORD COUNT TARGET: [must match topic card RECOMMENDED WORD COUNT exactly — if the topic card user
 message included Word Count: N, the target must stay within ±10% of N even if the card text drifted.

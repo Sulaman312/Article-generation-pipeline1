@@ -8,6 +8,7 @@ export default function ArtifactFormattedPreview({
   structured = null,
   content = "",
   showFullSource = true,
+  stepKey = null,
 }) {
   const hasStructured = Boolean(structured);
   const hasContent = Boolean(String(content || "").trim());
@@ -17,7 +18,13 @@ export default function ArtifactFormattedPreview({
   }
 
   if (!hasStructured) {
-    return <Markdown text={content} className={PIPELINE_MARKDOWN_CLASS} />;
+    return (
+      <Markdown
+        text={content}
+        className={PIPELINE_MARKDOWN_CLASS}
+        stepKey={stepKey}
+      />
+    );
   }
 
   return (
@@ -26,7 +33,11 @@ export default function ArtifactFormattedPreview({
       {showFullSource && hasContent ? (
         <section className="artifact-formatted-source" aria-label="Full artifact">
           <div className="artifact-formatted-source-label">Full artifact</div>
-          <Markdown text={content} className={PIPELINE_MARKDOWN_CLASS} />
+          <Markdown
+            text={content}
+            className={PIPELINE_MARKDOWN_CLASS}
+            stepKey={stepKey}
+          />
         </section>
       ) : null}
     </div>

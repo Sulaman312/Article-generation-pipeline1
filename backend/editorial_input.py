@@ -26,6 +26,7 @@ FIELD_LABELS: tuple[str, ...] = (
     "Internal Links",
     "Include FAQ",
     "Include External Links",
+    "Keyword Data",
     "Notes",
 )
 
@@ -41,9 +42,17 @@ _KEY_TO_LABEL: dict[str, str] = {
     "internal_links": "Internal Links",
     "include_faq": "Include FAQ",
     "include_external_links": "Include External Links",
+    "keyword_data": "Keyword Data",
+    "atp_data": "Keyword Data",
     "notes": "Notes",
     "semrush_notes": "Semrush / keyword research",
 }
+
+_LONG_FIELD_LABELS = frozenset(
+    {"Keyword Data", "Semrush / keyword research", "Notes", "Internal Links"}
+)
+_LONG_FIELD_MAX = 50_000
+_DEFAULT_FIELD_MAX = 4_000
 
 
 def sanitize_manual_inputs(raw: dict | None) -> dict[str, str] | None:
@@ -58,7 +67,8 @@ def sanitize_manual_inputs(raw: dict | None) -> dict[str, str] | None:
             continue
         text = str(val).strip()
         if text:
-            out[label] = text[:4000]
+            limit = _LONG_FIELD_MAX if label in _LONG_FIELD_LABELS else _DEFAULT_FIELD_MAX
+            out[label] = text[:limit]
     return out or None
 
 
@@ -112,6 +122,154 @@ def count_article_words(text: str) -> int:
     return len(tokens)
 
 
+_OUTLINE_H2_BLOCK = re.compile(
+    r"^H2:\s*(.+?)\s*$\n(?:.*?\n)*?^[ \t]*WORD COUNT:\s*(\d+)(?:\s*[–-]\s*(\d+))?",
+    re.MULTILINE | re.IGNORECASE,
+)
+
+
+def parse_outline_section_budgets(outline: str) -> list[tuple[str, int]]:
+    """Return (H2 title, target words) from outline WORD COUNT lines."""
+    out: list[tuple[str, int]] = []
+    for m in _OUTLINE_H2_BLOCK.finditer(outline or ""):
+        title = m.group(1).strip()
+        lo = int(m.group(2))
+        hi = int(m.group(3)) if m.group(3) else lo
+        mid = max(40, (lo + hi) // 2)
+        out.append((title, mid))
+    return out
+
+
+def draft_section_budget_guidance(outline: str, target: int) -> str:
+    """Instruct the drafter to hit per-H2 budgets that sum near the form target."""
+    low, high = word_count_bounds(target)
+    budgets = parse_outline_section_budgets(outline)
+    lines = [
+        "\n\n=== SECTION WORD BUDGETS (WRITE TO THESE — DO NOT OVERSHOOT) ===\n",
+        f"Total body prose (FAQ excluded) must land in **{low:,}–{high:,}** words ",
+        f"(form target **{target:,}**).\n",
+        "Write each H2 section to roughly the budget below. Prefer slightly under on each ",
+        "section over blowing past the total max.\n",
+    ]
+    if budgets:
+        for title, words in budgets:
+            lines.append(f"- H2 «{title}»: ~{words:,} words of body prose\n")
+        planned = sum(w for _, w in budgets)
+        lines.append(
+            f"Outline section budgets sum to ~{planned:,} words "
+            f"(adjust slightly so the full body stays ≤ {high:,}).\n"
+        )
+    else:
+        lines.append(
+            "Outline has no per-H2 WORD COUNT lines — estimate even section lengths "
+            f"so the full body stays in {low:,}–{high:,}.\n"
+        )
+    lines.append(
+        "FAQ (## Frequently Asked Questions / Questions fréquentes) is EXTRA and "
+        "does not count toward this budget.\n"
+    )
+    return "".join(lines)
+
+
+def split_article_h2_sections(markdown: str) -> list[dict]:
+    """Split article into preamble + H2 sections for structure-preserving edits."""
+    text = (markdown or "").replace("\r\n", "\n")
+    if not text.strip():
+        return []
+    lines = text.split("\n")
+    sections: list[dict] = []
+    buf: list[str] = []
+    heading = ""
+
+    def flush() -> None:
+        nonlocal buf, heading
+        body = "\n".join(buf).strip("\n")
+        raw = (heading + ("\n" + body if body else "")).strip()
+        if not raw and not heading:
+            buf = []
+            return
+        is_faq = bool(heading and faq_schema._FAQ_HEADING.match(heading.strip()))
+        words = 0 if is_faq else count_article_words(body if body else raw)
+        sections.append(
+            {
+                "heading": heading,
+                "body": body,
+                "is_faq": is_faq,
+                "words": words,
+            }
+        )
+        buf = []
+
+    for line in lines:
+        if line.startswith("## ") and not line.startswith("### "):
+            flush()
+            heading = line
+            continue
+        buf.append(line)
+    flush()
+    return sections
+
+
+def reassemble_h2_sections(sections: list[dict]) -> str:
+    parts: list[str] = []
+    for sec in sections:
+        heading = (sec.get("heading") or "").rstrip()
+        body = (sec.get("body") or "").strip("\n")
+        if heading and body:
+            parts.append(f"{heading}\n{body}")
+        elif heading:
+            parts.append(heading)
+        elif body:
+            parts.append(body)
+    return "\n\n".join(parts).strip() + "\n"
+
+
+def allocate_section_word_caps(
+    sections: list[dict],
+    target: int,
+    *,
+    outline: str = "",
+) -> list[int]:
+    """Per-section body word caps totaling ≤ high; FAQ sections get 0 (ignored)."""
+    _low, high = word_count_bounds(target)
+    budgets = parse_outline_section_budgets(outline)
+    non_faq = [i for i, s in enumerate(sections) if not s.get("is_faq")]
+    caps = [0] * len(sections)
+    if not non_faq:
+        return caps
+
+    used_budget: set[int] = set()
+    outline_caps: dict[int, int] = {}
+    for i in non_faq:
+        heading = re.sub(r"^##\s+", "", sections[i].get("heading") or "").strip()
+        if not heading:
+            continue
+        for bi, (title, words) in enumerate(budgets):
+            if bi in used_budget:
+                continue
+            if title.lower() in heading.lower() or heading.lower() in title.lower():
+                outline_caps[i] = words
+                used_budget.add(bi)
+                break
+
+    if len(outline_caps) >= max(1, len(non_faq) // 2):
+        for i in non_faq:
+            caps[i] = outline_caps.get(
+                i, max(60, high // max(1, len(non_faq)))
+            )
+    else:
+        total_words = sum(max(1, sections[i]["words"]) for i in non_faq) or 1
+        for i in non_faq:
+            share = sections[i]["words"] / total_words
+            caps[i] = max(60, int(high * share))
+
+    sum_caps = sum(caps[i] for i in non_faq) or 1
+    scale = (high * 0.98) / sum_caps
+    for i in non_faq:
+        caps[i] = max(50, int(caps[i] * scale))
+    return caps
+
+
 def word_count_target_from_manifest(manifest: dict | None) -> int | None:
     """Resolve numeric target from manifest (stored field or manual_inputs)."""
     if not isinstance(manifest, dict):
@@ -153,16 +311,84 @@ def should_include_faq(fields: dict | None) -> bool:
     return raw not in ("no", "false", "0", "skip", "off", "n")
 
 
-def faq_editorial_notice() -> str:
+_FAQ_HEADING_BY_LANG: dict[str, str] = {
+    "en": "## Frequently Asked Questions",
+    "fr": "## Questions fréquentes",
+    "de": "## Häufig gestellte Fragen",
+    "es": "## Preguntas frecuentes",
+    "it": "## Domande frequenti",
+}
+
+_KEY_TAKEAWAYS_HEADING_BY_LANG: dict[str, str] = {
+    "en": "## Key takeaways",
+    "fr": "## À retenir",
+    "de": "## Wichtige Punkte",
+    "es": "## Puntos clave",
+    "it": "## Punti chiave",
+}
+
+_LANGUAGE_LABELS: dict[str, str] = {
+    "en": "English",
+    "fr": "French",
+    "de": "German",
+    "es": "Spanish",
+    "it": "Italian",
+}
+
+
+def article_language_from_manual(manual: dict | None) -> str:
+    """Infer article language from Notes / Topic (defaults to English)."""
+    notes = notes_from_manual(manual).lower()
+    topic = ""
+    if isinstance(manual, dict):
+        topic = (manual.get("Topic") or manual.get("topic") or "").lower()
+    combined = f"{notes} {topic}"
+    if re.search(
+        r"\b(french|français|en français|in french|rédig(?:er|e|é)\s+en\s+français)\b",
+        combined,
+        re.I,
+    ):
+        return "fr"
+    if re.search(r"\b(german|deutsch|auf deutsch|in german)\b", combined, re.I):
+        return "de"
+    if re.search(r"\b(spanish|español|en español|in spanish)\b", combined, re.I):
+        return "es"
+    if re.search(r"\b(italian|italiano|in italian)\b", combined, re.I):
+        return "it"
+    return "en"
+
+
+def language_label_for_code(lang: str) -> str:
+    return _LANGUAGE_LABELS.get((lang or "en").lower(), "English")
+
+
+def faq_heading_for_language(lang: str) -> str:
+    return _FAQ_HEADING_BY_LANG.get((lang or "en").lower(), _FAQ_HEADING_BY_LANG["en"])
+
+
+def key_takeaways_heading_for_language(lang: str) -> str:
+    return _KEY_TAKEAWAYS_HEADING_BY_LANG.get(
+        (lang or "en").lower(), _KEY_TAKEAWAYS_HEADING_BY_LANG["en"]
+    )
+
+
+def faq_editorial_notice(manual: dict | None = None) -> str:
+    lang = article_language_from_manual(manual)
+    heading = faq_heading_for_language(lang)
+    language_label = _LANGUAGE_LABELS.get(lang, "English")
     return (
         "\n\n=== FAQ SECTION (REQUIRED FOR SEO) ===\n"
-        "Include a **Frequently Asked Questions** block in the outline and draft.\n"
+        f"Include **one** FAQ block in the outline and draft — written entirely in **{language_label}**.\n"
         "- Placement: after the main body sections, **before** the conclusion/CTA.\n"
-        "- Format: H2 `## Frequently Asked Questions` then 5–7 items.\n"
-        "- Each item: `### Question here?` then a direct 2–4 sentence answer (40–80 words each).\n"
-        "- Questions must match real searcher intent (cost, timeline, compliance, how-to, vs alternatives).\n"
-        "- Pull questions from SERP gaps, PAA-style queries, and the topic card — not generic filler.\n"
-        "- FAQ does **not** count toward the form Word Count (body prose only).\n"
+        f"- Format: H2 `{heading}` then items from the **PAA / FAQ RESEARCH** Recommended FAQ bank.\n"
+        "- Prefer bank question wording; do **not** invent a second FAQ block in another language.\n"
+        "- If the PAA bank says LOW SIGNAL or KEYWORD DATA SHOWS LOW/NO DEMAND, use fewer questions — do not pad.\n"
+        "- Each item: `### Question here?` then one normal paragraph of **2–4 sentences** "
+        "(minimum 2, maximum 4; about 70 words max). Do not use bullets, numbered lists, "
+        "or one sentence per line. Never append SOURCE SIGNAL / CITATION notes to the H3.\n"
+        "- Do not invent brands, products, or prices without a cited source.\n"
+        "- FAQ does **not** count toward the form Word Count. Hit the target in the article "
+        "body sections only. Never pad FAQ to make length.\n"
     )
 
 
@@ -208,15 +434,57 @@ def notes_editorial_notice(manual: dict | None) -> str:
     )
 
 
-def seo_readability_notice() -> str:
+def seo_readability_notice(lang: str | None = None) -> str:
     """Shared SEO/readability rules injected from brief through final output."""
+    from . import yoast_transitions
+
+    code = (lang or "en").lower()
+    if code == "fr":
+        transition_line = (
+            "- **Mots de transition (Yoast FR — non-négociable):** au moins **30%** des "
+            "phrases du corps doivent contenir un connecteur **reconnu par Yoast**. "
+            f"Exemples sûrs: {yoast_transitions.prompt_examples('fr')}. "
+            'N\'utilisez **pas** « de plus » (Yoast FR ne le compte pas) — préférez '
+            "« en outre » ou « en plus ». Quand vous coupez une idée longue en phrases "
+            "courtes, commencez les phrases suivantes par un connecteur — pas d'empilement "
+            "de phrases sèches sans lien logique.\n"
+        )
+    else:
+        transition_line = (
+            "- **Transition words (Yoast/readability):** at least **30%** of body sentences "
+            "must include a Yoast-recognized transition word "
+            f"({yoast_transitions.prompt_examples('en')}). Prefer short connectors at "
+            "sentence starts when splitting long ideas — do not leave choppy unlinked "
+            "sentence stacks.\n"
+        )
+    takeaways_h2 = key_takeaways_heading_for_language(code)
+    faq_h2 = faq_heading_for_language(code)
+    opening_line = (
+        f"- **Opening:** `# H1` → `{takeaways_h2}` (40–80 words; **3–5 bullets required**, "
+        "actionable takeaways — not an article summary) → hero `![alt](IMAGE: …)` → "
+        "first content H2. Do **not** use `## Summary`.\n"
+    )
+    if code == "fr":
+        opening_line += (
+            "- **Language consistency (French articles):** structural H2s must be French — "
+            f"use `{takeaways_h2}` (not `## Key takeaways`) and `{faq_h2}` "
+            "(not `## Frequently Asked Questions`). Body prose stays in French.\n"
+        )
     return (
         "\n\n=== SEO & READABILITY RULES (NON-NEGOTIABLE) ===\n"
         "- **H1 title:** maximum **60 characters**, **5-12 words**, with the primary keyword "
         "once (exact or near-exact).\n"
-        "- **Body keyword use:** use the primary keyword once in the first 100 body words and "
+        f"{opening_line}"
+        "- **Body keyword use:** use the exact primary keyword once in the first 100 body words, "
+        f"in the first sentence of `{takeaways_h2}` (usually the first bullet). "
+        "Headings do not count and a synonym does not count; "
         "do not repeat that exact phrase elsewhere in body prose. Use each secondary keyword "
         "at most once across headings and body prose. Metadata is counted separately.\n"
+        "- **E-E-A-T (in-body):** proof points where planned, 3–5 credible external links, honest limits — "
+        "never a standalone \"Why trust us\" section; **prices and numbers must be real and cited** "
+        "(inline HTTPS in the same paragraph) or generalized without inventing figures.\n"
+        "- **FAQ answers:** each answer is one normal paragraph of **2–4 sentences** "
+        "(minimum 2, maximum 4; about 70 words). No bullets or one-sentence-per-line formatting.\n"
         "- **Length:** honor the form Word Count target. When competitors are lean, write toward "
         "the lower end of the allowed range by cutting filler, not useful detail.\n"
         "- **Links:** weave 3-5 working external authority links and 2-4 internal cluster links "
@@ -225,6 +493,7 @@ def seo_readability_notice() -> str:
         "`![descriptive alt text](IMAGE: slug-or-description)`.\n"
         "- **Tone:** keep brand voice, formality, perspective, and energy consistent from the "
         "introduction through the CTA.\n"
+        f"{transition_line}"
     )
 
 
@@ -247,12 +516,25 @@ def outline_format_guidelines_notice() -> str:
     )
 
 
-def cta_format_guidelines_notice() -> str:
+def cta_format_guidelines_notice(
+    cta_href: str | None = None, *, has_html_template: bool = False
+) -> str:
     """Final-output CTA reminder (enforced by lint + repair)."""
+    href = (cta_href or "").strip() or writing_format_lint.DEFAULT_CTA_HREF
+    html_line = (
+        "This workspace has an HTML CTA template — still output markdown CTAs "
+        "(bold + description + link); the pipeline converts them to the workspace "
+        "HTML shell afterward (copy changes per article; href stays fixed).\n"
+        if has_html_template
+        else ""
+    )
     return (
         "\n\n=== CTA PLACEMENT CHECKLIST ===\n"
         "2–3 inline CTAs at H2 section breaks; each CTA: bold heading, description, "
-        f"markdown link on separate lines; demo slug `{writing_format_lint.DEMO_CTA_SLUG}` only. "
+        f"markdown link on separate lines. Use this project CTA URL exactly: `{href}` "
+        "(from workspace CTA guidelines / live site + `/contact`). "
+        "Never use `/demo`, `/request-demo`, or a different client's demo slug. "
+        f"{html_line}"
         "Violations are auto-checked after generation.\n"
     )
 
@@ -270,18 +552,220 @@ def external_links_editorial_notice() -> str:
         "- Place links where you cite stats, regulations, market data, or \"according to …\" claims.\n"
         "- Do **not** link to direct competitors' sales pages unless the article is explicitly "
         "a comparison piece.\n"
-        "- Internal cluster links: `[2–3 words](INTERNAL: cluster name)` inline in prose.\n"
+        "- Form-provided site pages (Internal Links field) are **separate** and mandatory when listed.\n"
+        "- Extra cluster placeholders: `[2–3 words](INTERNAL: cluster name)` only after form links are placed.\n"
         "- External links: `[2–3 words](https://…)` inline in prose — not end-of-paragraph citations.\n"
     )
+
+
+_MD_INTERNAL_LINK = re.compile(
+    r"\[([^\]]{1,120})\]\((https?://[^)\s]+|/[^)\s]+)\)",
+    re.IGNORECASE,
+)
+_BARE_INTERNAL_URL = re.compile(r"https?://[^\s\]\)\>\"',]+", re.IGNORECASE)
+_BARE_INTERNAL_PATH = re.compile(r"^(/[A-Za-z0-9._~:/?#\[\]@!$&'()*+,;=%-]+)$")
+_FORM_INTERNAL_LINK_MAX = 8
+
+
+def internal_links_raw_from_manual(manual: dict | None) -> str:
+    if not isinstance(manual, dict):
+        return ""
+    return (
+        manual.get("Internal Links") or manual.get("internal_links") or ""
+    ).strip()
+
+
+def _clean_internal_href(href: str) -> str:
+    return (href or "").strip().rstrip(".,);\"'")
+
+
+def _title_from_internal_chunk(chunk: str, href: str) -> str:
+    leftover = chunk
+    if href:
+        leftover = leftover.replace(href, " ")
+    leftover = re.sub(r"[\[\]\(\)]", " ", leftover)
+    leftover = re.sub(r"\s*[–—\-:|]+\s*$", "", leftover.strip(" \t-–—:|"))
+    leftover = re.sub(r"\s+", " ", leftover).strip(" \t-–—:|")
+    if leftover:
+        return leftover[:80]
+    path = re.sub(r"^https?://", "", href, flags=re.I).rstrip("/")
+    slug = path.rsplit("/", 1)[-1] if path else ""
+    slug = slug.replace("-", " ").replace("_", " ").strip()
+    return slug[:80] or "this page"
+
+
+def parse_form_internal_links(manual: dict | None) -> list[dict[str, str]]:
+    """Parse the article-form Internal Links field into title + href rows."""
+    raw = internal_links_raw_from_manual(manual)
+    if not raw:
+        return []
+
+    items: list[dict[str, str]] = []
+    seen: set[str] = set()
+
+    def _add(title: str, href: str, kind: str) -> None:
+        href = _clean_internal_href(href)
+        title = re.sub(r"\s+", " ", (title or "").strip())[:80]
+        key = (href or title).lower()
+        if not key or key in seen:
+            return
+        if href.startswith("http://") or href.startswith("https://"):
+            kind = "url"
+        elif href.startswith("/"):
+            kind = "path"
+        elif not href:
+            kind = "label"
+        else:
+            return
+        seen.add(key)
+        items.append(
+            {
+                "title": title or _title_from_internal_chunk(href, href),
+                "href": href,
+                "kind": kind,
+            }
+        )
+
+    for line in re.split(r"[\n;]+", raw):
+        piece = re.sub(r"^[\s>*\-•\d.)]+", "", line).strip()
+        if not piece:
+            continue
+        md_hits = list(_MD_INTERNAL_LINK.finditer(piece))
+        if md_hits:
+            for m in md_hits:
+                _add(m.group(1), m.group(2), "url")
+            piece = _MD_INTERNAL_LINK.sub(" ", piece).strip()
+            if not piece:
+                continue
+        urls = [_clean_internal_href(u) for u in _BARE_INTERNAL_URL.findall(piece)]
+        if len(urls) > 1:
+            for url in urls:
+                _add(_title_from_internal_chunk(piece, url), url, "url")
+            continue
+        if urls:
+            href = urls[0]
+            _add(_title_from_internal_chunk(piece, href), href, "url")
+            continue
+        first = piece.split()[0] if piece.split() else ""
+        path_m = _BARE_INTERNAL_PATH.match(first)
+        if path_m:
+            href = path_m.group(1)
+            rest = piece[len(href) :].strip(" \t-–—:|")
+            _add(rest or _title_from_internal_chunk(piece, href), href, "path")
+            continue
+        if len(piece) >= 3:
+            _add(piece[:80], "", "label")
+
+    return items[:_FORM_INTERNAL_LINK_MAX]
+
+
+def form_internal_link_href(item: dict[str, str] | None) -> str:
+    if not isinstance(item, dict):
+        return ""
+    href = (item.get("href") or "").strip()
+    if href:
+        return href
+    title = (item.get("title") or "").strip()
+    return f"INTERNAL: {title}" if title else ""
+
+
+def format_form_internal_links_line(links: list[dict[str, str]]) -> str:
+    parts: list[str] = []
+    for item in links:
+        title = (item.get("title") or "").strip()
+        href = (item.get("href") or "").strip()
+        if title and href:
+            parts.append(f"{title}: {href}")
+        elif href:
+            parts.append(href)
+        elif title:
+            parts.append(title)
+    return "; ".join(parts)
+
+
+def article_has_form_internal_href(article: str, href: str) -> bool:
+    """True when the article already links to this form-provided href."""
+    target = _clean_internal_href(href)
+    if not target or not article:
+        return False
+    hay = article.lower()
+    variants = {target.lower(), target.lower().rstrip("/")}
+    variants.add(target.lower().rstrip("/") + "/")
+    for variant in variants:
+        if not variant:
+            continue
+        if f"]({variant})" in hay:
+            return True
+    return False
+
+
+def missing_form_internal_links(
+    article: str, links: list[dict[str, str]] | None
+) -> list[dict[str, str]]:
+    missing: list[dict[str, str]] = []
+    for item in links or []:
+        href = (item.get("href") or "").strip()
+        if not href:
+            continue
+        if not article_has_form_internal_href(article, href):
+            missing.append(item)
+    return missing
+
+
+def apply_manual_internal_links_topic_card(
+    text: str, fields: dict[str, str] | None
+) -> str:
+    """Keep form Internal Links on the topic card so later steps cannot drop them."""
+    links = parse_form_internal_links(fields)
+    if not text or not links:
+        return text
+    line = format_form_internal_links_line(links)
+    if not line:
+        return text
+    return _replace_delimited_line(
+        text,
+        start_marker=TOPIC_CARD_START,
+        end_marker=TOPIC_CARD_END,
+        line_prefix="INTERNAL LINKS:",
+        new_line=f"INTERNAL LINKS: {line}",
+    )
+
+
+def internal_links_editorial_notice(manual: dict | None) -> str:
+    """Mandatory placement brief for Internal Links entered on the article form."""
+    links = parse_form_internal_links(manual)
+    if not links:
+        return ""
+    lines = [
+        "\n\n=== INTERNAL LINKS FROM ARTICLE FORM (MANDATORY — PLACE WHILE WRITING) ===\n",
+        "The editor listed these site pages in step 1. Weave them into the article "
+        "body as natural mid-sentence markdown links **while drafting** — do not wait "
+        "for final output, and do not replace them with generic cluster placeholders.\n",
+        "Rules:\n",
+        "- Use the **exact** URL or path below. Do not invent a different page.\n",
+        "- Anchor text: 2–3 words that fit the sentence (the page title is a hint, not required verbatim).\n",
+        "- Place each link where that page is the natural next step for the reader.\n",
+        "- Spread links across different H2 sections. Never dump them as a footer list.\n",
+        "- ATP `INTERNAL: Supporting:` placeholders are extra and must not replace these pages.\n",
+        "Required links:\n",
+    ]
+    for i, item in enumerate(links, start=1):
+        href = form_internal_link_href(item)
+        title = item.get("title") or "this page"
+        lines.append(f"{i}. {title} → `{href}`  — write: `[{title[:40]}]({href})`\n")
+    return "".join(lines)
 
 
 def draft_word_count_requirement(target: int) -> str:
     low, high = word_count_bounds(target)
     return (
-        f"\n\n=== DRAFT LENGTH (NON-NEGOTIABLE) ===\n"
+        f"\n\n=== DRAFT LENGTH (NON-NEGOTIABLE — ENFORCED AT GENERATION) ===\n"
         f"Editor form Word Count: **{target:,}**.\n"
-        f"Write at least **{low:,}** words of body prose; aim for **{target:,}** "
-        f"(max **{high:,}**). FAQ is additional and does not count. Short body drafts are invalid.\n"
+        f"Body prose MUST land in **{low:,}–{high:,}** words (FAQ excluded).\n"
+        f"Aim for **{target:,}**. Going above **{high:,}** is invalid.\n"
+        f"Complete this length in the article H2 sections. FAQ answers stay 2-4 sentence "
+        f"paragraphs and do not count toward the total.\n"
+        f"Hit the length while writing. Do not plan to 'fix later' by deleting sections.\n"
     )
 
 
@@ -617,6 +1101,383 @@ def _parse_topic_card_field_map(text: str) -> dict[str, str]:
         elif current_key and line.strip():
             fields[current_key] = f"{fields[current_key]}\n{line.strip()}".strip()
     return fields
+
+
+META_SEO_START = "---META SEO START---"
+META_SEO_END = "---META SEO END---"
+_DELIMITED_KEY_LINE = re.compile(r"^([A-Z][A-Z0-9 \-]+):\s*(.*)$")
+
+
+def _parse_delimited_field_map(
+    text: str,
+    *,
+    start_marker: str,
+    end_marker: str,
+) -> dict[str, str]:
+    """Parse a delimited block body into uppercase keys → values."""
+    if not (text or "").strip():
+        return {}
+    start = text.find(start_marker)
+    end = text.find(end_marker)
+    if start == -1 or end == -1 or end <= start:
+        return {}
+    body = text[start + len(start_marker) : end].strip()
+    fields: dict[str, str] = {}
+    current_key: str | None = None
+    for line in body.splitlines():
+        m = _DELIMITED_KEY_LINE.match(line)
+        if m:
+            current_key = m.group(1).strip().upper()
+            fields[current_key] = m.group(2).strip()
+        elif current_key and line.strip():
+            fields[current_key] = f"{fields[current_key]}\n{line.strip()}".strip()
+    return fields
+
+
+def _normalize_page_type(raw: str) -> str:
+    text = (raw or "").strip().lower()
+    if not text:
+        return "blog page"
+    if "page" in text:
+        return text
+    if text in ("blog", "article", "guide", "how-to", "how to", "listicle"):
+        return f"{text} page" if text != "article" else "blog page"
+    return f"{text} page"
+
+
+def _first_nonempty(*values: str | None) -> str:
+    for v in values:
+        t = (v or "").strip()
+        if t and not (t.startswith("[") and t.endswith("]")):
+            return t
+    return ""
+
+
+def _trim_content_description(text: str, *, limit: int = 240) -> str:
+    t = re.sub(r"\s+", " ", (text or "").strip())
+    if len(t) <= limit:
+        return t
+    cut = t[:limit].rsplit(" ", 1)[0]
+    return (cut or t[:limit]).strip().rstrip(",.;:")
+
+
+def build_meta_seo_context(
+    *,
+    topic_card: str = "",
+    assignment_brief: str = "",
+    article_source: str = "",
+    final_output: str = "",
+    manual: dict | None = None,
+) -> dict[str, str]:
+    """Build placeholders for meta title / description generation prompts."""
+    source = (article_source or final_output or "").strip()
+    tc = _parse_topic_card_field_map(topic_card)
+    brief = _parse_delimited_field_map(
+        assignment_brief,
+        start_marker="---BRIEF START---",
+        end_marker="---BRIEF END---",
+    )
+    pub = _parse_delimited_field_map(
+        source,
+        start_marker="---PUBLISHING METADATA START---",
+        end_marker="---PUBLISHING METADATA END---",
+    )
+
+    article_h1 = ""
+    if source:
+        from . import faq_schema
+
+        body = faq_schema.extract_corrected_article_body(source) or source
+        h1 = re.search(r"^#\s+(.+)$", body, re.MULTILINE)
+        if h1:
+            article_h1 = h1.group(1).strip()
+
+    manual_seed = ""
+    manual_topic = ""
+    if isinstance(manual, dict):
+        manual_seed = (manual.get("Seed Keyword") or manual.get("seed_keyword") or "").strip()
+        manual_topic = (manual.get("Topic") or manual.get("topic") or "").strip()
+
+    keyword = _first_nonempty(
+        tc.get("PRIMARY KEYWORD"),
+        brief.get("PRIMARY KEYWORD"),
+        pub.get("PRIMARY KEYWORD"),
+        tc.get("SEED KEYWORD"),
+        manual_seed,
+    )
+    if not keyword:
+        keyword = "your target keyword"
+
+    page_type = _normalize_page_type(
+        _first_nonempty(tc.get("CONTENT TYPE"), tc.get("SEARCH INTENT"), "blog")
+    )
+
+    content_description = _trim_content_description(
+        _first_nonempty(
+            tc.get("TOPIC"),
+            brief.get("ARTICLE TITLE"),
+            article_h1,
+            pub.get("H1 TITLE"),
+            manual_topic,
+            tc.get("SUGGESTED ANGLE"),
+            tc.get("PRIMARY KEYWORD"),
+        )
+        or "the main topics covered in this article"
+    )
+
+    meta_title_prompt = (
+        f'Write a meta title for a {page_type} featuring {content_description}. '
+        f'Meta titles must start with the exact target keyword phrase, "{keyword}", verbatim at the very beginning (no leading words). '
+        f"Keep the title to between 50 and 60 characters. Give me 5 options to choose from. "
+        f"Use varied high-CTR patterns where the content supports them, e.g. step-by-step guide, "
+        f"N steps to, how to, best (for list/comparison pieces), or complete guide. "
+        f"Only use real step or list counts from the article; do not invent numbers. "
+        f"Never use em dashes or en dashes (— –); use a colon, comma, or ASCII hyphen."
+    )
+    meta_description_prompt = (
+        f"Write a meta description for a {page_type} featuring {content_description}. "
+        f'Meta descriptions must include the exact target keyword phrase, "{keyword}", verbatim at least once (preferably in the first sentence). '
+        f"Keep the description to between 120 and 155 characters. "
+        f"Give me 5 options to choose from. "
+        f"Never use em dashes or en dashes (— –); use a colon, comma, or ASCII hyphen."
+    )
+
+    return {
+        "page_type": page_type,
+        "keyword": keyword,
+        "content_description": content_description,
+        "meta_title_prompt": meta_title_prompt,
+        "meta_description_prompt": meta_description_prompt,
+    }
+
+
+_META_SEO_PROMPT_ECHO = re.compile(
+    r"^META (?:TITLE|DESCRIPTION) PROMPT USED:\s*\n(?:.*\n)*?(?=^META (?:TITLE|DESCRIPTION) OPTIONS|\Z)",
+    re.MULTILINE | re.IGNORECASE,
+)
+_META_SEO_CONTENT_SUMMARY = re.compile(
+    r"^CONTENT SUMMARY:.*\n",
+    re.MULTILINE | re.IGNORECASE,
+)
+_META_SEO_MARKERS = re.compile(
+    r"^---?\s*META SEO (?:START|END)\s*---?\s*\n?",
+    re.MULTILINE | re.IGNORECASE,
+)
+
+
+def finalize_meta_seo_output(text: str) -> str:
+    """Clean meta SEO artifact: drop echoed prompts and content summary; keep step delimiters."""
+    if not (text or "").strip():
+        return text
+    cleaned = _META_SEO_PROMPT_ECHO.sub("", text)
+    cleaned = _META_SEO_CONTENT_SUMMARY.sub("", cleaned)
+    cleaned = re.sub(r"\n{3,}", "\n\n", cleaned).strip()
+
+    from .writing_format_lint import strip_em_dashes
+
+    cleaned, _ = strip_em_dashes(cleaned)
+    cleaned = _sanitize_meta_seo_option_lengths(cleaned)
+    from .step_markers import wrap_step_artifact
+    return wrap_step_artifact("meta_seo", cleaned)
+
+
+def _truncate_to_last_space(s: str, max_len: int) -> str:
+    t = (s or "").strip()
+    if len(t) <= max_len:
+        return t
+    cut = t[:max_len]
+    last_space = cut.rfind(" ")
+    if last_space > 12:  # avoid overly short fragments like single words
+        cut = cut[:last_space]
+    return cut.rstrip(" ,.;:!?-–—").strip()
+
+
+def _sanitize_meta_seo_option_lengths(
+    meta_seo_text: str,
+    *,
+    title_min: int = 50,
+    title_max: int = 60,
+    desc_min: int = 120,
+    desc_max: int = 155,
+) -> str:
+    """Clamp meta option character counts to the required max.
+
+    The UI shows long/short badges based on the char count in parentheses, so we
+    recompute counts and truncate overly-long options to ensure compliance.
+    """
+    lines = str(meta_seo_text).splitlines()
+    # Track which option list we're in by header.
+    section: str | None = None
+
+    # e.g. "1. ... (123 characters)"
+    opt_re = re.compile(
+        r"^(\s*\d+\.\s+)(.+?)(?:\s*\(\s*\d+\s*characters?\s*\))?\s*$",
+        re.IGNORECASE,
+    )
+
+    out: list[str] = []
+    for line in lines:
+        if re.match(r"^META TITLE OPTIONS", line.strip(), re.IGNORECASE):
+            section = "title"
+            out.append(line)
+            continue
+        if re.match(r"^META DESCRIPTION OPTIONS", line.strip(), re.IGNORECASE):
+            section = "desc"
+            out.append(line)
+            continue
+
+        m = opt_re.match(line)
+        if not m or not section:
+            out.append(line)
+            continue
+
+        prefix, option_text = m.group(1), m.group(2)
+        option_text = option_text.strip()
+        from .writing_format_lint import strip_em_dashes
+
+        option_text, _ = strip_em_dashes(option_text)
+        if not option_text:
+            out.append(line)
+            continue
+
+        max_len = title_max if section == "title" else desc_max
+        # Truncate only when needed.
+        if len(option_text) > max_len:
+            option_text = _truncate_to_last_space(option_text, max_len)
+
+        char_count = len(option_text)
+        out.append(f"{prefix}{option_text} ({char_count} characters)")
+
+    return "\n".join(out).strip()
+
+
+def strip_meta_seo_prompt_echo(text: str) -> str:
+    """Alias for finalize_meta_seo_output."""
+    return finalize_meta_seo_output(text)
+
+
+_META_SEO_OPTION_LINE = re.compile(
+    r"^\s*\d+\.\s+(.+?)(?:\s*\(\d+\s*characters?\))?\s*$",
+    re.MULTILINE | re.IGNORECASE,
+)
+
+
+def _parse_meta_seo_option_list(body: str, section_label: str) -> list[str]:
+    """Extract numbered options under a META * OPTIONS heading."""
+    match = re.search(
+        rf"^{re.escape(section_label)}[^\n]*\n(.*?)(?=^[A-Z][A-Z0-9 \-/]+(?:\s*\([^)]+\))?:\s*|\Z)",
+        body,
+        re.MULTILINE | re.DOTALL | re.IGNORECASE,
+    )
+    if not match:
+        return []
+    options: list[str] = []
+    for line in match.group(1).splitlines():
+        m = _META_SEO_OPTION_LINE.match(line)
+        if m:
+            options.append(m.group(1).strip())
+    return options
+
+
+def parse_meta_seo_artifact(text: str) -> dict[str, str | list[str]]:
+    """Parse meta SEO step output into page type, keyword, and option lists."""
+    cleaned = finalize_meta_seo_output(text or "")
+    field_map: dict[str, str] = {}
+    current_key: str | None = None
+    for line in cleaned.splitlines():
+        m = _DELIMITED_KEY_LINE.match(line)
+        if m:
+            current_key = m.group(1).strip().upper()
+            field_map[current_key] = m.group(2).strip()
+        elif current_key and line.strip() and not _META_SEO_OPTION_LINE.match(line):
+            if "OPTIONS" not in current_key:
+                field_map[current_key] = f"{field_map[current_key]}\n{line.strip()}".strip()
+
+    titles = _parse_meta_seo_option_list(cleaned, "META TITLE OPTIONS")
+    descriptions = _parse_meta_seo_option_list(cleaned, "META DESCRIPTION OPTIONS")
+    return {
+        "page_type": (field_map.get("PAGE TYPE") or "").strip(),
+        "keyword": (field_map.get("TARGET KEYWORD") or "").strip(),
+        "title_options": titles,
+        "description_options": descriptions,
+    }
+
+
+def format_meta_seo_publishing_lines(parsed: dict[str, str | list[str]]) -> str:
+    """Format meta SEO options for the final_output publishing metadata block."""
+    titles = parsed.get("title_options") or []
+    descriptions = parsed.get("description_options") or []
+    if not isinstance(titles, list):
+        titles = []
+    if not isinstance(descriptions, list):
+        descriptions = []
+    lines: list[str] = []
+    if titles:
+        lines.append(f"META TITLE: {titles[0]}")
+        lines.append("META TITLE OPTIONS:")
+        for i, title in enumerate(titles, 1):
+            lines.append(f"  {i}. {title}")
+    if descriptions:
+        lines.append(f"META DESCRIPTION: {descriptions[0]}")
+        lines.append("META DESCRIPTION OPTIONS:")
+        for i, desc in enumerate(descriptions, 1):
+            lines.append(f"  {i}. {desc}")
+    return "\n".join(lines)
+
+
+def inject_meta_seo_into_publishing_metadata(text: str, meta_seo_text: str) -> str:
+    """Insert meta title/description options from the meta_seo step into publishing metadata."""
+    if not (text or "").strip():
+        return text
+    block = format_meta_seo_publishing_lines(parse_meta_seo_artifact(meta_seo_text))
+    if not block:
+        return text
+
+    start = text.find("---PUBLISHING METADATA START---")
+    end = text.find("---PUBLISHING METADATA END---")
+    if start == -1 or end == -1 or end <= start:
+        return text
+
+    head = text[: start + len("---PUBLISHING METADATA START---")]
+    tail = text[end:]
+    body = text[start + len("---PUBLISHING METADATA START---") : end]
+
+    body = re.sub(r"^META TITLE:.*\n", "", body, flags=re.MULTILINE)
+    body = re.sub(
+        r"^META TITLE OPTIONS[^\n]*\n(?:\s+\d+\..*\n)*",
+        "",
+        body,
+        flags=re.MULTILINE,
+    )
+    body = re.sub(r"^META DESCRIPTION:.*\n", "", body, flags=re.MULTILINE)
+    body = re.sub(
+        r"^META DESCRIPTION OPTIONS[^\n]*\n(?:\s+\d+\..*\n)*",
+        "",
+        body,
+        flags=re.MULTILINE,
+    )
+
+    anchor = "H1 WORD COUNT:"
+    if re.search(rf"^{re.escape(anchor)}", body, re.MULTILINE):
+        body = re.sub(
+            rf"^({re.escape(anchor)}.*)$",
+            rf"\1\n{block}",
+            body,
+            count=1,
+            flags=re.MULTILINE,
+        )
+    elif re.search(r"^H1 TITLE:", body, re.MULTILINE):
+        body = re.sub(
+            r"^(H1 TITLE:.*)$",
+            rf"\1\n{block}",
+            body,
+            count=1,
+            flags=re.MULTILINE,
+        )
+    else:
+        body = f"{block}\n{body}"
+
+    return head + body + tail
 
 
 def topic_title_from_topic_card_markdown(text: str) -> str:

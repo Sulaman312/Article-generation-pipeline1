@@ -3,12 +3,19 @@ from flask import Response, jsonify, request
 from backend import config
 from backend import mongo_storage
 from backend.api.blueprint import api_bp
+from backend.pipeline_metadata import article_pipeline_steps
 
 
 @api_bp.get("/context-files/catalog")
 def context_files_catalog():
     """Single source of truth for allowed context filenames + UI labels."""
     return jsonify(files=config.CONTEXT_FILES_CATALOG)
+
+
+@api_bp.get("/pipeline/steps")
+def pipeline_steps():
+    """Canonical article pipeline step order + UI labels."""
+    return jsonify(pipeline_id="article", steps=article_pipeline_steps())
 
 
 @api_bp.get("/health")
@@ -20,6 +27,28 @@ def health():
         persistence="mongodb" if mongo_storage.enabled() else "filesystem",
         database=config.MONGODB_DB if mongo_storage.enabled() else None,
         hydration=hydration,
+    )
+
+
+@api_bp.get("/ready")
+def ready():
+    """Readiness probe — 503 while MongoDB workspace hydration is incomplete."""
+    hydration = mongo_storage.startup_status()
+    if mongo_storage.runtime_ready():
+        return jsonify(
+            ok=True,
+            service="ContentFlow API",
+            hydration=hydration,
+            jobs="in_process",
+            workers_required=1,
+        )
+    return (
+        jsonify(
+            ok=False,
+            detail="Waiting for MongoDB hydration to complete.",
+            hydration=hydration,
+        ),
+        503,
     )
 
 
@@ -54,4 +83,5 @@ def api_root():
         ui="http://localhost:3000 (run npm start in atlas-ui/)",
         health="/health",
         clients="/clients",
+        pipeline_steps="/pipeline/steps",
     )

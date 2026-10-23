@@ -1,6 +1,8 @@
 /** Count words, characters, paragraphs, and estimated reading time for plain / markdown text. */
 
-const FAQ_HEADING = /^##\s+.*\b(faq|frequently\s+asked\s+questions)\b/i;
+const FAQ_HEADING =
+  /^##\s+.*\b(faq|frequently\s+asked\s+questions|questions?\s+fr[ée]quentes?|foire\s+aux\s+questions|preguntas?\s+frecuentes?|domande?\s+frequenti|h[aä]ufige?\s+fragen)\b/i;
+
 
 /** Body prose only — excludes FAQ block and JSON-LD (matches backend word-count rules). */
 export function markdownForWordCount(text) {

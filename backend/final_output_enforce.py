@@ -270,6 +270,95 @@ def inject_internal_links_programmatic(
     return "\n\n".join(out)
 
 
+def inject_form_internal_links(
+    article: str, links: list[dict[str, str]] | None, max_links: int = 6
+) -> str:
+    """Weave missing article-form Internal Links into body prose mid-sentence."""
+    missing = editorial_input.missing_form_internal_links(article, links)
+    if not missing:
+        return article
+
+    paragraphs = article.split("\n\n")
+    used = 0
+    link_i = 0
+    out: list[str] = []
+    skip_next_body = False
+    for para in paragraphs:
+        if used >= max_links or link_i >= len(missing):
+            out.append(para)
+            continue
+        stripped = para.strip()
+        heading_m = re.match(
+            r"^##\s+(key\s+takeaways?|frequently asked|questions)",
+            stripped,
+            re.I,
+        )
+        if heading_m:
+            skip_next_body = True
+            out.append(para)
+            continue
+        if (
+            not stripped
+            or stripped.startswith("#")
+            or "[INTERNAL LINK:" in stripped
+            or len(stripped) < 70
+            or skip_next_body
+        ):
+            if stripped:
+                skip_next_body = False
+            out.append(para)
+            continue
+
+        item = missing[link_i]
+        href = editorial_input.form_internal_link_href(item)
+        if not href or editorial_input.article_has_form_internal_href(stripped, href):
+            out.append(para)
+            continue
+
+        title_words = re.findall(r"[A-Za-z0-9]{3,}", item.get("title") or "")
+        hay = stripped.lower()
+        title_hit = sum(1 for w in title_words if w.lower() in hay) >= max(1, min(2, len(title_words)))
+        if not title_hit and used == 0 and link_i == 0:
+            # First missing link can go in the first suitable body paragraph.
+            title_hit = True
+        elif not title_hit and used > 0:
+            # Prefer a later paragraph that mentions the page title.
+            remaining = "\n\n".join(paragraphs[len(out) + 1 :])
+            if any(w.lower() in remaining.lower() for w in title_words[:3]):
+                out.append(para)
+                continue
+
+        sentences = re.split(r"(?<=[.!?])\s+", stripped)
+        target_i = next(
+            (
+                i
+                for i, s in enumerate(sentences)
+                if s.strip() and not re.search(r"\]\([^)]+\)", s)
+            ),
+            0,
+        )
+        phrase = None
+        sent = sentences[target_i]
+        for n in (3, 2):
+            chunk = " ".join(title_words[:n])
+            if chunk and re.search(re.escape(chunk), sent, re.I):
+                phrase = re.search(re.escape(chunk), sent, re.I).group(0)
+                break
+        if not phrase:
+            phrase = _pick_phrase_for_link(sent) or _short_anchor(
+                item.get("title") or href
+            )
+        if phrase and phrase.lower() in sent.lower():
+            sentences[target_i] = _wrap_first_phrase(sent, phrase, href)
+        else:
+            anchor = _short_anchor(item.get("title") or href)
+            sentences[target_i] = f"{sent.rstrip()} [{anchor}]({href})"
+        out.append(" ".join(sentences))
+        used += 1
+        link_i += 1
+    return "\n\n".join(out)
+
+
 def count_external_markdown_links(markdown: str) -> int:
     if not markdown:
         return 0
@@ -347,11 +436,32 @@ def normalize_article_links(article: str, clusters: list[str] | None = None) -> 
     return text
 
 
-def inject_faq_template(article: str, topic: str = "") -> str:
+def inject_faq_template(
+    article: str,
+    topic: str = "",
+    *,
+    manual: dict | None = None,
+    paa_faq_research: str = "",
+) -> str:
     """Insert a minimal FAQ block before Conclusion when the model skipped it."""
     if len(faq_schema.extract_faq_pairs(article)) >= 2:
         return article
-    faq_lines = ["\n## Frequently Asked Questions\n"]
+
+    lang = editorial_input.article_language_from_manual(manual)
+    heading = editorial_input.faq_heading_for_language(lang)
+    from . import paa_faq
+
+    bank_prompt = paa_faq.format_faq_bank_for_prompt(paa_faq_research)
+    if bank_prompt or lang != "en":
+        return _inject_faq_llm(
+            article,
+            topic=topic,
+            lang=lang,
+            heading=heading,
+            faq_bank_prompt=bank_prompt,
+        )
+
+    faq_lines = [f"\n{heading}\n"]
     for q, a in _FAQ_TEMPLATES[:6]:
         faq_lines.append(f"### {q}\n\n{a}\n")
     faq_block = "\n".join(faq_lines)
@@ -361,29 +471,65 @@ def inject_faq_template(article: str, topic: str = "") -> str:
     return article.rstrip() + "\n" + faq_block + "\n"
 
 
+def _inject_faq_llm(
+    article: str,
+    *,
+    topic: str,
+    lang: str,
+    heading: str,
+    faq_bank_prompt: str = "",
+) -> str:
+    """Generate a topic-relevant FAQ block in the article language."""
+    language_label = editorial_input.language_label_for_code(lang)
+    system = (
+        f"Return ONLY the full article markdown. Write exactly ONE FAQ section in "
+        f"{language_label} using H2 `{heading}`. Prefer the provided FAQ bank questions. "
+        "Do not add FAQ blocks in any other language. Do not invent brands, products, or prices. "
+        "Each FAQ answer must be one normal paragraph of 2-4 sentences (max ~70 words). "
+        "Do not use bullets, numbered lists, or one sentence per line. "
+        "Do not pad FAQ to hit article word count."
+    )
+    bank = faq_bank_prompt.strip() or (
+        "No FAQ bank provided — write only as many specific questions as the topic supports "
+        "(prefer 4–7; fewer if thin)."
+    )
+    user = (
+        f"Topic: {topic or 'article'}\n\n"
+        f"{bank}\n\n"
+        f"Add the FAQ section before the closing H2/CTA when possible.\n\n"
+        f"---ARTICLE---\n{article.strip()}\n"
+    )
+    return claude.chat_complete(
+        system,
+        user,
+        step_label=f"Final output FAQ inject ({language_label})",
+        max_tokens=8192,
+        temperature=0.35,
+    ).strip()
+
+
 def _trim_article_llm(article_md: str, target: int, topic: str) -> str:
+    """Section-preserving backup trim (prefer draft-time length control)."""
+    from . import word_count_enforce
+
     low, high = editorial_input.word_count_bounds(target)
     current = editorial_input.count_article_words(article_md)
     if current <= high:
         return article_md
-    user = (
-        f"Topic: {topic or 'article'}\n"
-        f"Body prose (FAQ excluded) is {current:,} words. Editor target: {target:,} "
-        f"(acceptable {low:,}–{high:,} — do not exceed {high:,}).\n\n"
-        f"Shorten main sections only; keep all H2 headings except you may tighten prose. "
-        f"Keep the FAQ section and inline links (external [words](https://…), "
-        f"internal [words](INTERNAL:…)). FAQ does not count toward the limit.\n"
-        f"Keep **every** H3 question under ## Frequently Asked Questions from the input. "
-        f"Do not drop or merge FAQ items.\n"
-        f"Output ONLY the full markdown article.\n\n---ARTICLE---\n{article_md.strip()}\n"
+    logger.info(
+        "final_output section trim: %s words -> target %s (%s–%s) topic=%r",
+        current,
+        target,
+        low,
+        high,
+        (topic or "")[:80],
     )
-    return claude.chat_complete(
-        "You are a publishing editor trimming articles to an exact word budget.",
-        user,
-        step_label="Final output trim",
-        max_tokens=8192,
-        temperature=0.35,
-    ).strip()
+    return word_count_enforce.trim_article_by_sections(
+        article_md,
+        target,
+        step_label="Final output section trim",
+        max_passes=3,
+    )
 
 
 def _repair_article_with_llm(
@@ -394,9 +540,13 @@ def _repair_article_with_llm(
     urls: list[str],
     topic: str,
     word_target: int | None,
+    manual: dict | None = None,
 ) -> str:
     current = editorial_input.count_article_words(article_md)
     tasks: list[str] = []
+    lang = editorial_input.article_language_from_manual(manual)
+    faq_heading = editorial_input.faq_heading_for_language(lang)
+    language_label = editorial_input.language_label_for_code(lang)
     if word_target:
         low, high = editorial_input.word_count_bounds(word_target)
         tasks.append(
@@ -405,7 +555,8 @@ def _repair_article_with_llm(
         )
     if add_faq:
         tasks.append(
-            "Add `## Frequently Asked Questions` with 5–7 H3 Q&As before the conclusion."
+            f"Add ONE FAQ section with H2 `{faq_heading}` and 5–7 H3 Q&As in "
+            f"{language_label} before the conclusion. Do not add FAQ in another language."
         )
     if add_external:
         url_block = "\n".join(f"- {u}" for u in urls[:10]) or "- (none)"
@@ -512,12 +663,18 @@ def _load_faq_reference_markdown(client_id: str, run_id: str) -> str:
 
 
 def _preserve_faq_from_prior_steps(
-    article: str, client_id: str, run_id: str
+    article: str,
+    client_id: str,
+    run_id: str,
+    *,
+    heading: str = "## Frequently Asked Questions",
 ) -> str:
     reference = _load_faq_reference_markdown(client_id, run_id)
     if not reference:
         return article
-    restored = faq_schema.ensure_faq_from_reference(article, reference)
+    restored = faq_schema.ensure_faq_from_reference(
+        article, reference, heading=heading
+    )
     if restored != article:
         before = len(faq_schema.extract_faq_pairs(article))
         after = len(faq_schema.extract_faq_pairs(restored))
@@ -559,30 +716,61 @@ def enforce_final_output(
         manual = {}
     word_target = editorial_input.word_count_target_from_manifest(manifest)
     topic = (manifest.get("topic") or manual.get("Topic") or "").strip()
+    lang = editorial_input.article_language_from_manual(manual)
+    faq_heading = editorial_input.faq_heading_for_language(lang)
 
-    article = faq_schema.extract_final_article_body(text) or text
+    paa_faq = ""
+    try:
+        paa_faq = artifacts.load_artifact(client_id, run_id, "paa_faq_research")
+    except FileNotFoundError:
+        paa_faq = ""
+
+    article = faq_schema.extract_final_article_body(text) or faq_schema.strip_publishing_metadata_block(text) or text
+    article = faq_schema.consolidate_faq_sections(
+        article, heading=faq_heading, lang=lang
+    )
     urls = _load_source_urls(client_id, run_id)
 
     from .context_extractor import extract_for_step_7
 
     clusters = extract_for_step_7(client_id).get("clusters") or []
     article = normalize_article_links(article, clusters)
+    form_links = editorial_input.parse_form_internal_links(manual)
+    if form_links:
+        article = inject_form_internal_links(article, form_links)
 
     if _needs_faq(article, manual):
-        article = inject_faq_template(article, topic)
+        article = inject_faq_template(
+            article, topic, manual=manual, paa_faq_research=paa_faq
+        )
 
-    article = _preserve_faq_from_prior_steps(article, client_id, run_id)
+    article = _preserve_faq_from_prior_steps(
+        article, client_id, run_id, heading=faq_heading
+    )
 
     if _needs_external(article, manual) and urls:
         article = inject_external_links_programmatic(article, urls)
 
     article = normalize_article_links(article, clusters)
 
+    from .context_extractor import resolve_cta_href
+    from . import cta_html
+
+    cta_href = resolve_cta_href(client_id)
+    article_lang = editorial_input.article_language_from_manual(manual)
     article = writing_format_enforce.enforce_article(
         article,
         stage="final",
         allow_llm_repair=allow_llm_repair,
+        cta_href=cta_href,
+        lang=article_lang,
     )
+    # Lint expects markdown CTAs; convert to workspace HTML shell afterward.
+    article = cta_html.apply_workspace_cta_html(
+        article, client_id=client_id, cta_href=cta_href
+    )
+    if form_links:
+        article = inject_form_internal_links(article, form_links)
 
     if word_target:
         _, high = editorial_input.word_count_bounds(word_target)
@@ -594,12 +782,39 @@ def enforce_final_output(
                     "final_output trim failed for %s/%s", client_id, run_id
                 )
 
-    article = _preserve_faq_from_prior_steps(article, client_id, run_id)
+    article = _preserve_faq_from_prior_steps(
+        article, client_id, run_id, heading=faq_heading
+    )
+    article = faq_schema.consolidate_faq_sections(
+        article, heading=faq_heading, lang=lang
+    )
+    article = faq_schema.enforce_faq_answer_length(article, heading=faq_heading)
 
-    if faq_schema.FINAL_ARTICLE_START in text:
+    if faq_schema.FINAL_OUTPUT_START in text:
+        text = faq_schema.replace_final_article_body(text, article)
+    elif faq_schema.FINAL_ARTICLE_START in text:
         text = faq_schema.replace_final_article_body(text, article)
     elif article.strip():
-        text = article
+        text = faq_schema.wrap_final_article(article)
 
-    text = _update_metadata_counts(text, article, word_target)
-    return faq_schema.ensure_faq_schema_block(text)
+    text = faq_schema.strip_publishing_metadata_block(text)
+    if (
+        faq_schema.FINAL_OUTPUT_START not in text
+        and faq_schema.FINAL_ARTICLE_START not in text
+        and article.strip()
+    ):
+        text = faq_schema.wrap_final_article(article)
+
+    text = faq_schema.ensure_faq_schema_block(text)
+
+    from . import hard_gates
+
+    text = hard_gates.enforce_article_gates(
+        text,
+        client_id=client_id,
+        run_id=run_id,
+        stage="final",
+        allow_llm_repair=allow_llm_repair,
+        raise_on_fail=True,
+    )
+    return text
