@@ -36,11 +36,12 @@
 ## Structure / BLUF
 
 - **Opening (required):** Immediately after the H1, use this exact order:
-  1. `## Key takeaways` — **40–80 words** of **actionable takeaways** (what the reader should know, decide, or do). Prefer **3–5 short bullets** or 2–3 dense takeaway sentences. This is **not** an article summary/recap of sections. Use the **exact** primary keyword once, in the **first sentence** of this block, so it falls inside the first 100 body words. A synonym or a heading does not count. Do **not** title this block `## Summary`.
-  2. **Hero image** — `![descriptive alt text](IMAGE: slug-or-description)` on the next line after the Key takeaways content.
+  1. Localized takeaways H2 — **English:** `## Key takeaways` · **French:** `## À retenir` (never English labels in a French article). **40–80 words** of **actionable takeaways** as **exactly 3–5 markdown bullets** (required — not prose paragraphs). This is **not** an article summary/recap of sections. Use the **exact** primary keyword once, in the **first bullet**, so it falls inside the first 100 body words. A synonym or a heading does not count. Do **not** title this block `## Summary`.
+  2. **Hero image** — `![descriptive alt text](IMAGE: slug-or-description)` on the next line after the takeaways content.
   3. Then the first content H2.
-- Do **not** put body prose or CTAs between the Key takeaways image and the first content H2.
-- **Never** add another heading titled "Key takeaways", "Summary", "Takeaways", "What you'll learn", "In this article", or similar anywhere later in the article. Opening takeaways appear once at the top only.
+- **FAQ H2 language:** English `## Frequently Asked Questions` · French `## Questions fréquentes`. Match the article language.
+- Do **not** put body prose or CTAs between the takeaways image and the first content H2.
+- **Never** add another heading titled "Key takeaways", "À retenir", "Summary", "Takeaways", "What you'll learn", "In this article", or similar anywhere later in the article. Opening takeaways appear once at the top only.
 - Use **BLUF** (Bottom Line Up Front) in every section: the first sentence or two under any H2 (and the first sentence of every H3) states the main takeaway before supporting detail. No throat-clearing.
 - **Heading-Body Contract:** the body must deliver exactly what the heading promises (a "how-to" heading needs steps/numbered guidance, a comparison heading needs comparison, etc.).
 

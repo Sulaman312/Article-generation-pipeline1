@@ -25,19 +25,40 @@ FAQ_ANSWER_MAX_SENTENCES = 4
 
 _H1 = re.compile(r"^#\s+(.+)$", re.MULTILINE)
 _H2 = re.compile(r"^##\s+.+$", re.MULTILINE)
-# Required opening H2 immediately after H1 (Key takeaways — not an article summary).
+# Required opening H2 immediately after H1 (localized Key takeaways — not a summary).
 _OPENING_TAKEAWAYS_H2 = re.compile(
-    r"^##\s+(key\s+takeaways?|takeaways?)\s*$",
+    r"^##\s+("
+    r"key\s+takeaways?|takeaways?|"
+    r"[àa]\s+retenir|points?\s+cl[ée]s?|"
+    r"wichtige\s+punkte|puntos?\s+clave|punti\s+chiave"
+    r")\s*$",
     re.IGNORECASE | re.MULTILINE,
 )
 # Duplicate / late takeaway-style or "summary" openings — only valid as the first H2 after H1.
 _LATE_OPENING_H2 = re.compile(
-    r"^#{1,3}\s+(key\s+takeaways?|takeaways?|what\s+you'?ll\s+learn|"
+    r"^#{1,3}\s+(key\s+takeaways?|takeaways?|[àa]\s+retenir|points?\s+cl[ée]s?|"
+    r"what\s+you'?ll\s+learn|"
     r"in\s+this\s+article|what\s+we\s+(cover|discuss|explore)|"
     r"summary|résumé|resume|zusammenfassung|"
     r"quick\s+summary|article\s+summary|top\s+takeaways?)\s*$",
     re.IGNORECASE | re.MULTILINE,
 )
+_TAKEAWAY_BULLET_RE = re.compile(r"^[-*+]\s+\S", re.MULTILINE)
+_EN_FAQ_H2_RE = re.compile(
+    r"^##\s+Frequently\s+Asked\s+Questions\s*$",
+    re.IGNORECASE | re.MULTILINE,
+)
+_EN_TAKEAWAYS_H2_RE = re.compile(
+    r"^##\s+Key\s+takeaways?\s*$",
+    re.IGNORECASE | re.MULTILINE,
+)
+_ANY_TAKEAWAYS_H2_RE = re.compile(
+    r"^##\s+(?:key\s+takeaways?|takeaways?|[àa]\s+retenir|points?\s+cl[ée]s?|"
+    r"wichtige\s+punkte|puntos?\s+clave|punti\s+chiave)\s*$",
+    re.IGNORECASE | re.MULTILINE,
+)
+TAKEAWAY_BULLET_MIN = 3
+TAKEAWAY_BULLET_MAX = 5
 _IMAGE_MD = re.compile(r"!\[[^\]]*\]\([^)]+\)")
 _MONEY_OR_STAT = re.compile(
     r"(?:[$€£]\s?\d[\d,]*(?:\.\d+)?"
@@ -163,14 +184,15 @@ def extract_lede_text(article: str) -> str:
     return prose.strip()
 
 
-def check_lede(article: str) -> GateIssue | None:
-    """Require H1 → ## Key takeaways → takeaways → hero image → next H2."""
+def check_lede(article: str, *, lang: str | None = None) -> GateIssue | None:
+    """Require H1 → localized Key takeaways → bullets → hero image → next H2."""
+    preferred = editorial_input.key_takeaways_heading_for_language(lang or "en")
     text = (article or "").replace("\r\n", "\n").strip()
     if not text:
         return GateIssue(
             "lede_missing",
-            f"Opening missing — need ## Key takeaways ({LEDE_MIN_WORDS}–{LEDE_MAX_WORDS} words) "
-            "then a hero image immediately after H1.",
+            f"Opening missing — need {preferred} ({LEDE_MIN_WORDS}–{LEDE_MAX_WORDS} words, "
+            f"{TAKEAWAY_BULLET_MIN}–{TAKEAWAY_BULLET_MAX} bullets) then a hero image after H1.",
         )
     h1 = _H1.search(text)
     if not h1:
@@ -180,22 +202,31 @@ def check_lede(article: str) -> GateIssue | None:
     if not h2s:
         return GateIssue(
             "summary_missing",
-            'First block after H1 must be "## Key takeaways", then takeaways, then a hero image.',
+            f'First block after H1 must be "{preferred}", then takeaway bullets, then a hero image.',
         )
     first_h2 = h2s[0].group(0).strip()
     if not _OPENING_TAKEAWAYS_H2.match(first_h2):
         return GateIssue(
             "summary_heading",
-            'First H2 after H1 must be "## Key takeaways" '
-            "(order: H1 → Key takeaways → Image → content). Do not use ## Summary.",
+            f'First H2 after H1 must be "{preferred}" '
+            f"(order: H1 → {preferred} → Image → content). Do not use ## Summary.",
         )
+    code = (lang or "").strip().lower()
+    if code and code != "en":
+        expected = preferred.strip().lower()
+        if first_h2.lower() != expected:
+            return GateIssue(
+                "summary_heading_lang",
+                f'For {editorial_input.language_label_for_code(code)} articles, the opening H2 '
+                f'must be "{preferred}" (not English "Key takeaways").',
+            )
     zone_end = h2s[1].start() if len(h2s) > 1 else len(after_h1)
     zone = after_h1[h2s[0].end() : zone_end]
     img = _IMAGE_MD.search(zone)
     if not img:
         return GateIssue(
             "summary_image",
-            "Place a hero image immediately after the Key takeaways block, before the next H2 "
+            f"Place a hero image immediately after the {preferred} block, before the next H2 "
             "(`![descriptive alt text](IMAGE: slug)`).",
         )
     prose = zone[: img.start()].strip()
@@ -203,22 +234,147 @@ def check_lede(article: str) -> GateIssue | None:
     if trailing and _word_tokens(trailing):
         return GateIssue(
             "summary_order",
-            "Order must be H1 → ## Key takeaways → takeaways → image → next H2 "
+            f"Order must be H1 → {preferred} → takeaway bullets → image → next H2 "
             "(no extra body prose between the image and the next H2).",
         )
     if not prose:
         return GateIssue(
             "lede_missing",
-            f"## Key takeaways content missing — need {LEDE_MIN_WORDS}–{LEDE_MAX_WORDS} words "
+            f"{preferred} content missing — need {LEDE_MIN_WORDS}–{LEDE_MAX_WORDS} words "
             "before the hero image.",
         )
     n = len(_word_tokens(prose))
     if n < LEDE_MIN_WORDS or n > LEDE_MAX_WORDS:
         return GateIssue(
             "lede_length",
-            f"## Key takeaways is {n} words; required {LEDE_MIN_WORDS}-{LEDE_MAX_WORDS}.",
+            f"{preferred} is {n} words; required {LEDE_MIN_WORDS}-{LEDE_MAX_WORDS}.",
         )
     return None
+
+
+def check_takeaways_bullets(article: str) -> GateIssue | None:
+    """Key takeaways / À retenir must be 3–5 markdown bullets (not prose-only)."""
+    prose = extract_lede_text(article)
+    if not prose:
+        return None
+    bullets = _TAKEAWAY_BULLET_RE.findall(prose)
+    n = len(bullets)
+    if n < TAKEAWAY_BULLET_MIN:
+        return GateIssue(
+            "takeaways_bullets",
+            f"Opening takeaways must use {TAKEAWAY_BULLET_MIN}–{TAKEAWAY_BULLET_MAX} "
+            f"markdown bullets (found {n}). Rewrite as a bullet list, not plain paragraphs.",
+        )
+    if n > TAKEAWAY_BULLET_MAX:
+        return GateIssue(
+            "takeaways_bullets",
+            f"Opening takeaways have {n} bullets; keep {TAKEAWAY_BULLET_MIN}–"
+            f"{TAKEAWAY_BULLET_MAX}.",
+        )
+    return None
+
+
+def check_french_structural_headings(article: str, *, lang: str | None = None) -> list[GateIssue]:
+    """French articles must not keep English Key takeaways / FAQ labels."""
+    if (lang or "").strip().lower() != "fr":
+        return []
+    text = (article or "").replace("\r\n", "\n")
+    issues: list[GateIssue] = []
+    if _EN_TAKEAWAYS_H2_RE.search(text):
+        issues.append(
+            GateIssue(
+                "fr_heading_takeaways",
+                'French articles must use "## À retenir", not "## Key takeaways".',
+            )
+        )
+    if _EN_FAQ_H2_RE.search(text):
+        issues.append(
+            GateIssue(
+                "fr_heading_faq",
+                'French articles must use "## Questions fréquentes", '
+                'not "## Frequently Asked Questions".',
+            )
+        )
+    return issues
+
+
+def localize_structural_headings(article: str, *, lang: str | None = None) -> str:
+    """Rewrite English structural H2s to the article language (deterministic)."""
+    code = (lang or "en").strip().lower()
+    if code == "en" or not (article or "").strip():
+        return article
+    text = article.replace("\r\n", "\n")
+    takeaways = editorial_input.key_takeaways_heading_for_language(code)
+    faq = editorial_input.faq_heading_for_language(code)
+
+    def _sub_takeaways(match: re.Match[str]) -> str:
+        return takeaways
+
+    text = _ANY_TAKEAWAYS_H2_RE.sub(_sub_takeaways, text, count=1)
+    # Only rewrite the first FAQ-looking English heading; leave other H2s alone.
+    text = _EN_FAQ_H2_RE.sub(faq, text, count=1)
+    # Also catch generic "FAQ" as sole H2 title when French.
+    if code == "fr":
+        text = re.sub(
+            r"^##\s+FAQ\s*$",
+            faq,
+            text,
+            count=1,
+            flags=re.IGNORECASE | re.MULTILINE,
+        )
+    return text
+
+
+def ensure_takeaways_as_bullets(article: str) -> str:
+    """If the opening takeaways block is prose-only, convert sentences to bullets."""
+    text = (article or "").replace("\r\n", "\n")
+    if not text.strip():
+        return article
+    h1 = _H1.search(text)
+    if not h1:
+        return article
+    after_h1_start = h1.end()
+    after_h1 = text[after_h1_start:]
+    h2s = list(_H2.finditer(after_h1))
+    if not h2s or not _OPENING_TAKEAWAYS_H2.match(h2s[0].group(0).strip()):
+        return article
+    zone_end = h2s[1].start() if len(h2s) > 1 else len(after_h1)
+    zone = after_h1[h2s[0].end() : zone_end]
+    img = _IMAGE_MD.search(zone)
+    prose = zone[: img.start()] if img else zone
+    if len(_TAKEAWAY_BULLET_RE.findall(prose)) >= TAKEAWAY_BULLET_MIN:
+        return article
+    plain = re.sub(r"!\[[^\]]*\]\([^)]+\)", " ", prose)
+    plain = re.sub(r"\[([^\]]+)\]\([^)]+\)", r"\1", plain)
+    plain = re.sub(r"^[-*+]\s+", "", plain, flags=re.MULTILINE)
+    plain = re.sub(r"\s+", " ", plain).strip()
+    if not plain:
+        return article
+    parts = [p.strip() for p in re.split(r"(?<=[.!?])\s+", plain) if p.strip()]
+    if not parts:
+        return article
+    # Keep 3–5 bullets; merge extras into the last bullet if needed.
+    if len(parts) > TAKEAWAY_BULLET_MAX:
+        head = parts[: TAKEAWAY_BULLET_MAX - 1]
+        tail = " ".join(parts[TAKEAWAY_BULLET_MAX - 1 :])
+        parts = head + [tail]
+    while len(parts) < TAKEAWAY_BULLET_MIN and parts:
+        # Split the longest sentence on commas/semicolons when possible.
+        longest_i = max(range(len(parts)), key=lambda i: len(parts[i]))
+        chunk = parts[longest_i]
+        bits = [b.strip() for b in re.split(r"[;:] ", chunk) if b.strip()]
+        if len(bits) < 2:
+            break
+        parts = parts[:longest_i] + bits + parts[longest_i + 1 :]
+        if len(parts) > TAKEAWAY_BULLET_MAX:
+            parts = parts[:TAKEAWAY_BULLET_MAX]
+            break
+    bullets = "\n".join(f"- {p}" for p in parts[:TAKEAWAY_BULLET_MAX])
+    new_zone = f"\n\n{bullets}\n\n"
+    if img:
+        new_zone += zone[img.start() :]
+    rebuilt_after = after_h1[: h2s[0].end()] + new_zone + after_h1[zone_end:]
+    return text[:after_h1_start] + rebuilt_after
 
 
 def _answer_sentence_count(answer: str) -> int:
@@ -943,6 +1099,7 @@ def evaluate_article_gates(
     require_faq: bool = True,
     form_internal_links: list[dict[str, str]] | None = None,
     stage: str = "draft",
+    lang: str | None = None,
 ) -> GateReport:
     article = _article_body(article_md, stage=stage)
     report = GateReport(primary_keyword=(primary_keyword or "").strip())
@@ -951,11 +1108,17 @@ def evaluate_article_gates(
         report.issues.append(GateIssue("empty", "Article body is empty."))
         return report
 
-    lede_issue = check_lede(article)
+    lede_issue = check_lede(article, lang=lang)
     if lede_issue:
         report.issues.append(lede_issue)
     else:
         report.lede_words = len(_word_tokens(extract_lede_text(article)))
+
+    bullets_issue = check_takeaways_bullets(article)
+    if bullets_issue:
+        report.issues.append(bullets_issue)
+
+    report.issues.extend(check_french_structural_headings(article, lang=lang))
 
     # Block duplicate takeaways / Summary headings anywhere after the opening Key takeaways block.
     takeaway_issue = check_no_late_takeaways(article)
@@ -1119,7 +1282,8 @@ def enforce_article_gates(
             faq_lang = paa_lang
 
     def _correct(body: str) -> str:
-        text = body
+        text = localize_structural_headings(body, lang=faq_lang)
+        text = ensure_takeaways_as_bullets(text)
         if require_faq and allowed_faq:
             text = align_faq_to_allowed(text, allowed_faq, lang=faq_lang)
         return ensure_primary_keyword_in_first_100(text, primary)
@@ -1134,6 +1298,7 @@ def enforce_article_gates(
         primary_keyword=primary,
         word_target=word_target,
         research_audit=research_audit,
+        lang=faq_lang,
         case_study_research=case_study,
         paa_faq_research=paa,
         require_faq=require_faq,
@@ -1173,6 +1338,7 @@ def enforce_article_gates(
                     require_faq=require_faq,
                     form_internal_links=form_internal_links,
                     stage=stage,
+                    lang=faq_lang,
                 )
         except Exception:
             logger.exception("hard gate LLM repair failed (%s)", stage)

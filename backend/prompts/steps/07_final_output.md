@@ -94,9 +94,10 @@ TASK 3 — FINAL SEO & READABILITY CHECK (article body only)
   Run through this checklist in order. Fix any item that fails — minimal edit only.
   [ ] H1 is no more than 60 characters and 5–12 words
   [ ] H1 contains the primary keyword once (exact or near-exact)
-  [ ] Opening order: `# H1` → `## Key takeaways` (40–80 words of takeaways, not a summary) → hero `![alt](IMAGE: …)` → first content H2
-  [ ] No second "Key takeaways", "## Summary", "What you'll learn", or similar headings later in the body — remove them if present
-  [ ] Exact primary keyword appears once in the first 100 body words (first Key takeaways sentence). Headings do not count. Nowhere else exactly in body prose
+  [ ] Opening order: `# H1` → localized takeaways H2 (`## Key takeaways` EN / `## À retenir` FR) with **3–5 bullets** (40–80 words, not a summary) → hero `![alt](IMAGE: …)` → first content H2
+  [ ] French articles use `## À retenir` and `## Questions fréquentes` — never English "Key takeaways" / "Frequently Asked Questions"
+  [ ] No second takeaways/summary heading later in the body — remove them if present
+  [ ] Exact primary keyword appears once in the first 100 body words (first takeaways bullet). Headings do not count. Nowhere else exactly in body prose
   [ ] Each secondary keyword appears at most once across headings/body
   [ ] At least one H2 contains a secondary keyword — natural placement only
   [ ] Article body stays within target and is not padded relative to SERP norms
@@ -111,7 +112,7 @@ TASK 3 — FINAL SEO & READABILITY CHECK (article body only)
   [ ] No em dashes or en dashes in headings, body, CTAs, FAQ, meta titles, or meta descriptions
   [ ] 2–3 inline CTAs at H2 breaks, each with bold heading + description + markdown link on separate lines
   [ ] CTAs use the Required CTA markdown href from workspace artifacts (live site + `/contact` unless guidelines specify another path)
-  [ ] FAQ section present: H2 "Frequently Asked Questions" / localized equivalent with at least 5 H3 Q&As — if missing, add a minimal FAQ block from the article topic (do not rewrite body sections)
+  [ ] FAQ section present: H2 localized (`## Frequently Asked Questions` EN / `## Questions fréquentes` FR) with at least 5 H3 Q&As — if missing, add a minimal FAQ block from the article topic (do not rewrite body sections)
   [ ] FAQ H3 questions are clean question text only (no SOURCE SIGNAL / CITATION / competitor notes)
   [ ] Each FAQ answer is **one normal paragraph of 2-4 sentences** (min 2, max 4; max ~70 words), in the article language. No bullets, numbered lists, or one sentence per line. Do not pad FAQ.
   [ ] Transition words: ≥30% of body sentences use a natural connector (Yoast); add short connectors when splitting ideas — do not leave unlinked sentence stacks
@@ -125,8 +126,8 @@ OUTPUT FORMAT — follow exactly:
 
 RULES:
 - Do NOT rewrite content broadly — only add CTAs, links, images, trim filler, and make minimal SEO fixes
-- **Preserve the H1 → ## Key takeaways → hero image opening** from the draft — do not rename it to ## Summary, flatten takeaways into a recap, or remove the hero image
-- If the draft still has `## Summary`, rename it to `## Key takeaways` and rewrite the block as actionable takeaways (not an article summary)
+- **Preserve the H1 → takeaways H2 → hero image opening** from the draft — do not rename it to ## Summary, flatten takeaways into a recap, or remove the hero image
+- Keep takeaways as **3–5 bullets**. If the draft still has `## Summary` or prose takeaways, rewrite as localized takeaways H2 + bullets (FR: `## À retenir`)
 - **Do NOT output meta titles, meta descriptions, publishing metadata, or SEO checklist blocks** — those are generated in the separate Meta Title & Description step.
 - **Preserve the full FAQ section** from the fact-check corrected article: keep every H3 Q&A (typically 5–7). Never reduce FAQ count. Keep answers at 3–4 lines each.
 - H1 hard limits: 60 characters, 5–12 words, primary keyword once

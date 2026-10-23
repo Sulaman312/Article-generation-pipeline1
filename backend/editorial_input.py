@@ -319,6 +319,14 @@ _FAQ_HEADING_BY_LANG: dict[str, str] = {
     "it": "## Domande frequenti",
 }
 
+_KEY_TAKEAWAYS_HEADING_BY_LANG: dict[str, str] = {
+    "en": "## Key takeaways",
+    "fr": "## À retenir",
+    "de": "## Wichtige Punkte",
+    "es": "## Puntos clave",
+    "it": "## Punti chiave",
+}
+
 _LANGUAGE_LABELS: dict[str, str] = {
     "en": "English",
     "fr": "French",
@@ -356,6 +364,12 @@ def language_label_for_code(lang: str) -> str:
 
 def faq_heading_for_language(lang: str) -> str:
     return _FAQ_HEADING_BY_LANG.get((lang or "en").lower(), _FAQ_HEADING_BY_LANG["en"])
+
+
+def key_takeaways_heading_for_language(lang: str) -> str:
+    return _KEY_TAKEAWAYS_HEADING_BY_LANG.get(
+        (lang or "en").lower(), _KEY_TAKEAWAYS_HEADING_BY_LANG["en"]
+    )
 
 
 def faq_editorial_notice(manual: dict | None = None) -> str:
@@ -443,15 +457,27 @@ def seo_readability_notice(lang: str | None = None) -> str:
             "sentence starts when splitting long ideas — do not leave choppy unlinked "
             "sentence stacks.\n"
         )
+    takeaways_h2 = key_takeaways_heading_for_language(code)
+    faq_h2 = faq_heading_for_language(code)
+    opening_line = (
+        f"- **Opening:** `# H1` → `{takeaways_h2}` (40–80 words; **3–5 bullets required**, "
+        "actionable takeaways — not an article summary) → hero `![alt](IMAGE: …)` → "
+        "first content H2. Do **not** use `## Summary`.\n"
+    )
+    if code == "fr":
+        opening_line += (
+            "- **Language consistency (French articles):** structural H2s must be French — "
+            f"use `{takeaways_h2}` (not `## Key takeaways`) and `{faq_h2}` "
+            "(not `## Frequently Asked Questions`). Body prose stays in French.\n"
+        )
     return (
         "\n\n=== SEO & READABILITY RULES (NON-NEGOTIABLE) ===\n"
         "- **H1 title:** maximum **60 characters**, **5-12 words**, with the primary keyword "
         "once (exact or near-exact).\n"
-        "- **Opening:** `# H1` → `## Key takeaways` (40–80 words; actionable takeaways, "
-        "not an article summary) → hero `![alt](IMAGE: …)` → first content H2. "
-        "Do **not** use `## Summary`.\n"
+        f"{opening_line}"
         "- **Body keyword use:** use the exact primary keyword once in the first 100 body words, "
-        "in the first Key takeaways sentence. Headings do not count and a synonym does not count; "
+        f"in the first sentence of `{takeaways_h2}` (usually the first bullet). "
+        "Headings do not count and a synonym does not count; "
         "do not repeat that exact phrase elsewhere in body prose. Use each secondary keyword "
         "at most once across headings and body prose. Metadata is counted separately.\n"
         "- **E-E-A-T (in-body):** proof points where planned, 3–5 credible external links, honest limits — "

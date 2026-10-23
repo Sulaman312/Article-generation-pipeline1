@@ -6,16 +6,16 @@ from backend import hard_gates
 
 
 GOOD_LEDE = (
-    "Online vet visits let pet owners get clinical advice without a long clinic wait. "
-    "This guide explains who telehealth works for, what to prepare beforehand, and when "
-    "you still need an in-person exam so you can book the right option with confidence."
+    "- Online vet visits let pet owners get clinical advice without a long clinic wait.\n"
+    "- This guide explains who telehealth works for and what to prepare beforehand.\n"
+    "- Know when you still need an in-person exam so you can book the right option with confidence."
 )
 
 HERO = "![Pet owner on a laptop during an online vet visit](IMAGE: telehealth-hero)"
 
 
-def _opening(title: str, summary: str) -> str:
-    return f"# {title}\n\n## Key takeaways\n\n{summary}\n\n{HERO}\n"
+def _opening(title: str, summary: str, *, heading: str = "## Key takeaways") -> str:
+    return f"# {title}\n\n{heading}\n\n{summary}\n\n{HERO}\n"
 
 
 SAMPLE_AUDIT = """
@@ -58,7 +58,7 @@ class HardGateUnitTests(unittest.TestCase):
         self.assertLessEqual(n, hard_gates.LEDE_MAX_WORDS)
 
     def test_lede_length_gate(self):
-        short = _opening("Title", "Too short.") + "\n## Next\n\nBody.\n"
+        short = _opening("Title", "- Too short.\n- Still short.\n- Also short.") + "\n## Next\n\nBody.\n"
         issue = hard_gates.check_lede(short)
         self.assertIsNotNone(issue)
         self.assertEqual(issue.code, "lede_length")
@@ -82,11 +82,52 @@ class HardGateUnitTests(unittest.TestCase):
         self.assertIsNotNone(issue)
         self.assertEqual(issue.code, "summary_heading")
 
+    def test_french_opening_heading_and_bullets(self):
+        fr_lede = (
+            "- Une session express structure votre semaine cuisine en seulement deux heures.\n"
+            "- Travaillez en parallèle pendant que le four tourne pour vraiment gagner du temps.\n"
+            "- Rangez chaque plat en boîte étiquetée pour des soirs de semaine nettement plus simples.\n"
+            "- Anticipez le week-end afin de réduire le stress des repas en semaine."
+        )
+        art = (
+            _opening("Titre", fr_lede, heading="## À retenir")
+            + "\n## Suite\n\nCorps de l'article ici.\n"
+        )
+        self.assertIsNone(hard_gates.check_lede(art, lang="fr"))
+        self.assertIsNone(hard_gates.check_takeaways_bullets(art))
+
+        en_heading = _opening("Titre", fr_lede) + "\n## Suite\n\nCorps.\n"
+        issue = hard_gates.check_lede(en_heading, lang="fr")
+        self.assertIsNotNone(issue)
+        self.assertEqual(issue.code, "summary_heading_lang")
+
+        localized = hard_gates.localize_structural_headings(
+            "# T\n\n## Key takeaways\n\nx\n\n## Frequently Asked Questions\n\n### Q?\n\nA.\n",
+            lang="fr",
+        )
+        self.assertIn("## À retenir", localized)
+        self.assertIn("## Questions fréquentes", localized)
+        self.assertNotIn("## Key takeaways", localized)
+
+    def test_prose_takeaways_convert_to_bullets(self):
+        prose = (
+            "Online vet visits let pet owners get clinical advice without a long clinic wait. "
+            "This guide explains who telehealth works for and what to prepare beforehand. "
+            "Know when you still need an in-person exam so you book with confidence today."
+        )
+        art = _opening("Title", prose) + "\n## Next\n\nBody.\n"
+        fixed = hard_gates.ensure_takeaways_as_bullets(art)
+        self.assertIsNone(hard_gates.check_takeaways_bullets(fixed))
+        self.assertGreaterEqual(
+            len(hard_gates._TAKEAWAY_BULLET_RE.findall(hard_gates.extract_lede_text(fixed))),
+            hard_gates.TAKEAWAY_BULLET_MIN,
+        )
+
     def test_keyword_once_in_first_100(self):
         lede = (
-            "An online vet appointment helps busy owners skip waiting rooms for mild issues. "
-            "You will learn prep steps, red flags, and how to choose a reputable provider "
-            "without wasting time on the wrong option for your pet today."
+            "- An online vet appointment helps busy owners skip waiting rooms for mild issues.\n"
+            "- You will learn prep steps, red flags, and how to choose a reputable provider.\n"
+            "- Avoid wasting time on the wrong option for your pet today."
         )
         pad = " ".join(["clinic"] * 90)
         art = (
@@ -265,9 +306,9 @@ class HardGateUnitTests(unittest.TestCase):
 
     def test_faq_unapproved(self):
         lede = (
-            "An online vet appointment helps owners get advice without a long clinic wait. "
-            "This guide explains who telehealth fits, what to prepare, and when an exam "
-            "in person is still the safer choice for your animal."
+            "- An online vet appointment helps owners get advice without a long clinic wait.\n"
+            "- This guide explains who telehealth fits and what to prepare beforehand.\n"
+            "- Know when an exam in person is still the safer choice for your animal."
         )
         art = (
             _opening("How to book telehealth care", lede)
@@ -288,9 +329,9 @@ class HardGateUnitTests(unittest.TestCase):
 
     def test_evaluate_passes_clean_article(self):
         lede = (
-            "An online vet appointment helps owners get advice without a long clinic wait time. "
-            "This guide explains who telehealth fits best, what to prepare beforehand, and when "
-            "an exam in person is still the safer choice for your animal today."
+            "- An online vet appointment helps owners get advice without a long clinic wait time.\n"
+            "- This guide explains who telehealth fits best and what to prepare beforehand.\n"
+            "- Know when an exam in person is still the safer choice for your animal today."
         )
         filler = " ".join(["detail"] * 80)
         art = (

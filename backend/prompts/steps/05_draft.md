@@ -75,10 +75,11 @@ Before you output the article, check all of these:
 ☐ Case study placeholders are replaced with actual stories
 ☐ I have 3+ specific numbers or insights
 ☐ H1 is no more than 60 characters, 5–12 words, with primary keyword once
-☐ **Opening:** `# H1` → `## Key takeaways` (40–80 words of takeaways, not a summary) → hero `![alt](IMAGE: …)` → first content H2
-☐ Exact primary keyword appears once in the first 100 body words (first Key takeaways sentence). Headings do not count. Nowhere else exactly in body prose
+☐ **Opening:** `# H1` → localized takeaways H2 (`## Key takeaways` EN / `## À retenir` FR) with **3–5 bullets** (40–80 words, not a summary) → hero `![alt](IMAGE: …)` → first content H2
+☐ French articles: never use English "Key takeaways" or "Frequently Asked Questions" — use "À retenir" and "Questions fréquentes"
+☐ Exact primary keyword appears once in the first 100 body words (first takeaways bullet). Headings do not count. Nowhere else exactly in body prose
 ☐ Each secondary keyword appears at most once across headings/body
-☐ 2–3 image placeholders with descriptive alt text are in place (first image right after Key takeaways)
+☐ 2–3 image placeholders with descriptive alt text are in place (first image right after takeaways)
 ☐ 3–5 inline external links and every article-form Internal Links URL/path is woven mid-sentence
 ☐ Proof points and external cites match the outline TRUST & E-E-A-T plan — **prices and numbers only when cited from SERP/audit sources**
 ☐ Tone remains consistent from introduction through CTA
@@ -91,16 +92,18 @@ If any checkbox is false, do NOT submit. REWRITE until all are true.
 
 WRITING STANDARDS — non-negotiable:
 
-0. OPENING BLOCK (REQUIRED — H1 → Key takeaways → Image)
-   - Structure: `# H1 title` → `## Key takeaways` → **40–80 words of actionable takeaways** →
+0. OPENING BLOCK (REQUIRED — H1 → Key takeaways / À retenir → Image)
+   - Structure: `# H1 title` → localized takeaways H2 → **3–5 markdown bullets** (40–80 words) →
      `![descriptive alt text](IMAGE: hero-slug)` → `## First content H2`
+   - Heading language: English `## Key takeaways` · French `## À retenir` (never English labels in French articles).
+   - FAQ later: English `## Frequently Asked Questions` · French `## Questions fréquentes`.
    - Write **key takeaways** (what to know / decide / do) — **not** a summary of what the article covers.
-   - Prefer **3–5 short bullets** or 2–3 dense takeaway sentences. No "In this article we will…" framing.
-   - Use the **exact** primary keyword once in the first sentence of Key takeaways (this is inside the first 100 body words). Headings do not count. Do not swap in a synonym for that use.
-   - Do **not** use `## Summary`. Do **not** skip Key takeaways or place the hero image before takeaways.
+   - **Bullets are mandatory** (exactly 3–5). Do not write the takeaways block as plain paragraphs. No "In this article we will…" framing.
+   - Use the **exact** primary keyword once in the first bullet (this is inside the first 100 body words). Headings do not count. Do not swap in a synonym for that use.
+   - Do **not** use `## Summary`. Do **not** skip takeaways or place the hero image before takeaways.
    - Do **not** open with filler ("In today's world…", "If you're reading this…").
    - Follow the outline **KEY TAKEAWAYS NOTE** (or LEDE / SUMMARY NOTE); convert any planned "summary" into takeaways.
-   - **NEVER** repeat "Key takeaways", "Summary", "What you'll learn", or "In this article" headings later in the body.
+   - **NEVER** repeat "Key takeaways", "À retenir", "Summary", "What you'll learn", or "In this article" headings later in the body.
 
 1. NO FILLER OPENINGS
    Bad:  "In today's fast-paced world, businesses are increasingly turning to AI..."

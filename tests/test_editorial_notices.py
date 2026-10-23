@@ -101,6 +101,9 @@ class EditorialNoticeTests(unittest.TestCase):
         self.assertIn("en outre", fr_notice)
         self.assertIn("de plus", fr_notice)  # warned as do-not-use
         self.assertIn("Yoast FR ne le compte pas", fr_notice)
+        self.assertIn("## À retenir", fr_notice)
+        self.assertIn("## Questions fréquentes", fr_notice)
+        self.assertIn("3–5 bullets", fr_notice)
 
         combined_prompts = "\n".join(
             (
