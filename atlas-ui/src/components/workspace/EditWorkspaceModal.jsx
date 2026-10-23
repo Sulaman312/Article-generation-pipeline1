@@ -12,6 +12,7 @@ const MAX_LOGO_BYTES = 2 * 1024 * 1024;
 const EMPTY_CMS = {
   provider: "none",
   collection_id: "",
+  site_short_name: "",
   field_body: "",
   field_run_id: "",
   field_meta_title: "",
@@ -70,6 +71,7 @@ export default function EditWorkspaceModal({
           ...EMPTY_CMS,
           provider: c.provider === "webflow" ? "webflow" : "none",
           collection_id: c.collection_id || "",
+          site_short_name: c.site_short_name || "",
           field_body: c.field_body || "",
           field_run_id: c.field_run_id || "",
           field_meta_title: c.field_meta_title || "",
@@ -169,6 +171,7 @@ export default function EditWorkspaceModal({
       const cmsChanged =
         cms.provider !== initial.cms.provider ||
         cms.collection_id !== initial.cms.collection_id ||
+        cms.site_short_name !== initial.cms.site_short_name ||
         cms.field_body !== initial.cms.field_body ||
         cms.field_run_id !== initial.cms.field_run_id ||
         cms.field_meta_title !== initial.cms.field_meta_title ||
@@ -188,6 +191,7 @@ export default function EditWorkspaceModal({
         };
         if (cms.provider === "webflow") {
           patch.cms.collection_id = cms.collection_id.trim();
+          patch.cms.site_short_name = cms.site_short_name.trim();
           patch.cms.field_body = cms.field_body.trim();
           patch.cms.field_run_id = cms.field_run_id.trim();
           patch.cms.field_meta_title = cms.field_meta_title.trim();
@@ -384,6 +388,28 @@ export default function EditWorkspaceModal({
                     placeholder="Webflow collection ID"
                     disabled={busy}
                   />
+                </div>
+
+                <div>
+                  <label className="label" htmlFor="ws-edit-site-short">
+                    Designer site short name
+                  </label>
+                  <input
+                    id="ws-edit-site-short"
+                    className="input"
+                    value={cms.site_short_name}
+                    onChange={(e) =>
+                      setCmsField("site_short_name", e.target.value)
+                    }
+                    placeholder="arsuno-site"
+                    disabled={busy}
+                  />
+                  <p className="ws-edit-cms-hint">
+                    From your Designer URL:{" "}
+                    <code>https://arsuno-site.design.webflow.com/…</code> → use{" "}
+                    <code>arsuno-site</code>. Used to open the CMS item after
+                    Content to CMS.
+                  </p>
                 </div>
 
                 <div className="ws-edit-cms-grid">

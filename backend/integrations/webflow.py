@@ -11,6 +11,7 @@ import logging
 import os
 import urllib.error
 import urllib.request
+from urllib.parse import urlencode
 
 logger = logging.getLogger(__name__)
 
@@ -150,3 +151,107 @@ def list_items(*, token: str = "", collection_id: str = "") -> list[dict]:
 
 def collection_id(*, token: str = "", collection_id: str = "") -> str:
     return _credentials(token, collection_id)[1]
+
+
+def get_collection(
+    *,
+    token: str = "",
+    collection_id: str = "",
+) -> dict:
+    """Read collection metadata (may include siteId depending on API version)."""
+    token, collection_id = _credentials(token, collection_id)
+    return _request("GET", f"/collections/{collection_id}", token, None)
+
+
+def get_site(site_id: str, *, token: str = "") -> dict:
+    """Read site details including shortName for Designer URLs."""
+    token = (token or os.getenv("WEBFLOW_TOKEN") or "").strip()
+    if not token:
+        raise WebflowError(
+            "Missing Webflow credentials (token). Set them on the workspace "
+            "or in .env (WEBFLOW_TOKEN)."
+        )
+    if not (site_id or "").strip():
+        raise WebflowError("Missing Webflow site id.")
+    return _request("GET", f"/sites/{site_id.strip()}", token, None)
+
+
+def list_sites(*, token: str = "") -> list[dict]:
+    """List sites the token can access (for resolving Designer shortName)."""
+    token = (token or os.getenv("WEBFLOW_TOKEN") or "").strip()
+    if not token:
+        raise WebflowError(
+            "Missing Webflow credentials (token). Set them on the workspace "
+            "or in .env (WEBFLOW_TOKEN)."
+        )
+    result = _request("GET", "/sites", token, None)
+    return list(result.get("sites") or [])
+
+
+def resolve_site_short_name(
+    *,
+    token: str = "",
+    collection_id: str = "",
+) -> str:
+    """Best-effort Designer site slug (e.g. arsuno-site) from collection → site.
+
+    Requires sites:read on the token. Returns "" if lookup fails.
+    """
+    try:
+        token, collection_id = _credentials(token, collection_id)
+        collection = get_collection(token=token, collection_id=collection_id)
+        site_id = str(collection.get("siteId") or "").strip()
+        if site_id:
+            site = get_site(site_id, token=token)
+            short = str(site.get("shortName") or "").strip()
+            if short:
+                return short
+        # Fallback: find which listed site owns this collection.
+        for site in list_sites(token=token):
+            sid = str(site.get("id") or "").strip()
+            if not sid:
+                continue
+            try:
+                listed = _request(
+                    "GET", f"/sites/{sid}/collections", token, None
+                )
+            except WebflowError:
+                continue
+            for col in listed.get("collections") or []:
+                if str(col.get("id") or "") == collection_id:
+                    return str(site.get("shortName") or "").strip()
+    except WebflowError as e:
+        logger.info("webflow site shortName lookup skipped: %s", e)
+    return ""
+
+
+def designer_cms_url(
+    site_short_name: str,
+    *,
+    collection_id: str = "",
+    item_id: str = "",
+) -> str:
+    """Open this CMS item in the Webflow Designer (CMS workflow).
+
+    Example:
+    https://arsuno-site.design.webflow.com/?legacyEditorMigrated=true&workflow=cms
+      &collectionId=...&itemId=...
+    """
+    short = (site_short_name or "").strip().strip("/")
+    if short.startswith("https://"):
+        # Allow pasting a full designer host or base URL.
+        short = short.removeprefix("https://").removeprefix("http://")
+        short = short.split("/")[0]
+        short = short.removesuffix(".design.webflow.com")
+    if not short or not collection_id or not item_id:
+        return ""
+
+    query = urlencode(
+        {
+            "legacyEditorMigrated": "true",
+            "workflow": "cms",
+            "collectionId": collection_id,
+            "itemId": item_id,
+        }
+    )
+    return f"https://{short}.design.webflow.com/?{query}"

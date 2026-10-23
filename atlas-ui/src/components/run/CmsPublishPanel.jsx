@@ -91,6 +91,7 @@ export default function CmsPublishPanel({ client, runId, toast }) {
   const disabled = status === "disabled" || info?.provider === "none";
   const isLive = status === "published" || status === "changes_in_draft";
   const liveUrl = isHttpUrl(info?.live_url) ? info.live_url : "";
+  const designerUrl = isHttpUrl(info?.designer_url) ? info.designer_url : "";
   const title =
     info?.provider === "webflow"
       ? "Webflow"
@@ -143,6 +144,23 @@ export default function CmsPublishPanel({ client, runId, toast }) {
       ) : null}
 
       {error && !disabled ? <p className="cms-panel-error">{error}</p> : null}
+
+      {!disabled && info?.sent && designerUrl ? (
+        <p className="cms-panel-line">
+          <span className="cms-panel-label">Open in Designer</span>
+          <a href={designerUrl} target="_blank" rel="noopener noreferrer">
+            Review / publish in Webflow CMS
+          </a>
+        </p>
+      ) : null}
+
+      {!disabled && info?.sent && !designerUrl && status !== "missing" ? (
+        <p className="cms-panel-muted">
+          Set <strong>Designer site short name</strong> on this workspace (Edit
+          workspace), e.g. <code>arsuno-site</code>, to open this item in the
+          Webflow Designer.
+        </p>
+      ) : null}
 
       {!disabled && isLive ? (
         liveUrl ? (

@@ -111,6 +111,39 @@ class RunStepTests(unittest.TestCase):
         self.addCleanup(env.stop)
         artifacts.save_artifact("c", "r", "final_output", FINAL_OUTPUT)
 
+    def test_designer_cms_url_includes_item_and_collection(self):
+        url = webflow.designer_cms_url(
+            "arsuno-site",
+            collection_id="col-1",
+            item_id="item-9",
+        )
+        self.assertTrue(url.startswith("https://arsuno-site.design.webflow.com/?"))
+        self.assertIn("workflow=cms", url)
+        self.assertIn("collectionId=col-1", url)
+        self.assertIn("itemId=item-9", url)
+
+    def test_send_includes_designer_link_when_site_short_name_set(self):
+        artifacts.write_workspace_meta(
+            "c",
+            {
+                "display_name": "C",
+                "cms": {
+                    "provider": "webflow",
+                    "token": "tok",
+                    "collection_id": "col-1",
+                    "site_short_name": "arsuno-site",
+                },
+            },
+        )
+        with mock.patch.object(webflow, "create_draft_item", return_value="item-1"):
+            out = content_to_cms.run_content_to_cms("c", "r")
+        self.assertIn(
+            "https://arsuno-site.design.webflow.com/",
+            out,
+        )
+        self.assertIn("itemId=item-1", out)
+        self.assertIn("collectionId=col-1", out)
+
     def test_creates_draft_with_expected_fields(self):
         with mock.patch.object(webflow, "create_draft_item", return_value="item-1") as create:
             out = content_to_cms.run_content_to_cms("c", "r")

@@ -126,6 +126,10 @@ def resolve_cms_config(client_id: str = "") -> dict[str, str]:
             "field_meta_description", "WEBFLOW_FIELD_META_DESCRIPTION", ""
         ),
         "field_published_date": field_published_date,
+        # Designer host slug, e.g. arsuno-site → https://arsuno-site.design.webflow.com/
+        "site_short_name": pick(
+            "site_short_name", "WEBFLOW_SITE_SHORT_NAME", ""
+        ),
         "live_url_base": live.rstrip("/"),
     }
 
@@ -153,6 +157,7 @@ def public_cms_settings(client_id: str) -> dict:
         "field_published_date": str(cms.get("field_published_date") or "").strip()
         if "field_published_date" in cms
         else "",
+        "site_short_name": str(cms.get("site_short_name") or "").strip(),
         "token_set": bool(token),
         "token_hint": (f"••••{token[-4:]}" if len(token) >= 4 else ("••••" if token else "")),
     }
@@ -172,6 +177,7 @@ def merge_cms_settings(existing: dict | None, patch: dict | None) -> dict:
         "field_meta_title",
         "field_meta_description",
         "field_published_date",
+        "site_short_name",
     )
     for key in keys:
         if key not in incoming:
@@ -404,6 +410,15 @@ def run_content_to_cms(client_id: str, run_id: str, previous_artifact: str = "")
         item_id = webflow.create_draft_item(field_data, **wf)
 
     sent_at = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
+    designer = _designer_url(item_id, client_id, cms)
+    designer_line = (
+        f"- Designer CMS: {designer}\n"
+        if designer
+        else (
+            "- Designer CMS: (set site short name on this workspace, e.g. arsuno-site, "
+            "or WEBFLOW_SITE_SHORT_NAME, to show the Designer link)\n"
+        )
+    )
     output = (
         "## Draft sent to CMS\n\n"
         f"- Result: {result}\n"
@@ -411,11 +426,12 @@ def run_content_to_cms(client_id: str, run_id: str, previous_artifact: str = "")
         f"- Slug: {post['slug']}\n"
         f"- Webflow item ID: {item_id}\n"
         f"- Collection ID: {collection_id}\n"
+        f"{designer_line}"
         f"- Sent at: {sent_at}\n\n"
         f"- Meta title: {meta_title or '(not set, run the Meta Title & Description step)'}\n"
         f"- Meta description: {meta_description or '(not set, run the Meta Title & Description step)'}\n"
-        "Open Webflow CMS, find this draft, review it, then publish it there. "
-        "Running this step again updates the same draft.\n"
+        "Open the Designer CMS link to review this draft, then publish it in Webflow. "
+        "Running this step again updates the same draft (unless it is already published).\n"
     )
     output = wrap_step_artifact(STEP_NAME, output)
     artifacts.save_artifact(client_id, run_id, STEP_NAME, output)
@@ -442,6 +458,31 @@ def _live_url(slug: str, client_id: str = "", cms: dict | None = None) -> str:
     return f"{base}/{slug}"
 
 
+def _site_short_name(cms: dict) -> str:
+    """Configured Designer short name, or look it up once via the Webflow API."""
+    configured = (cms.get("site_short_name") or "").strip()
+    if configured:
+        return configured
+    short = webflow.resolve_site_short_name(**_webflow_kwargs(cms))
+    return short
+
+
+def _designer_url(
+    item_id: str,
+    client_id: str = "",
+    cms: dict | None = None,
+) -> str:
+    """Webflow Designer CMS deep link for this item (review / publish next)."""
+    if cms is None:
+        cms = resolve_cms_config(client_id) if client_id else resolve_cms_config("")
+    short = _site_short_name(cms)
+    return webflow.designer_cms_url(
+        short,
+        collection_id=cms.get("collection_id") or "",
+        item_id=item_id,
+    )
+
+
 def fetch_status(client_id: str, run_id: str) -> dict:
     """Ask the configured CMS whether the draft sent by this run has been published.
 
@@ -456,6 +497,7 @@ def fetch_status(client_id: str, run_id: str) -> dict:
             "sent": False,
             "status": "disabled",
             "live_url": "",
+            "designer_url": "",
             "last_published": "",
             "item_id": "",
             "slug": "",
@@ -470,6 +512,7 @@ def fetch_status(client_id: str, run_id: str) -> dict:
             "sent": False,
             "status": "not_sent",
             "live_url": "",
+            "designer_url": "",
             "last_published": "",
             "item_id": "",
             "slug": "",
@@ -489,6 +532,7 @@ def fetch_status(client_id: str, run_id: str) -> dict:
                 "sent": True,
                 "status": "missing",
                 "live_url": "",
+                "designer_url": "",
                 "last_published": "",
                 "item_id": item_id,
                 "slug": "",
@@ -508,6 +552,7 @@ def fetch_status(client_id: str, run_id: str) -> dict:
         "sent": True,
         "status": status,
         "live_url": _live_url(slug, client_id, cms) if last_published else "",
+        "designer_url": _designer_url(item_id, client_id, cms),
         "last_published": last_published,
         "item_id": item_id,
         "slug": slug,
@@ -642,11 +687,19 @@ def sync_published_status(client_id: str, force: bool = False) -> dict:
         if statuses.get(STEP_NAME) == "done":
             continue
         if not _previous_send(client_id, run_id)[0]:
+            item_id = info.get("item_id") or ""
+            designer = _designer_url(item_id, client_id, cms) if item_id else ""
+            designer_line = (
+                f"- Designer CMS: {designer}\n"
+                if designer
+                else ""
+            )
             body = (
                 "## Already published in CMS\n\n"
                 "- Result: linked to the item that is already published in Webflow\n"
-                f"- Webflow item ID: {info['item_id']}\n"
+                f"- Webflow item ID: {item_id}\n"
                 f"- Collection ID: {collection}\n"
+                f"{designer_line}"
             )
             artifacts.save_artifact(
                 client_id, run_id, STEP_NAME, wrap_step_artifact(STEP_NAME, body)
