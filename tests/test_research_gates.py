@@ -53,7 +53,8 @@ class NewPipelineStepsTests(unittest.TestCase):
             self.assertNotIn(key, ARTICLE_STEP_ORDER)
             self.assertNotIn(key, STEP_RUNNERS)
         self.assertEqual(STEP_ORDER, ARTICLE_STEP_ORDER)
-        self.assertEqual(len(ARTICLE_STEP_ORDER), 10)
+        self.assertEqual(len(ARTICLE_STEP_ORDER), 11)
+        self.assertEqual(ARTICLE_STEP_ORDER[-1], "content_to_cms")
 
     def test_fact_check_uses_draft(self):
         statuses = {name: "done" for name in ARTICLE_STEP_ORDER}

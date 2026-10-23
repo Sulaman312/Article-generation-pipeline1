@@ -55,6 +55,55 @@ class FakeBucket:
         self.blobs.pop(blob_id, None)
 
 
+class FakeAuthCollection:
+    def __init__(self):
+        self.docs: list[dict] = []
+
+    def create_index(self, *args, **kwargs):
+        return "idx"
+
+    def find_one(self, query):
+        for doc in self.docs:
+            if all(doc.get(k) == v for k, v in query.items()):
+                return dict(doc)
+        return None
+
+    def insert_one(self, doc):
+        self.docs.append(dict(doc))
+        return SimpleNamespace(inserted_id="1")
+
+    def update_one(self, query, update):
+        doc = self.find_one(query)
+        if doc is None:
+            return SimpleNamespace(matched_count=0)
+        for key, value in (update.get("$set") or {}).items():
+            doc[key] = value
+        for i, row in enumerate(self.docs):
+            if all(row.get(k) == v for k, v in query.items()):
+                self.docs[i] = doc
+                break
+        return SimpleNamespace(matched_count=1)
+
+    def delete_one(self, query):
+        before = len(self.docs)
+        self.docs = [
+            doc
+            for doc in self.docs
+            if not all(doc.get(k) == v for k, v in query.items())
+        ]
+        return SimpleNamespace(deleted_count=before - len(self.docs))
+
+
+class FakeDatabase:
+    def __init__(self):
+        self._collections: dict[str, FakeAuthCollection] = {}
+
+    def __getitem__(self, name: str) -> FakeAuthCollection:
+        if name not in self._collections:
+            self._collections[name] = FakeAuthCollection()
+        return self._collections[name]
+
+
 class MongoStorageTests(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory(ignore_cleanup_errors=True)
@@ -66,11 +115,17 @@ class MongoStorageTests(unittest.TestCase):
         config.CLIENTS_DIR = Path(self.temp.name) / "cache"
         self.files = FakeFilesCollection()
         self.bucket = FakeBucket()
+        self.db = FakeDatabase()
+        # Pretend we are already connected so _connect() never hits test.invalid.
         mongo_storage._client = object()
+        mongo_storage._db = self.db
         mongo_storage._files = self.files
         mongo_storage._bucket = self.bucket
         mongo_storage._snapshot = {}
         mongo_storage._known_paths = set()
+        mongo_storage._set_startup_state(
+            "ready", attempt=1, last_error=None, hydrated_files=0
+        )
 
     def tearDown(self):
         config.MONGODB_URI = self.original_uri
@@ -82,7 +137,46 @@ class MongoStorageTests(unittest.TestCase):
         mongo_storage._bucket = None
         mongo_storage._snapshot = {}
         mongo_storage._known_paths = set()
+        mongo_storage._set_startup_state(
+            "disabled", attempt=0, last_error=None, hydrated_files=0
+        )
         self.temp.cleanup()
+
+    def _create_app(self):
+        """Build Flask app without background hydrate racing the fakes."""
+        from backend import auth_store
+        from backend.app import create_app
+
+        auth_store.reset_memory_store_for_tests()
+        # Keep fake connection / ready state across create_app().
+        mongo_storage._client = object()
+        mongo_storage._db = self.db
+        mongo_storage._files = self.files
+        mongo_storage._bucket = self.bucket
+        mongo_storage._set_startup_state(
+            "ready", attempt=1, last_error=None, hydrated_files=0
+        )
+
+        def _ready_init():
+            mongo_storage._set_startup_state(
+                "ready", attempt=1, last_error=None, hydrated_files=0
+            )
+            return 0
+
+        with patch(
+            "backend.mongo_storage.initialize_runtime_cache", side_effect=_ready_init
+        ), patch(
+            "backend.mongo_storage.initialize_runtime_cache_background",
+            side_effect=lambda: _ready_init(),
+        ):
+            app = create_app()
+        auth_store.ensure_default_admin()
+        login = app.test_client().post(
+            "/auth/login",
+            json={"username": "admin", "password": "admin123"},
+        )
+        token = (login.get_json() or {}).get("token") or ""
+        return app, {"Authorization": f"Bearer {token}"}
 
     def test_sync_replaces_and_deletes_binary_file(self):
         mongo_storage._write_cache_metadata()
@@ -191,25 +285,24 @@ class MongoStorageTests(unittest.TestCase):
         sleep.assert_called_once_with(0.25)
 
     def test_flask_mutations_are_written_through(self):
-        from backend.app import create_app
-
-        app = create_app()
+        app, headers = self._create_app()
         client = app.test_client()
         response = client.post(
-            "/clients/client-a", json={"display_name": "Client A"}
+            "/clients/client-a",
+            json={"display_name": "Client A"},
+            headers=headers,
         )
         self.assertEqual(response.status_code, 200)
         self.assertIn("client-a/workspace.json", self.files.docs)
 
-        response = client.delete("/clients/client-a")
+        response = client.delete("/clients/client-a", headers=headers)
         self.assertEqual(response.status_code, 200)
         self.assertNotIn("client-a/workspace.json", self.files.docs)
 
     def test_pipeline_step_returns_202_then_persists_background_result(self):
         from backend import artifacts
-        from backend.app import create_app
 
-        app = create_app()
+        app, headers = self._create_app()
         artifacts.save_run_manifest(
             "client-a",
             "run-a",
@@ -236,6 +329,7 @@ class MongoStorageTests(unittest.TestCase):
             response = app.test_client().post(
                 "/clients/client-a/runs/run-a/steps/topic_card",
                 json={"previous_artifact": "Test topic"},
+                headers=headers,
             )
             self.assertEqual(response.status_code, 202)
             self.assertTrue(response.get_json()["accepted"])
@@ -246,6 +340,7 @@ class MongoStorageTests(unittest.TestCase):
             release.set()
 
             deadline = time.time() + 3
+            completed = running
             while time.time() < deadline:
                 completed = artifacts.read_run_manifest("client-a", "run-a")
                 if (
@@ -256,12 +351,12 @@ class MongoStorageTests(unittest.TestCase):
                 time.sleep(0.02)
             self.assertEqual(completed["statuses"]["topic_card"], "done")
             self.assertIn("client-a/runs/run-a/topic_card.md", self.files.docs)
+            self._wait_for_step_job(("client-a", "run-a", "topic_card"))
 
     def test_background_step_error_is_available_to_polling_client(self):
         from backend import artifacts
-        from backend.app import create_app
 
-        app = create_app()
+        app, headers = self._create_app()
         artifacts.save_run_manifest(
             "client-a",
             "run-error",
@@ -282,10 +377,12 @@ class MongoStorageTests(unittest.TestCase):
             response = app.test_client().post(
                 "/clients/client-a/runs/run-error/steps/topic_card",
                 json={"previous_artifact": "Test topic"},
+                headers=headers,
             )
             self.assertEqual(response.status_code, 202)
 
             deadline = time.time() + 3
+            failed = artifacts.read_run_manifest("client-a", "run-error")
             while time.time() < deadline:
                 failed = artifacts.read_run_manifest("client-a", "run-error")
                 if failed["statuses"]["topic_card"] == "error":
@@ -293,6 +390,18 @@ class MongoStorageTests(unittest.TestCase):
                 time.sleep(0.02)
             self.assertEqual(failed["statuses"]["topic_card"], "error")
             self.assertIn("provider unavailable", failed["step_errors"]["topic_card"])
+            self._wait_for_step_job(("client-a", "run-error", "topic_card"))
+
+    def _wait_for_step_job(self, key: tuple[str, str, str], timeout: float = 3.0) -> None:
+        """Wait until the background step thread finishes (incl. Mongo sync)."""
+        from backend.api.routes import runs as runs_mod
+
+        deadline = time.time() + timeout
+        while time.time() < deadline:
+            with runs_mod._STEP_JOBS_LOCK:
+                if key not in runs_mod._STEP_JOBS:
+                    return
+            time.sleep(0.02)
 
     def test_template_metadata_supports_mongo_cache_outside_repo(self):
         import json
