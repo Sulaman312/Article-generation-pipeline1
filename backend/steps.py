@@ -144,12 +144,17 @@ def _editorial_notices_for_run(client_id: str, run_id: str) -> str:
         if isinstance(manual, dict)
         else ""
     )
+    lang = (
+        editorial_input.article_language_from_manual(manual)
+        if isinstance(manual, dict)
+        else "en"
+    )
     return (
         notes
         + editorial_input.internal_links_editorial_notice(
             manual if isinstance(manual, dict) else None
         )
-        + editorial_input.seo_readability_notice()
+        + editorial_input.seo_readability_notice(lang)
         + editorial_input.writing_format_guidelines_notice()
         + _faq_notice_for_run(client_id, run_id)
         + _external_links_notice_for_run(client_id, run_id)
@@ -303,7 +308,11 @@ def run_step_1(client_id: str, run_id: str, previous_artifact: str = "") -> str:
     if isinstance(manual, dict):
         unique += editorial_input.notes_editorial_notice(manual)
         unique += editorial_input.internal_links_editorial_notice(manual)
-    unique += editorial_input.seo_readability_notice()
+    unique += editorial_input.seo_readability_notice(
+        editorial_input.article_language_from_manual(manual)
+        if isinstance(manual, dict)
+        else "en"
+    )
     if wc_target:
         unique += editorial_input.mandatory_word_count_notice(wc_target)
     unique = _with_word_count_user(unique, wc_target)
@@ -752,8 +761,11 @@ def run_step_5(client_id: str, run_id: str, previous_artifact: str = "") -> str:
             words,
             wc_target,
         )
+    draft_lang = editorial_input.article_language_from_manual(
+        (artifacts.read_run_manifest(client_id, run_id) or {}).get("manual_inputs")
+    )
     output = writing_format_enforce.enforce_article(
-        output, stage="draft", allow_llm_repair=True
+        output, stage="draft", allow_llm_repair=True, lang=draft_lang
     )
     # Format repair can inflate length — re-assert the generation window.
     if wc_target:

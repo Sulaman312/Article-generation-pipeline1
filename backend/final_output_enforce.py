@@ -757,11 +757,13 @@ def enforce_final_output(
     from . import cta_html
 
     cta_href = resolve_cta_href(client_id)
+    article_lang = editorial_input.article_language_from_manual(manual)
     article = writing_format_enforce.enforce_article(
         article,
         stage="final",
         allow_llm_repair=allow_llm_repair,
         cta_href=cta_href,
+        lang=article_lang,
     )
     # Lint expects markdown CTAs; convert to workspace HTML shell afterward.
     article = cta_html.apply_workspace_cta_html(

@@ -60,10 +60,11 @@ class WritingFormatLintTests(unittest.TestCase):
         text = (
             "## Why shadow AI matters\n\n"
             "Teams deploy AI tools without oversight. "
-            "That gap creates compliance risk you can fix today.\n\n"
+            "However, that gap creates compliance risk you can fix today.\n\n"
             "## What to do next\n\n"
-            "Start with an inventory of every AI tool in use. "
-            "Document owners and data flows before you scale."
+            "First, start with an inventory of every AI tool in use. "
+            "Then document owners and data flows before you scale. "
+            "Finally, assign clear ownership so the program holds."
         )
         report = lint.lint(text, stage="draft")
         self.assertTrue(report.ok, report.summary())

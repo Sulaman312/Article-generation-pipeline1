@@ -30,6 +30,7 @@ def enforce_outline(
     *,
     allow_llm_repair: bool = True,
     cta_href: str | None = None,
+    lang: str | None = None,
 ) -> str:
     """Lint and repair outline artifacts."""
     return _enforce(
@@ -37,6 +38,7 @@ def enforce_outline(
         stage="outline",
         allow_llm_repair=allow_llm_repair,
         cta_href=cta_href,
+        lang=lang,
     )
 
 
@@ -45,6 +47,7 @@ def enforce_brief(
     *,
     allow_llm_repair: bool = True,
     cta_href: str | None = None,
+    lang: str | None = None,
 ) -> str:
     """Lint and repair assignment brief artifacts."""
     return _enforce(
@@ -52,6 +55,7 @@ def enforce_brief(
         stage="brief",
         allow_llm_repair=allow_llm_repair,
         cta_href=cta_href,
+        lang=lang,
     )
 
 
@@ -61,6 +65,7 @@ def enforce_article(
     stage: lint_mod.Stage = "draft",
     allow_llm_repair: bool = True,
     cta_href: str | None = None,
+    lang: str | None = None,
 ) -> str:
     """Lint and repair draft or final article markdown."""
     return _enforce(
@@ -68,6 +73,7 @@ def enforce_article(
         stage=stage,
         allow_llm_repair=allow_llm_repair,
         cta_href=cta_href,
+        lang=lang,
     )
 
 
@@ -77,6 +83,7 @@ def _enforce(
     stage: lint_mod.Stage,
     allow_llm_repair: bool,
     cta_href: str | None = None,
+    lang: str | None = None,
 ) -> str:
     if not (text or "").strip():
         return text
@@ -85,7 +92,7 @@ def _enforce(
     for entry in fix_log:
         logger.info("writing_format deterministic: %s", entry)
 
-    report = lint_mod.lint(current, stage=stage, cta_href=cta_href)
+    report = lint_mod.lint(current, stage=stage, cta_href=cta_href, lang=lang)
     if report.ok:
         return current
 
@@ -100,7 +107,7 @@ def _enforce(
         return current
 
     for round_i in range(_MAX_REPAIR_ROUNDS):
-        report = lint_mod.lint(current, stage=stage, cta_href=cta_href)
+        report = lint_mod.lint(current, stage=stage, cta_href=cta_href, lang=lang)
         if report.ok:
             break
         try:
@@ -110,13 +117,14 @@ def _enforce(
                 stage=stage,
                 round_i=round_i + 1,
                 cta_href=cta_href,
+                lang=lang,
             )
         except Exception:
             logger.exception("writing_format LLM repair failed (stage=%s)", stage)
             break
         current, _ = lint_mod.apply_deterministic_fixes(current, cta_href=cta_href)
 
-    final = lint_mod.lint(current, stage=stage, cta_href=cta_href)
+    final = lint_mod.lint(current, stage=stage, cta_href=cta_href, lang=lang)
     if not final.ok:
         logger.warning(
             "writing_format still has %s violation(s) after repair: %s",
@@ -133,12 +141,26 @@ def _repair_llm(
     stage: lint_mod.Stage,
     round_i: int,
     cta_href: str | None = None,
+    lang: str | None = None,
 ) -> str:
     preferred = (cta_href or lint_mod.DEFAULT_CTA_HREF).strip()
+    article_lang = lint_mod.detect_article_lang(markdown, hint=lang)
+    fr_note = ""
+    if article_lang == "fr" and any(
+        v.code == "TRANSITION_WORDS" for v in report.violations
+    ):
+        fr_note = (
+            "\nFrench Yoast transition fix: use recognized connectors only "
+            "(en effet, par exemple, donc, ainsi, ensuite, enfin, cependant, "
+            "toutefois, en revanche, par ailleurs, en outre, en plus, car, "
+            "parce que, c'est pourquoi). Never use \"de plus\" — Yoast ignores it.\n"
+        )
     user = (
         f"Stage: {stage}\n"
         f"Repair round: {round_i}\n"
-        f"Preferred CTA href for this client: {preferred}\n\n"
+        f"Preferred CTA href for this client: {preferred}\n"
+        f"Article language: {article_lang}\n"
+        f"{fr_note}\n"
         f"Fix these format violations only:\n{report.summary()}\n\n"
         f"---DOCUMENT---\n{markdown.strip()}\n"
     )

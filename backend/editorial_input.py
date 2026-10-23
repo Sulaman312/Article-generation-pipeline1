@@ -420,8 +420,29 @@ def notes_editorial_notice(manual: dict | None) -> str:
     )
 
 
-def seo_readability_notice() -> str:
+def seo_readability_notice(lang: str | None = None) -> str:
     """Shared SEO/readability rules injected from brief through final output."""
+    from . import yoast_transitions
+
+    code = (lang or "en").lower()
+    if code == "fr":
+        transition_line = (
+            "- **Mots de transition (Yoast FR — non-négociable):** au moins **30%** des "
+            "phrases du corps doivent contenir un connecteur **reconnu par Yoast**. "
+            f"Exemples sûrs: {yoast_transitions.prompt_examples('fr')}. "
+            'N\'utilisez **pas** « de plus » (Yoast FR ne le compte pas) — préférez '
+            "« en outre » ou « en plus ». Quand vous coupez une idée longue en phrases "
+            "courtes, commencez les phrases suivantes par un connecteur — pas d'empilement "
+            "de phrases sèches sans lien logique.\n"
+        )
+    else:
+        transition_line = (
+            "- **Transition words (Yoast/readability):** at least **30%** of body sentences "
+            "must include a Yoast-recognized transition word "
+            f"({yoast_transitions.prompt_examples('en')}). Prefer short connectors at "
+            "sentence starts when splitting long ideas — do not leave choppy unlinked "
+            "sentence stacks.\n"
+        )
     return (
         "\n\n=== SEO & READABILITY RULES (NON-NEGOTIABLE) ===\n"
         "- **H1 title:** maximum **60 characters**, **5-12 words**, with the primary keyword "
@@ -446,13 +467,7 @@ def seo_readability_notice() -> str:
         "`![descriptive alt text](IMAGE: slug-or-description)`.\n"
         "- **Tone:** keep brand voice, formality, perspective, and energy consistent from the "
         "introduction through the CTA.\n"
-        "- **Transition words (Yoast/readability):** at least **30%** of body sentences must "
-        "include a natural transition word in the article language (EN: however, therefore, "
-        "for example, in addition, also, next, finally, meanwhile, as a result, because, so, "
-        "first, then, instead, specifically; FR: cependant, donc, par exemple, de plus, aussi, "
-        "ensuite, enfin, ainsi, toutefois, d'abord, autrement dit, en revanche). Prefer short "
-        "connectors at sentence starts when splitting long ideas — do not leave choppy "
-        "unlinked sentence stacks.\n"
+        f"{transition_line}"
     )
 
 

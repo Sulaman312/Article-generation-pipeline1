@@ -6,6 +6,8 @@ import re
 from dataclasses import dataclass, field
 from typing import Literal
 
+from . import yoast_transitions
+
 Stage = Literal["outline", "draft", "final", "brief"]
 
 BRIEF_START = "---BRIEF START---"
@@ -37,8 +39,17 @@ _BANNED_CLOSING_HEADING = re.compile(
 _HEADING_MD_RE = re.compile(r"^(#{1,4})\s+(.+)$")
 _OUTLINE_HEADING_RE = re.compile(r"^(H[1-4]):\s*(.+)$", re.I)
 _WORD_RE = re.compile(r"\b[\w''’-]+\b", re.UNICODE)
-_SENTENCE_SPLIT_RE = re.compile(r'(?<=[.!?])\s+(?=[A-Z"\'(])')
+# Allow accented capitals (French À, É, …) at sentence starts.
+_SENTENCE_SPLIT_RE = re.compile(
+    r'(?<=[.!?])\s+(?=[\\"\'(\[]*[A-ZÀÂÄÆÇÉÈÊËÎÏÔŒÙÛÜŸ])',
+    re.UNICODE,
+)
 _ACRONYM_RE = re.compile(r"^[A-Z0-9]{2,}$")
+_FR_BODY_HINT_RE = re.compile(
+    r"\b(les|des|une|dans|pour|avec|est|sont|cette|ces|qui|que|pas|"
+    r"aussi|donc|ainsi|cependant|lorsque|selon)\b",
+    re.I,
+)
 
 
 @dataclass(frozen=True)
@@ -72,13 +83,27 @@ def lint(
     *,
     stage: Stage = "draft",
     cta_href: str | None = None,
+    lang: str | None = None,
 ) -> LintReport:
     """Run stage-appropriate format checks."""
     if stage == "outline":
         return _lint_outline(text)
     if stage == "brief":
         return _lint_brief(text)
-    return _lint_article(text, stage=stage, cta_href=cta_href)
+    return _lint_article(text, stage=stage, cta_href=cta_href, lang=lang)
+
+
+def detect_article_lang(text: str, *, hint: str | None = None) -> str:
+    """Prefer explicit hint; otherwise score French function words in the body."""
+    code = (hint or "").strip().lower()
+    if code in ("fr", "en", "de", "es", "it"):
+        return code
+    body = _article_body(text)
+    sample = body[:8000]
+    fr_hits = len(_FR_BODY_HINT_RE.findall(sample))
+    if fr_hits >= 12 or "questions fréquentes" in sample.lower():
+        return "fr"
+    return "en"
 
 
 def strip_em_dashes(text: str) -> tuple[str, bool]:
@@ -172,12 +197,17 @@ def _lint_outline(text: str) -> LintReport:
 
 
 def _lint_article(
-    text: str, *, stage: Stage, cta_href: str | None = None
+    text: str,
+    *,
+    stage: Stage,
+    cta_href: str | None = None,
+    lang: str | None = None,
 ) -> LintReport:
     report = LintReport(stage=stage)
     body = _article_body(text)
     lines = body.splitlines()
     h2_lines: list[tuple[int, str]] = []
+    article_lang = detect_article_lang(text, hint=lang)
 
     for i, line in enumerate(lines, start=1):
         stripped = line.strip()
@@ -216,11 +246,61 @@ def _lint_article(
     _lint_paragraphs(body, report)
     _lint_h2_h3_bridges(lines, report)
     _lint_sections_end_on_bullets(lines, report)
+    _lint_transition_words(body, report, lang=article_lang)
 
     if stage == "final":
         _lint_cta_slugs(body, report, cta_href=cta_href)
 
     return report
+
+
+def _collect_body_sentences(body: str) -> list[str]:
+    """Body prose sentences only (skip headings, CTAs, images, bullets)."""
+    out: list[str] = []
+    for block in re.split(r"\n\s*\n", body or ""):
+        block = block.strip()
+        if not block:
+            continue
+        first = block.splitlines()[0].strip()
+        if _HEADING_MD_RE.match(first) or first.startswith("```"):
+            continue
+        if re.match(r"^[-*+]\s", first):
+            continue
+        if first.startswith("**") and first.endswith("**"):
+            continue
+        if first.startswith("![") or first.startswith("IMAGE:"):
+            continue
+        out.extend(_sentences(block))
+    return out
+
+
+def _lint_transition_words(body: str, report: LintReport, *, lang: str) -> None:
+    """Yoast: ≥30% of body sentences need a recognized transition word."""
+    if lang not in ("en", "fr"):
+        return
+    sents = _collect_body_sentences(body)
+    if not yoast_transitions.meets_threshold(sents, lang):
+        ratio = yoast_transitions.transition_ratio(sents, lang)
+        pct = int(round(ratio * 100))
+        need = int(yoast_transitions.MIN_TRANSITION_RATIO * 100)
+        examples = yoast_transitions.prompt_examples(lang)
+        avoid = (
+            ' Do not use "de plus" — Yoast French does not count it; use "en outre" or "en plus".'
+            if lang == "fr"
+            else ""
+        )
+        report.violations.append(
+            FormatViolation(
+                "TRANSITION_WORDS",
+                (
+                    f"Only ~{pct}% of body sentences use Yoast-recognized transition "
+                    f"words (need ≥{need}%). Weave natural connectors "
+                    f"({examples}).{avoid} Prefer starting follow-up sentences with a "
+                    "connector after you split long ideas."
+                ),
+                excerpt=f"{len(sents)} sentences scored",
+            )
+        )
 
 
 def _article_body(text: str) -> str:

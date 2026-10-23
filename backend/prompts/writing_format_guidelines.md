@@ -21,10 +21,11 @@
 - No sentence may carry more than one subordinate clause. If it needs more than two commas, split it. Apply the read-aloud test (one breath).
 - Vary sentence structure and length; avoid mechanically repeating short-sentence-then-long-explanation.
 - No trailing filler: every sentence should end on its strongest word; cut closing clauses that add nothing.
-- **Transition words (Yoast):** at least **30%** of body sentences must include a natural transition/connector in the article language. When you split a long idea into short sentences, start follow-ups with connectors so the prose does not read as an unlinked stack.
+- **Transition words (Yoast):** at least **30%** of body sentences must include a **Yoast-recognized** transition/connector in the article language. When you split a long idea into short sentences, start follow-ups with connectors so the prose does not read as an unlinked stack.
   - EN examples: however, therefore, for example, in addition, also, next, finally, meanwhile, as a result, because, so, first, then, instead, specifically.
-  - FR examples: cependant, donc, par exemple, de plus, aussi, ensuite, enfin, ainsi, toutefois, d'abord, autrement dit, en revanche.
-  - Do not pad with empty phrases ("It is important to note"); use real logical connectors only.
+  - FR examples (Yoast-recognized only): en effet, par exemple, donc, ainsi, ensuite, enfin, cependant, toutefois, en revanche, par ailleurs, en outre, en plus, car, parce que, c'est pourquoi, d'abord, puis, également, notamment, autrement dit.
+  - **French pitfall:** do **not** rely on « de plus » — Yoast FR does **not** count it. Use « en outre » or « en plus » instead.
+  - Do not pad with empty phrases ("It is important to note" / "Il est important de noter"); use real logical connectors only.
 
 ## Punctuation
 

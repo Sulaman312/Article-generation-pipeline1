@@ -92,8 +92,15 @@ class EditorialNoticeTests(unittest.TestCase):
         self.assertIn("one normal paragraph of **2–4 sentences**", notice)
         self.assertIn("Transition words", notice)
         self.assertIn("30%", notice)
+        self.assertNotIn("de plus", notice)
         self.assertNotIn("one sentence per line", notice)
         self.assertNotIn("once in H1 only", notice)
+
+        fr_notice = editorial_input.seo_readability_notice("fr")
+        self.assertIn("Mots de transition", fr_notice)
+        self.assertIn("en outre", fr_notice)
+        self.assertIn("de plus", fr_notice)  # warned as do-not-use
+        self.assertIn("Yoast FR ne le compte pas", fr_notice)
 
         combined_prompts = "\n".join(
             (
