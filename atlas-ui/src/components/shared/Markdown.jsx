@@ -444,9 +444,30 @@ function renderParagraphBlock(block, key) {
   );
 }
 
+function sanitizeWorkspaceHtml(html) {
+  // Workspace CTA templates only — strip scripts/handlers; keep structure + styles.
+  return String(html || "")
+    .replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi, "")
+    .replace(/\son\w+\s*=\s*(['"]).*?\1/gi, "")
+    .replace(/\son\w+\s*=\s*[^\s>]+/gi, "")
+    .replace(/javascript:/gi, "");
+}
+
 function renderBlock(block, idx) {
   const k = `b-${idx}`;
   switch (block.type) {
+    case "html": {
+      const safe = sanitizeWorkspaceHtml(block.html);
+      if (!safe.trim()) return null;
+      return (
+        <div
+          key={k}
+          className="md-html-block md-workspace-cta"
+          // Trusted workspace CTA shell from cta_guidelines.md (scripts stripped).
+          dangerouslySetInnerHTML={{ __html: safe }}
+        />
+      );
+    }
     case "heading": {
       if (isSerpPreambleTitle(block.text) || isFactcheckPreambleTitle(block.text))
         return null;

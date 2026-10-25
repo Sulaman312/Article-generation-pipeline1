@@ -103,16 +103,23 @@ def _looks_like_cta_html(block: str) -> bool:
 
 def resolve_cta_html_template(client_id: str) -> str | None:
     """Load HTML CTA template for a workspace, or None if not configured."""
-    from . import config
+    from . import artifacts
 
-    path = config.CLIENTS_DIR / client_id / "context" / "cta_guidelines.md"
-    if not path.is_file():
-        return None
     try:
-        text = path.read_text(encoding="utf-8")
-    except OSError:
-        return None
-    return extract_cta_html_template(text)
+        text = artifacts.read_context_file(client_id, "cta_guidelines.md")
+    except ValueError:
+        text = None
+    if not text:
+        # Fallback: direct disk read (same path layout as context files).
+        from . import config
+
+        path = config.CLIENTS_DIR / client_id / "context" / "cta_guidelines.md"
+        if path.is_file():
+            try:
+                text = path.read_text(encoding="utf-8")
+            except OSError:
+                text = None
+    return extract_cta_html_template(text or "")
 
 
 def _norm_href(href: str) -> str:
@@ -154,6 +161,30 @@ def _hrefs_match(a: str, b: str) -> bool:
         return True
     # Both look like CTA destinations (contact/demo) — treat as match.
     return _looks_like_cta_href(na) and _looks_like_cta_href(nb)
+
+
+def _same_site_cta(href: str, preferred: str) -> bool:
+    """True when href and preferred share a host and look like contact CTAs."""
+    a, b = _norm_href(href), _norm_href(preferred)
+    if not a or not b:
+        return False
+    if "://" not in a and "://" not in b:
+        return False
+
+    def _host(url: str) -> str:
+        if "://" not in url:
+            return ""
+        return url.split("://", 1)[1].split("/", 1)[0].lower()
+
+    ha, hb = _host(a), _host(b)
+    if ha and hb and ha == hb:
+        return True
+    # Absolute article link vs relative preferred (or vice versa).
+    if ha and not hb and _looks_like_cta_href(a):
+        return True
+    if hb and not ha and _looks_like_cta_href(a):
+        return _path_of(a) == _path_of(b) or _looks_like_cta_href(b)
+    return False
 
 
 def find_markdown_ctas(article: str, *, cta_href: str | None = None) -> list[MarkdownCta]:
@@ -218,10 +249,14 @@ def find_markdown_ctas(article: str, *, cta_href: str | None = None) -> list[Mar
             continue
 
         href = (link.group("href") or "").strip()
+        # Prefer matching the workspace CTA URL; also accept common CTA paths.
+        # When a preferred href is set, still accept same-site absolute links
+        # (e.g. https://arsuno.ai/contact vs /contact).
         if preferred:
             if not (
                 _hrefs_match(href, preferred)
                 or _looks_like_cta_href(href)
+                or _same_site_cta(href, preferred)
             ):
                 i += 1
                 continue
@@ -230,7 +265,9 @@ def find_markdown_ctas(article: str, *, cta_href: str | None = None) -> list[Mar
             continue
 
         body = re.sub(r"\s+", " ", " ".join(body_parts)).strip()
-        if not body or len(body) > 500:
+        # Body may include markdown emphasis; strip for length check only.
+        body_plain = re.sub(r"\*\*([^*]+)\*\*", r"\1", body)
+        if not body_plain or len(body_plain) > 500:
             i += 1
             continue
 

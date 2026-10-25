@@ -436,6 +436,92 @@ def normalize_article_links(article: str, clusters: list[str] | None = None) -> 
     return text
 
 
+_CTA_COPY: dict[str, tuple[str, str, str]] = {
+    "en": (
+        "Want help putting this into practice?",
+        "Talk with our team about your situation and leave with a clear next step.",
+        "Talk to our team",
+    ),
+    "fr": (
+        "Besoin d'aide pour passer à l'action ?",
+        "Parlez de votre situation avec notre équipe et repartez avec une prochaine étape claire.",
+        "Parler à l'équipe",
+    ),
+}
+_CTA_SKIP_HEADING = re.compile(
+    r"^##\s+(key\s+takeaways?|à\s+retenir|frequently asked|questions\s+fr[ée]quentes|"
+    r"conclusion|summary|r[ée]sum[ée])",
+    re.I,
+)
+
+
+def count_cta_blocks(article: str, cta_href: str | None) -> int:
+    """Markdown CTA triples plus HTML CTA anchors that point at the CTA URL."""
+    from . import cta_html
+
+    n = len(cta_html.find_markdown_ctas(article, cta_href=cta_href))
+    target = (cta_href or "").strip().rstrip("/")
+    if target:
+        n += len(
+            re.findall(
+                r'<a\b[^>]*\bhref\s*=\s*["\']' + re.escape(target) + r"/?[\"']",
+                article,
+                re.I,
+            )
+        )
+    return n
+
+
+def ensure_min_ctas(
+    article: str,
+    *,
+    cta_href: str | None,
+    lang: str = "en",
+    cta_examples: list[str] | None = None,
+    min_ctas: int = 2,
+) -> tuple[str, int]:
+    """Insert markdown CTAs at H2 breaks when the model wrote fewer than ``min_ctas``.
+
+    Returns (article, number_inserted). Only ever adds; never touches existing CTAs.
+    """
+    href = (cta_href or "").strip() or "/contact"
+    have = count_cta_blocks(article, href)
+    need = min_ctas - have
+    if need <= 0 or not (article or "").strip():
+        return article, 0
+
+    lines = article.split("\n")
+    h2_idx = [i for i, ln in enumerate(lines) if re.match(r"^##\s+\S", ln)]
+    # Skip the first content H2 (opening takeaways / lede sit before it) and
+    # closing sections (FAQ, conclusion).
+    candidates = [
+        i for i in h2_idx[1:] if not _CTA_SKIP_HEADING.match(lines[i].strip())
+    ]
+    if not candidates:
+        return article, 0
+
+    # Spread insertions across the article; avoid sitting next to an existing CTA.
+    if need >= len(candidates):
+        chosen = list(candidates)
+    else:
+        step = len(candidates) / (need + 1)
+        chosen = [candidates[min(len(candidates) - 1, int(step * (k + 1)))] for k in range(need)]
+    chosen = sorted(set(chosen))
+
+    headline, body, button = _CTA_COPY.get((lang or "en").lower(), _CTA_COPY["en"])
+    for ex in cta_examples or []:
+        ex = (ex or "").strip()
+        if 1 <= len(ex.split()) <= 6 and "\u2014" not in ex and "\u2013" not in ex:
+            button = ex.rstrip(".")
+            break
+
+    block = f"**{headline}**\n\n{body}\n\n[{button}]({href})\n"
+    for i in reversed(chosen):
+        lines[i:i] = block.split("\n") + [""]
+    logger.info("inserted %s fallback CTA block(s) (model wrote %s)", len(chosen), have)
+    return "\n".join(lines), len(chosen)
+
+
 def inject_faq_template(
     article: str,
     topic: str = "",
@@ -758,16 +844,28 @@ def enforce_final_output(
 
     cta_href = resolve_cta_href(client_id)
     article_lang = editorial_input.article_language_from_manual(manual)
+    if not clusters:
+        logger.warning(
+            "no internal-link clusters parsed from %s/context/internal_links.md "
+            "(missing file or unrecognised format): cluster links will not be added",
+            client_id,
+        )
+    # The model sometimes skips CTAs entirely; guarantee at least two.
+    from .context_extractor import extract_for_step_7 as _ctx7
+
+    article, _ = ensure_min_ctas(
+        article,
+        cta_href=cta_href,
+        lang=article_lang,
+        cta_examples=_ctx7(client_id).get("cta_examples"),
+    )
+    # Keep CTAs as markdown through lint / trim / hard gates — HTML wrap is last.
     article = writing_format_enforce.enforce_article(
         article,
         stage="final",
         allow_llm_repair=allow_llm_repair,
         cta_href=cta_href,
         lang=article_lang,
-    )
-    # Lint expects markdown CTAs; convert to workspace HTML shell afterward.
-    article = cta_html.apply_workspace_cta_html(
-        article, client_id=client_id, cta_href=cta_href
     )
     if form_links:
         article = inject_form_internal_links(article, form_links)
@@ -817,4 +915,20 @@ def enforce_final_output(
         allow_llm_repair=allow_llm_repair,
         raise_on_fail=True,
     )
+
+    # After all LLM/markdown repairs: wrap markdown CTAs in the workspace HTML shell.
+    body = faq_schema.extract_final_article_body(text) or text
+    wrapped = cta_html.apply_workspace_cta_html(
+        body, client_id=client_id, cta_href=cta_href
+    )
+    if wrapped != body:
+        if faq_schema.FINAL_OUTPUT_START in text or faq_schema.FINAL_ARTICLE_START in text:
+            text = faq_schema.replace_final_article_body(text, wrapped)
+        else:
+            text = wrapped
+        logger.info(
+            "workspace HTML CTAs applied for %s (%s markdown CTA block(s))",
+            client_id,
+            len(cta_html.find_markdown_ctas(body, cta_href=cta_href)),
+        )
     return text

@@ -156,6 +156,19 @@ class CtaHtmlInjectTests(unittest.TestCase):
             self.assertIn("Body one for the card.", out)
             self.assertIn(">Click here</a>", out)
 
+    def test_finds_cta_when_body_has_brand_bold(self):
+        article = (
+            "**Not sure where your MVP stack should start?**\n\n"
+            "**arsuno.ai** designs AI customer support workflows for your team.\n\n"
+            "[Let's talk through your stack](https://arsuno.ai/contact)\n"
+        )
+        found = cta_html.find_markdown_ctas(
+            article, cta_href="https://arsuno.ai/contact"
+        )
+        self.assertEqual(len(found), 1)
+        self.assertEqual(found[0].headline, "Not sure where your MVP stack should start?")
+        self.assertIn("arsuno.ai", found[0].body)
+
 
 if __name__ == "__main__":
     unittest.main()

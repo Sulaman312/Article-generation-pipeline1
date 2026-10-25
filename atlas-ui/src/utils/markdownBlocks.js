@@ -17,8 +17,52 @@ export function isBlockStart(line) {
     /^\d+\.\s+/.test(line) ||
     /^>\s?/.test(line) ||
     /^---+\s*$/.test(line) ||
-    /^\|.*\|/.test(line)
+    /^\|.*\|/.test(line) ||
+    /^\s*<(?:div|section|style)\b/i.test(line)
   );
+}
+
+/** Collect a top-level HTML block starting at line i (div/section/style). */
+function consumeHtmlBlock(lines, startIdx) {
+  const first = lines[startIdx] || "";
+  const open = first.match(/^\s*<(div|section|style)\b/i);
+  if (!open) return null;
+  const tag = open[1].toLowerCase();
+  const buf = [first];
+  let i = startIdx + 1;
+  if (tag === "style") {
+    while (i < lines.length) {
+      buf.push(lines[i]);
+      if (/<\/style>/i.test(lines[i])) {
+        i += 1;
+        break;
+      }
+      i += 1;
+    }
+    return { end: i, html: buf.join("\n") };
+  }
+  // Nested div/section: track depth on open/close tags.
+  let depth = (first.match(new RegExp(`<${tag}\\b`, "gi")) || []).length;
+  depth -= (first.match(new RegExp(`</${tag}>`, "gi")) || []).length;
+  if (depth <= 0 && /<\/(?:div|section)>/i.test(first)) {
+    return { end: i, html: buf.join("\n") };
+  }
+  while (i < lines.length && depth > 0) {
+    const line = lines[i];
+    buf.push(line);
+    depth += (line.match(new RegExp(`<${tag}\\b`, "gi")) || []).length;
+    depth -= (line.match(new RegExp(`</${tag}>`, "gi")) || []).length;
+    i += 1;
+  }
+  // Pull a trailing <style>…</style> that often follows the CTA card.
+  if (i < lines.length && /^\s*<style\b/i.test(lines[i])) {
+    const stylePart = consumeHtmlBlock(lines, i);
+    if (stylePart) {
+      buf.push(stylePart.html);
+      i = stylePart.end;
+    }
+  }
+  return { end: i, html: buf.join("\n") };
 }
 
 function parseRow(line) {
@@ -120,6 +164,15 @@ export function parseBlocks(text) {
     if (/^\s*$/.test(line)) {
       i++;
       continue;
+    }
+
+    if (/^\s*<(?:div|section|style)\b/i.test(line)) {
+      const htmlBlock = consumeHtmlBlock(lines, i);
+      if (htmlBlock) {
+        blocks.push({ type: "html", html: htmlBlock.html });
+        i = htmlBlock.end;
+        continue;
+      }
     }
 
     const buf = [line];

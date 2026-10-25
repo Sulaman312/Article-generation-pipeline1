@@ -284,7 +284,42 @@ def _cluster_titles(links_text: str) -> list[str]:
         main = title_line.split("—")[0].strip()
         if main:
             names.append(main)
+    if not names:
+        names = _cluster_titles_loose(links_text)
     return names[:7]
+
+
+_LOOSE_CLUSTER_HEADING_RE = re.compile(
+    r"^[ \t]*#{1,4}[ \t]*(?:cluster|groupe|pilier|pillar)[ \t]*(?:n[°o]\s*)?\d+[ \t]*(?P<rest>[^\n]*)$",
+    re.IGNORECASE | re.MULTILINE,
+)
+
+
+def _cluster_titles_loose(links_text: str) -> list[str]:
+    """Fallback for internal_links.md files that don't use '## CLUSTER N' + em dash.
+
+    Accepts '## Cluster 1: Title', '### Cluster 2 - Title', '## CLUSTER 3' followed
+    by a title line, and French 'Groupe/Pilier' variants.
+    """
+    text = links_text or ""
+    matches = list(_LOOSE_CLUSTER_HEADING_RE.finditer(text))
+    names: list[str] = []
+    for idx, m in enumerate(matches):
+        rest = (m.group("rest") or "").strip()
+        rest = re.sub(r"^[\s:.\-\u2013\u2014|]+", "", rest).strip()
+        if not rest:
+            end = matches[idx + 1].start() if idx + 1 < len(matches) else len(text)
+            for line in text[m.end() : end].split("\n"):
+                s = line.strip()
+                if not s or s.startswith("|") or s.startswith("---"):
+                    continue
+                rest = re.sub(r"^#+\s*", "", s).strip()
+                break
+        rest = re.sub(r"^[\U0001f300-\U0001ffff\u2600-\u27bf\s]+", "", rest)
+        main = re.split(r"\s+[\u2013\u2014-]\s+|\u2014|\u2013", rest)[0].strip(" *_`")
+        if main and main not in names:
+            names.append(main)
+    return names
 
 
 def extract_website_url(client_id: str) -> str:
