@@ -88,6 +88,12 @@ def _enforce(
     if not (text or "").strip():
         return text
 
+    from . import html_leak
+
+    if html_leak.has_leaked_html(text):
+        text = html_leak.strip_leaked_html(text, cta_href=cta_href)
+        logger.warning("writing_format: removed leaked HTML/CSS template (%s)", stage)
+
     current, fix_log = lint_mod.apply_deterministic_fixes(text, cta_href=cta_href)
     for entry in fix_log:
         logger.info("writing_format deterministic: %s", entry)

@@ -115,6 +115,10 @@ def count_article_words(text: str) -> int:
     if not text:
         return 0
     cleaned = faq_schema.markdown_for_word_count(text)
+    # CSS/HTML shells (CTA blocks, tables) are markup, not article prose.
+    from .html_leak import strip_html_for_word_count
+
+    cleaned = strip_html_for_word_count(cleaned)
     cleaned = re.sub(r"^#{1,6}\s+", "", cleaned, flags=re.MULTILINE)
     cleaned = re.sub(r"\[DRAFT NOTE:[^\]]*\]", "", cleaned, flags=re.IGNORECASE)
     cleaned = re.sub(r"```[\s\S]*?```", " ", cleaned)

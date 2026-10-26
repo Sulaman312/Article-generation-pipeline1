@@ -490,7 +490,11 @@ def load_context_files(client_id: str, filenames: list[str] | tuple[str, ...]) -
         header = f"=== {filename} ==="
         text = _read_context_file_cached(client_id, filename, path)
         if text is not None:
-            parts.append(f"{header}\n{text}")
+            # HTML/CSS snippets (CTA shell, table previews) are for post-processing
+            # only; the model copies them into the article if it can see them.
+            from .html_leak import strip_html_for_prompt
+
+            parts.append(f"{header}\n{strip_html_for_prompt(text)}")
         else:
             parts.append(f"{header} [NOT YET PROVIDED]")
 

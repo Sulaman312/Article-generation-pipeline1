@@ -812,6 +812,20 @@ def enforce_final_output(
         paa_faq = ""
 
     article = faq_schema.extract_final_article_body(text) or faq_schema.strip_publishing_metadata_block(text) or text
+    # Undo pasted HTML/CSS templates (CTA shell, table preview) before anything
+    # counts CTAs or words; real HTML CTAs are re-applied at the very end.
+    from . import html_leak
+    from .context_extractor import resolve_cta_href as _resolve_cta_href
+
+    if html_leak.has_leaked_html(article):
+        article = html_leak.strip_leaked_html(
+            article, cta_href=_resolve_cta_href(client_id)
+        )
+        logger.warning(
+            "final_output: removed leaked HTML/CSS template from article for %s/%s",
+            client_id,
+            run_id,
+        )
     article = faq_schema.consolidate_faq_sections(
         article, heading=faq_heading, lang=lang
     )
