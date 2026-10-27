@@ -22,7 +22,23 @@ if _project_env:
 # For OpenRouter: put the OpenRouter key in ANTHROPIC_API_KEY and set
 # ANTHROPIC_BASE_URL=https://openrouter.ai/api plus an OpenRouter model slug.
 ANTHROPIC_API_KEY = (os.getenv("ANTHROPIC_API_KEY") or "").strip() or None
-ANTHROPIC_BASE_URL = (os.getenv("ANTHROPIC_BASE_URL") or "").strip() or None
+
+
+def normalize_base_url(raw: str | None) -> str | None:
+    """Clean a base URL from env: strip quotes/space, default to https:// if no scheme.
+
+    Hosting dashboards often store ``openrouter.ai/api`` without the scheme, which
+    makes httpx fail with "Request URL is missing an 'http://' or 'https://' protocol".
+    """
+    value = (raw or "").strip().strip("\"'").strip()
+    if not value:
+        return None
+    if "://" not in value:
+        value = "https://" + value.lstrip("/")
+    return value.rstrip("/")
+
+
+ANTHROPIC_BASE_URL = normalize_base_url(os.getenv("ANTHROPIC_BASE_URL"))
 CLAUDE_MODEL = (os.getenv("CLAUDE_MODEL") or "claude-sonnet-4-6").strip()
 MAX_TOKENS = 4000
 TEMPERATURE = 0.7

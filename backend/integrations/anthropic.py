@@ -56,6 +56,12 @@ def _get_client():
                 config.ANTHROPIC_BASE_URL,
                 config.CLAUDE_MODEL,
             )
+        else:
+            # Always pass the direct API URL explicitly. If we pass nothing, the SDK
+            # reads ANTHROPIC_BASE_URL from the environment itself, and a variable that
+            # exists but is empty (common on Railway) becomes "" and every request fails
+            # with "Request URL is missing an 'http://' or 'https://' protocol".
+            kwargs["base_url"] = "https://api.anthropic.com"
         _client = anthropic.Anthropic(**kwargs)
     return _client
 
