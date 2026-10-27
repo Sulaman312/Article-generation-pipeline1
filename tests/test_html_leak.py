@@ -135,6 +135,59 @@ class LeakedArticleTests(unittest.TestCase):
         self.assertEqual(html_leak.strip_leaked_html(article), article)
 
 
+class FenceTests(unittest.TestCase):
+    def test_unclosed_fence_before_shell_is_removed(self):
+        article = f"## A\n\nText.\n\n```html\n{CTA_SHELL}\n\n## HR automation\n\nMore text.\n"
+        out = html_leak.unwrap_html_fences(article)
+        self.assertNotIn("```", out)
+        self.assertIn("## HR automation", out)
+
+    def test_closed_fence_around_shell_is_unwrapped(self):
+        out = html_leak.unwrap_html_fences(f"Intro\n\n```html\n{CTA_SHELL}\n```\n\n## Next\n")
+        self.assertNotIn("```", out)
+        self.assertIn('class="arsuno-cta"', out)
+
+    def test_real_code_fence_kept(self):
+        article = "Example:\n\n```python\nprint('x')\n```\n"
+        self.assertEqual(html_leak.unwrap_html_fences(article), article)
+
+    def test_strip_leaked_html_handles_fenced_shell(self):
+        out = html_leak.strip_leaked_html(
+            f"## A\n\nText.\n\n```html\n{CTA_SHELL}\n```\n\n## B\n",
+            cta_href="https://arsuno.ai/contact",
+        )
+        self.assertNotIn("```", out)
+        self.assertNotIn("<div", out)
+        self.assertEqual(
+            len(cta_html.find_markdown_ctas(out, cta_href="https://arsuno.ai/contact")), 1
+        )
+
+
+class TemplateExtractionTests(unittest.TestCase):
+    def test_spaced_fence_label_and_prose_do_not_leak_into_template(self):
+        guide = (
+            "## HTML CTA Template\n\nPaste below:\n\n``` html\n"
+            f"{CTA_SHELL}\n```\n\nNote: keep it short.\n"
+        )
+        tpl = cta_html.extract_cta_html_template(guide)
+        self.assertIsNotNone(tpl)
+        self.assertNotIn("```", tpl)
+        self.assertNotIn("Paste below", tpl)
+        self.assertNotIn("Note:", tpl)
+        self.assertTrue(tpl.startswith("<div"))
+
+    def test_applied_cta_has_no_fences(self):
+        guide = f"## HTML CTA Template\n\n```html\n{CTA_SHELL}\n```\n"
+        tpl = cta_html.extract_cta_html_template(guide)
+        article = (
+            "## A\n\nText.\n\n**Heading here**\n\nShort body.\n\n"
+            "[Talk to us](https://arsuno.ai/contact)\n\n## B\n\nMore.\n"
+        )
+        out = cta_html.inject_cta_html(article, tpl, cta_href="https://arsuno.ai/contact")
+        self.assertNotIn("```", out)
+        self.assertIn("## B", out)
+
+
 class WordCountTests(unittest.TestCase):
     def test_css_and_tags_do_not_count(self):
         prose = "word " * 100

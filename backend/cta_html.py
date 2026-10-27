@@ -67,17 +67,17 @@ def extract_cta_html_template(cta_text: str) -> str | None:
     )
     chunk = section.group("body").strip() if section else text
 
-    fenced = re.search(
-        r"(?is)```(?:html|HTML)?\s*\n(?P<html>[\s\S]*?)```",
+    # Any fenced block (``` html, ```HTML, ```css, bare ```) that looks like the shell.
+    for fenced in re.finditer(
+        r"(?is)```[ \t]*[a-z]*[ \t]*\n(?P<html>[\s\S]*?)```",
         chunk,
-    )
-    if fenced:
-        html_block = fenced.group("html").strip()
+    ):
+        html_block = _clean_template(fenced.group("html"))
         if _looks_like_cta_html(html_block):
             return html_block
 
     # Bare HTML in the section (or whole file) without fences.
-    bare = chunk.strip()
+    bare = _clean_template(chunk)
     if _looks_like_cta_html(bare):
         return bare
 
@@ -87,9 +87,32 @@ def extract_cta_html_template(cta_text: str) -> str | None:
         text,
     )
     if div and _looks_like_cta_html(div.group(0)):
-        return div.group(0).strip()
+        return _clean_template(div.group(0))
 
     return None
+
+
+_FENCE_LINE_RE = re.compile(r"(?m)^[ \t]*`{3,}[ \t]*[A-Za-z]*[ \t]*$\n?")
+
+
+def _clean_template(block: str) -> str:
+    """Keep only the HTML of a template: no code fences, no prose around it.
+
+    Fence lines or prose inside the template would be copied into every CTA in
+    the article, and a stray ``` makes the preview show the rest of the article
+    as a code block.
+    """
+    out = _FENCE_LINE_RE.sub("", block or "")
+    first = re.search(r"<(?:div|section|style|aside|p|h[1-6]|a)\b", out, re.I)
+    if first:
+        out = out[first.start():]
+    last = max(
+        (m.end() for m in re.finditer(r"</(?:div|section|style|aside)\s*>", out, re.I)),
+        default=0,
+    )
+    if last:
+        out = out[:last]
+    return out.strip()
 
 
 def _looks_like_cta_html(block: str) -> bool:
@@ -452,4 +475,9 @@ def apply_workspace_cta_html(
     from .context_extractor import resolve_cta_href
 
     href = (cta_href or "").strip() or resolve_cta_href(client_id)
-    return inject_cta_html(article, template, cta_href=href)
+    out = inject_cta_html(article, template, cta_href=href)
+    # A stray ``` around the shell would make the preview show the rest of the
+    # article as a code block (raw markdown).
+    from .html_leak import unwrap_html_fences
+
+    return unwrap_html_fences(out)

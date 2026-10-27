@@ -94,6 +94,12 @@ export function parseBlocks(text) {
         blocks.push(...parseBlocks(inner));
         continue;
       }
+      // A fence around a workspace CTA shell (div/section/style) is not code: an
+      // unclosed one would otherwise turn the rest of the article into raw text.
+      if (/^\s*<(?:div|section|style)\b/i.test(inner)) {
+        blocks.push(...parseBlocks(inner));
+        continue;
+      }
       blocks.push({ type: "code", lang, text: inner });
       continue;
     }

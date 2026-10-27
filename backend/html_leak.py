@@ -244,10 +244,45 @@ def _leaked_cta_to_markdown(text: str, cta_href: str | None) -> str:
     return _STYLE_RE.sub(_drop_cta_style, out)
 
 
+_FENCE_START_RE = re.compile(r"^[ \t]*```")
+_HTML_START_RE = re.compile(r"(?is)^\s*<(?:div|style|section|table|!doctype|html)\b")
+
+
+def unwrap_html_fences(text: str) -> str:
+    """Remove ``` fences that wrap HTML/CSS so the HTML is not shown as code.
+
+    The preview (and many markdown renderers) turn a fenced block into a code
+    block. If a fence opens before a CTA shell and never closes, the rest of the
+    article is displayed as raw markdown. Fences around real code are kept.
+    """
+    if not text or "```" not in text:
+        return text
+    lines = text.split("\n")
+    fence_idx = [i for i, ln in enumerate(lines) if _FENCE_START_RE.match(ln)]
+    drop: set[int] = set()
+    k = 0
+    while k < len(fence_idx):
+        i = fence_idx[k]
+        j = fence_idx[k + 1] if k + 1 < len(fence_idx) else None
+        inner = "\n".join(lines[i + 1 : j]) if j is not None else "\n".join(lines[i + 1 :])
+        if _HTML_START_RE.match(inner):
+            drop.add(i)
+            if j is not None:
+                drop.add(j)
+            k += 2 if j is not None else 1
+        else:
+            k += 2 if j is not None else 1
+    if not drop:
+        return text
+    return "\n".join(ln for n, ln in enumerate(lines) if n not in drop)
+
+
 def has_leaked_html(article: str) -> bool:
     low = (article or "").lower()
     if not low:
         return False
+    if "```" in low and unwrap_html_fences(article) != article:
+        return True
     return any(
         tok in low for tok in ("<!doctype", "<style", "<table", "html cta template")
     ) or bool(_CTA_DIV_OPEN_RE.search(article))
@@ -258,7 +293,7 @@ def strip_leaked_html(article: str, *, cta_href: str | None = None) -> str:
     if not article or not has_leaked_html(article):
         return article
 
-    out = article
+    out = unwrap_html_fences(article)
     # Tables inside a demo page survive as markdown tables.
     def _doc_sub(m: re.Match[str]) -> str:
         tables = [
