@@ -46,6 +46,8 @@ _KEY_TO_LABEL: dict[str, str] = {
     "atp_data": "Keyword Data",
     "notes": "Notes",
     "semrush_notes": "Semrush / keyword research",
+    # Optional: "fr" / "French" / "français" forces the article language.
+    "language": "Language",
 }
 
 _LONG_FIELD_LABELS = frozenset(
@@ -340,12 +342,50 @@ _LANGUAGE_LABELS: dict[str, str] = {
 }
 
 
+_LANGUAGE_NAME_TO_CODE: dict[str, str] = {
+    "fr": "fr", "french": "fr", "français": "fr", "francais": "fr",
+    "de": "de", "german": "de", "deutsch": "de",
+    "es": "es", "spanish": "es", "español": "es", "espanol": "es",
+    "it": "it", "italian": "it", "italiano": "it",
+    "en": "en", "english": "en", "anglais": "en",
+}
+
+_FRENCH_STOPWORDS = re.compile(
+    r"\b(comment|pourquoi|quel(?:le)?s?|combien|avec|sans|pour|dans|les|des|une|aux|"
+    r"du|votre|vos|notre|nos|est-ce)\b",
+    re.I,
+)
+_ACCENTED_CHARS = re.compile(r"[àâçéèêëîïôûùüÿœ]", re.I)
+
+
+def looks_french(text: str | None) -> bool:
+    """Heuristic for a French topic / keyword (used only when no language is stated)."""
+    sample = (text or "").strip()
+    if not sample:
+        return False
+    return bool(
+        _FRENCH_STOPWORDS.search(sample) or len(_ACCENTED_CHARS.findall(sample)) >= 2
+    )
+
+
 def article_language_from_manual(manual: dict | None) -> str:
-    """Infer article language from Notes / Topic (defaults to English)."""
+    """Article language: explicit Language field, Notes / Topic wording, a French-looking
+    topic or seed keyword, then ``DEFAULT_ARTICLE_LANGUAGE`` (English unless configured)."""
+    from . import config
+
+    if isinstance(manual, dict):
+        explicit = (
+            manual.get("Language") or manual.get("language") or manual.get("Langue") or ""
+        )
+        code = _LANGUAGE_NAME_TO_CODE.get(str(explicit).strip().lower())
+        if code:
+            return code
     notes = notes_from_manual(manual).lower()
     topic = ""
+    seed = ""
     if isinstance(manual, dict):
         topic = (manual.get("Topic") or manual.get("topic") or "").lower()
+        seed = (manual.get("Seed Keyword") or manual.get("seed_keyword") or "").lower()
     combined = f"{notes} {topic}"
     if re.search(
         r"\b(french|français|en français|in french|rédig(?:er|e|é)\s+en\s+français)\b",
@@ -359,7 +399,9 @@ def article_language_from_manual(manual: dict | None) -> str:
         return "es"
     if re.search(r"\b(italian|italiano|in italian)\b", combined, re.I):
         return "it"
-    return "en"
+    if looks_french(f"{topic} {seed}"):
+        return "fr"
+    return _LANGUAGE_NAME_TO_CODE.get(config.DEFAULT_ARTICLE_LANGUAGE, "en")
 
 
 def language_label_for_code(lang: str) -> str:
@@ -380,6 +422,28 @@ def faq_editorial_notice(manual: dict | None = None) -> str:
     lang = article_language_from_manual(manual)
     heading = faq_heading_for_language(lang)
     language_label = _LANGUAGE_LABELS.get(lang, "English")
+    if lang == "fr":
+        return (
+            "\n\n=== SECTION FAQ (OBLIGATOIRE POUR LE SEO) ===\n"
+            "Prévoyez **un seul** bloc FAQ dans le plan et le brouillon, rédigé "
+            "entièrement en **français**.\n"
+            "- Emplacement : après les sections principales, **avant** la conclusion et "
+            "l'appel à l'action.\n"
+            f"- Format : intertitre H2 `{heading}`, puis les questions de la banque "
+            "**PAA / FAQ RESEARCH** (Recommended FAQ bank).\n"
+            "- Gardez la formulation des questions de la banque. N'inventez pas un second "
+            "bloc FAQ dans une autre langue.\n"
+            "- Si la banque indique LOW SIGNAL ou une demande faible, réduisez le nombre de "
+            "questions : ne remplissez pas pour faire du volume.\n"
+            "- Chaque entrée : `### Question ?` puis **un seul paragraphe de 2 à 4 phrases** "
+            "(70 mots au maximum). Pas de puces, pas de liste numérotée, pas une phrase par "
+            "ligne. Ne recopiez jamais de note de source dans le H3.\n"
+            "- **Chaque réponse répond réellement à sa question**, en français : pas de "
+            "phrase générique qui conviendrait à n'importe quelle question.\n"
+            "- N'inventez ni marque, ni produit, ni prix sans source citée.\n"
+            "- La FAQ ne compte **pas** dans le nombre de mots du formulaire. Ne la "
+            "gonflez jamais pour atteindre la longueur.\n"
+        )
     return (
         "\n\n=== FAQ SECTION (REQUIRED FOR SEO) ===\n"
         f"Include **one** FAQ block in the outline and draft — written entirely in **{language_label}**.\n"

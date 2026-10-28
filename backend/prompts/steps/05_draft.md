@@ -84,6 +84,7 @@ Before you output the article, check all of these:
 ☐ Proof points and external cites match the outline TRUST & E-E-A-T plan — **prices and numbers only when cited from SERP/audit sources**
 ☐ Tone remains consistent from introduction through CTA
 ☐ Transition words: ≥30% of body sentences use a natural connector (Yoast); no unlinked short-sentence stacks
+☐ Never start three sentences in a row with the same word
 ☐ The article sounds like {client_name}, not generic AI
 ☐ FAQ answers are each one normal paragraph of **2–4 sentences** (min 2, max 4; no bullets)
 ☐ FAQ H3 questions are clean question text only (no SOURCE SIGNAL / CITATION notes)
@@ -205,7 +206,7 @@ WRITING STANDARDS — non-negotiable:
    - **First image is mandatory right after `## Key takeaways`** (H1 → Key takeaways → Image → content).
    - Place 1–2 additional images later per the outline IMAGE PLAN (2–3 total).
    - Format: `![descriptive alt text](IMAGE: slug-or-description)`
-   - Alt text: 8–15 words describing the scene; include at least **half** the words from the primary keyword phrase (in any order) when feasible.
+   - Alt text: one natural, meaningful phrase, never a slug, with **no hyphen or dash at all**; 8–15 words describing the scene; include at least **half** the words from the primary keyword phrase (in any order) when feasible.
    - Spread remaining images across the article (not clustered).
 
 13. FAQ SECTION (REQUIRED — unless the outline explicitly omits it)

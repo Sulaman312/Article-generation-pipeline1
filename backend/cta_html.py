@@ -445,20 +445,60 @@ def inject_cta_html(
     href = (cta_href or "").strip() or "/contact"
     parts: list[str] = []
     cursor = 0
-    for i, cta in enumerate(blocks):
-        parts.append(article[cursor : cta.start])
-        rendered = render_cta_html(
-            template,
-            headline=cta.headline,
-            body=cta.body,
-            button=cta.button,
-            href=href,
-            include_style=(i == 0),
+    style_done = False
+    for cta in blocks:
+        rendered = compact_html_block(
+            render_cta_html(
+                template,
+                headline=cta.headline,
+                body=cta.body,
+                button=cta.button,
+                href=href,
+                include_style=not style_done,
+            )
         )
-        parts.append(rendered + "\n")
+        if not html_is_balanced(rendered):
+            # A broken shell would swallow the rest of the article: keep the markdown CTA.
+            continue
+        style_done = style_done or "<style" in rendered.lower()
+        parts.append(article[cursor : cta.start].rstrip() + "\n\n")
+        # One solid block between blank lines: markdown renderers and the preview
+        # then treat it as raw HTML and go back to normal markdown right after it.
+        parts.append(rendered + "\n\n")
         cursor = cta.end
+        while cursor < len(article) and article[cursor] in "\r\n":
+            cursor += 1
     parts.append(article[cursor:])
     return "".join(parts)
+
+
+_BLOCK_TAGS = ("div", "section", "style", "aside", "a")
+
+
+def compact_html_block(html_text: str) -> str:
+    """One contiguous HTML block: no blank lines, no indentation, no code fences.
+
+    A blank line inside a pasted template ends the HTML block for markdown
+    renderers, and an indented line after it becomes a code block, so the rest of
+    the article shows up as raw text.
+    """
+    lines = []
+    for raw in (html_text or "").replace("\r\n", "\n").split("\n"):
+        line = raw.strip()
+        if not line or re.fullmatch(r"`{3,}[A-Za-z]*", line):
+            continue
+        lines.append(line)
+    return "\n".join(lines)
+
+
+def html_is_balanced(html_text: str) -> bool:
+    """True when every block-level tag we emit is closed (and none is closed twice)."""
+    for tag in _BLOCK_TAGS:
+        opens = len(re.findall(rf"<{tag}\b(?![^>]*/>)", html_text or "", re.I))
+        closes = len(re.findall(rf"</{tag}\s*>", html_text or "", re.I))
+        if opens != closes:
+            return False
+    return True
 
 
 def apply_workspace_cta_html(

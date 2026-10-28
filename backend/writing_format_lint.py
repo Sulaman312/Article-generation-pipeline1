@@ -247,6 +247,7 @@ def _lint_article(
     _lint_h2_h3_bridges(lines, report)
     _lint_sections_end_on_bullets(lines, report)
     _lint_transition_words(body, report, lang=article_lang)
+    _lint_repeated_starts(body, report, lang=article_lang)
 
     if stage == "final":
         _lint_cta_slugs(body, report, cta_href=cta_href)
@@ -254,15 +255,23 @@ def _lint_article(
     return report
 
 
-def _collect_body_sentences(body: str) -> list[str]:
-    """Body prose sentences only (skip headings, CTAs, images, bullets)."""
-    out: list[str] = []
+def _collect_body_sentence_groups(body: str) -> list[list[str]]:
+    """Body prose sentences grouped by section (a heading starts a new group).
+
+    Skips CTAs, images, bullets and code. Used for the transition ratio (flattened)
+    and for the repeated-sentence-start check (which must not run across headings).
+    """
+    groups: list[list[str]] = [[]]
     for block in re.split(r"\n\s*\n", body or ""):
         block = block.strip()
         if not block:
             continue
         first = block.splitlines()[0].strip()
-        if _HEADING_MD_RE.match(first) or first.startswith("```"):
+        if _HEADING_MD_RE.match(first):
+            if groups[-1]:
+                groups.append([])
+            continue
+        if first.startswith("```"):
             continue
         if re.match(r"^[-*+]\s", first):
             continue
@@ -270,8 +279,13 @@ def _collect_body_sentences(body: str) -> list[str]:
             continue
         if first.startswith("![") or first.startswith("IMAGE:"):
             continue
-        out.extend(_sentences(block))
-    return out
+        groups[-1].extend(_sentences(block))
+    return [g for g in groups if g]
+
+
+def _collect_body_sentences(body: str) -> list[str]:
+    """Body prose sentences only (skip headings, CTAs, images, bullets)."""
+    return [s for group in _collect_body_sentence_groups(body) for s in group]
 
 
 def _lint_transition_words(body: str, report: LintReport, *, lang: str) -> None:
@@ -301,6 +315,71 @@ def _lint_transition_words(body: str, report: LintReport, *, lang: str) -> None:
                 excerpt=f"{len(sents)} sentences scored",
             )
         )
+
+
+MAX_SAME_START_RUN = 2  # three sentences in a row with the same first word is a violation
+_LEADING_NOISE_RE = re.compile(r"^[\s\"'“”‘’«»(\[*_>•\-]+")
+_FIRST_WORD_RE = re.compile(r"[^\W\d_]+|\d+", re.UNICODE)
+
+
+def sentence_first_word(sentence: str) -> str:
+    """Lower-cased first word of a sentence; an elision counts as its own word
+    (« L'équipe » starts with « l »), so « L'… L'… L'… » is caught too."""
+    text = _LEADING_NOISE_RE.sub("", (sentence or "").replace("’", "'"))
+    m = _FIRST_WORD_RE.match(text)
+    return m.group(0).lower() if m else ""
+
+
+def find_repeated_starts(
+    sentences: list[str], *, max_run: int = MAX_SAME_START_RUN
+) -> list[tuple[str, list[str]]]:
+    """Runs longer than ``max_run`` sentences that start with the same word.
+
+    Returns ``[(word, [sentences of the run])]``, one entry per maximal run.
+    """
+    runs: list[tuple[str, list[str]]] = []
+    current_word = ""
+    current: list[str] = []
+
+    def flush() -> None:
+        if current_word and len(current) > max_run:
+            runs.append((current_word, list(current)))
+
+    for sent in sentences:
+        word = sentence_first_word(sent)
+        if word and word == current_word:
+            current.append(sent)
+            continue
+        flush()
+        current_word, current = word, ([sent] if word else [])
+    flush()
+    return runs
+
+
+def _lint_repeated_starts(body: str, report: LintReport, *, lang: str) -> None:
+    """Never start three sentences in a row with the same word."""
+    for group in _collect_body_sentence_groups(body):
+        for word, run in find_repeated_starts(group):
+            if lang == "fr":
+                message = (
+                    f"{len(run)} phrases de suite commencent par « {word} » (maximum "
+                    f"{MAX_SAME_START_RUN}). Variez les débuts de phrase : réorganisez ou "
+                    "ajoutez un connecteur (ainsi, en effet, par ailleurs, en revanche, "
+                    "donc, toutefois…)."
+                )
+            else:
+                message = (
+                    f"{len(run)} sentences in a row start with \"{word}\" (max "
+                    f"{MAX_SAME_START_RUN}). Vary the openings: restructure or add a "
+                    "connector."
+                )
+            report.violations.append(
+                FormatViolation(
+                    "REPEATED_SENTENCE_START",
+                    message,
+                    excerpt=" | ".join(s[:50] for s in run[:3]),
+                )
+            )
 
 
 def _article_body(text: str) -> str:

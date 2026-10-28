@@ -230,6 +230,21 @@ class RunStepTests(unittest.TestCase):
         self.assertIn("article-body", create.call_args.args[0])
         self.assertNotIn("post-body", create.call_args.args[0])
 
+    def test_french_article_with_english_words_is_not_sent(self):
+        french = FINAL_OUTPUT.replace(
+            "AI resume screening: accuracy, bias, and what to automate",
+            "Idées de repas équilibrés",
+        ).replace("Accuracy varies by role.", "Prenez un bowl et un snack.")
+        artifacts.save_artifact("c", "r", "final_output", french)
+        with mock.patch.object(
+            content_to_cms.publish_check, "_article_language", return_value="fr"
+        ), mock.patch.object(webflow, "create_draft_item") as create:
+            with self.assertRaises(content_to_cms.publish_check.PublishCheckError) as ctx:
+                content_to_cms.run_content_to_cms("c", "r")
+        create.assert_not_called()
+        self.assertIn("bowl", str(ctx.exception))
+        self.assertIn("snack", str(ctx.exception))
+
     def test_missing_final_output_gives_clear_error(self):
         with self.assertRaisesRegex(RuntimeError, "Final Output"):
             content_to_cms.run_content_to_cms("c", "no-such-run")

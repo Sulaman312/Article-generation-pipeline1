@@ -1,4 +1,5 @@
 import logging
+import time
 
 from . import artifacts
 from . import config
@@ -8,6 +9,8 @@ from . import prompts
 from .context_extractor import extract_for_step_7
 from . import faq_schema
 from . import final_output_enforce
+from . import french_language
+from . import job_control
 from .step_markers import wrap_step_artifact
 from . import writing_format_enforce
 from .integrations import anthropic as claude
@@ -54,6 +57,65 @@ def _load_prior_artifact(client_id: str, run_id: str, step_name: str) -> str:
         return ""
 
 
+def _run_language(client_id: str, run_id: str) -> str:
+    """Article language for this run (``fr`` triggers the French quality layer)."""
+    manifest = artifacts.read_run_manifest(client_id, run_id) or {}
+    manual = manifest.get("manual_inputs")
+    return editorial_input.article_language_from_manual(
+        manual if isinstance(manual, dict) else None
+    )
+
+
+def _t(lang: str, en: str, fr: str) -> str:
+    """Pick the instruction text in the run language (prompts are French for French runs)."""
+    return fr if (lang or "").lower() == "fr" else en
+
+
+def _french_glossary(client_id: str):
+    return french_language.load_glossary(client_id)
+
+
+def _enforce_french(
+    text: str,
+    *,
+    client_id: str,
+    run_id: str,
+    step_label: str,
+    spelling: bool = False,
+) -> str:
+    """Retry-until-clean French check for brief / outline / supporting posts.
+
+    No-op for non-French runs. Raises ``FrenchQualityError`` after the retries.
+    """
+    if not config.FRENCH_QA_ENABLED or _run_language(client_id, run_id) != "fr":
+        return text
+    return french_language.enforce_french_artifact(
+        text,
+        step_label=step_label,
+        glossary=_french_glossary(client_id),
+        spelling=spelling and config.FRENCH_SPELLCHECK_ENABLED,
+        attempts=config.QUALITY_RETRY_ATTEMPTS,
+    )
+
+
+def _retry_call(fn, *, label: str, attempts: int | None = None, delay: float = 3.0):
+    """Run ``fn`` up to ``attempts`` times; raise (never substitute text) if all fail."""
+    tries = attempts or config.QUALITY_RETRY_ATTEMPTS
+    last: Exception | None = None
+    for i in range(tries):
+        job_control.raise_if_cancelled()
+        try:
+            return fn()
+        except job_control.JobCancelled:
+            raise
+        except Exception as e:
+            last = e
+            logger.warning("%s: attempt %s/%s failed: %s", label, i + 1, tries, e)
+            if i + 1 < tries:
+                time.sleep(delay)
+    raise RuntimeError(f"{label} failed after {tries} attempts: {last}") from last
+
+
 def _cached_prompt(
     client_id: str,
     run_id: str,
@@ -62,6 +124,7 @@ def _cached_prompt(
     unique_suffix: str,
     step_label: str,
     wc_target: int | None = None,
+    step_name: str = "",
 ) -> CachedPrompt:
     """Build Phase-2 layout: client system + shared docs + step prompt/unique."""
     suffix = (unique_suffix or "").strip()
@@ -75,6 +138,8 @@ def _cached_prompt(
         step_prompt=step_prompt,
         unique_suffix=suffix,
         step_label=step_label,
+        lang=_run_language(client_id, run_id),
+        step_name=step_name,
     )
 
 
@@ -324,6 +389,7 @@ def run_step_1(client_id: str, run_id: str, previous_artifact: str = "") -> str:
         unique_suffix=unique,
         step_label=step_label,
         wc_target=wc_target,
+        step_name=step_name,
     )
     output = _chat_complete(cached, debug_system_message=True)
     if wc_target:
@@ -393,6 +459,17 @@ def run_source_research(client_id: str, run_id: str, previous_artifact: str = ""
     return output
 
 
+def _research_language_note(client_id: str, run_id: str, notes: str) -> str:
+    """Append the French-only rule to the notes sent to the research model."""
+    if _run_language(client_id, run_id) != "fr":
+        return notes
+    rule = (
+        "Langue : le contenu produit (questions, réponses, résumés) doit être entièrement "
+        "en français. Aucun mot anglais (bol, collation, formule... et non bowl, snack, pack)."
+    )
+    return f"{notes}\n\n{rule}".strip() if notes else rule
+
+
 def run_atp_topic_research(client_id: str, run_id: str, previous_artifact: str = "") -> str:
     """AnswerThePublic-style topic research — Perplexity Sonar (or manual placeholder)."""
     step_name = "atp_topic_research"
@@ -411,6 +488,7 @@ def run_atp_topic_research(client_id: str, run_id: str, previous_artifact: str =
         notes = editorial_input.notes_from_manual(manual)
         keyword_data = _keyword_data_from_manual(manual if isinstance(manual, dict) else None)
 
+    notes = _research_language_note(client_id, run_id, notes)
     if config.PERPLEXITY_API_KEY:
         try:
             output = ppx.run_sonar_atp_topic(
@@ -461,6 +539,7 @@ def run_case_study_research(client_id: str, run_id: str, previous_artifact: str 
     notes = editorial_input.notes_from_manual(manual) if isinstance(manual, dict) else ""
     keyword_data = _keyword_data_from_manual(manual if isinstance(manual, dict) else None)
 
+    notes = _research_language_note(client_id, run_id, notes)
     if config.PERPLEXITY_API_KEY:
         try:
             output = ppx.run_sonar_case_study(
@@ -504,10 +583,18 @@ def run_research_audit(client_id: str, run_id: str, previous_artifact: str = "")
     )
     # Shared docs already carry topic/SERP/ATP/PAA/audit/brief; put only
     # audit-specific extras after the breakpoint (case study, keyword paste, notes).
+    lang = _run_language(client_id, run_id)
     unique = (
-        "Audit the shared research documents above. Reject fabricated brands, prices, "
-        "stats, and dead/FAIL URLs. Approve only what draft/brief may use.\n\n"
-        f"---CASE STUDY RESEARCH (includes URL verification)---\n"
+        _t(
+            lang,
+            "Audit the shared research documents above. Reject fabricated brands, prices, "
+            "stats, and dead/FAIL URLs. Approve only what draft/brief may use.\n\n",
+            "Auditez les documents de recherche partagés ci-dessus. Rejetez les marques, "
+            "prix et statistiques inventés ainsi que les adresses mortes ou en échec "
+            "(FAIL). N'approuvez que ce que le brouillon et le brief peuvent utiliser. "
+            "Rédigez vos décisions et les questions de FAQ approuvées en français.\n\n",
+        )
+        + f"---CASE STUDY RESEARCH (includes URL verification)---\n"
         f"{case_study.strip() or '[none]'}\n\n"
         f"---SERP RESEARCH DIGEST (raw Perplexity)---\n"
         f"{_load_prior_artifact(client_id, run_id, 'serp_research').strip() or '[none]'}\n\n"
@@ -522,6 +609,7 @@ def run_research_audit(client_id: str, run_id: str, previous_artifact: str = "")
         step_prompt=prompts.RESEARCH_AUDIT_PROMPT,
         unique_suffix=unique,
         step_label=step_label,
+        step_name=step_name,
     )
     output = _chat_complete(
         cached,
@@ -543,10 +631,17 @@ def run_supporting_posts(client_id: str, run_id: str, previous_artifact: str = "
         client_id, run_id, "draft"
     )
     outline = _load_prior_artifact(client_id, run_id, "outline")
+    lang = _run_language(client_id, run_id)
     unique = (
-        "Use the shared RESEARCH AUDIT and ATP TOPIC RESEARCH documents above as the "
-        "mandatory gate. Follow APPROVED sections only.\n\n"
-        f"---MAIN ARTICLE DRAFT---\n"
+        _t(
+            lang,
+            "Use the shared RESEARCH AUDIT and ATP TOPIC RESEARCH documents above as the "
+            "mandatory gate. Follow APPROVED sections only.\n\n",
+            "Utilisez l'audit de recherche (RESEARCH AUDIT) et la recherche thématique "
+            "(ATP TOPIC RESEARCH) ci-dessus comme filtre obligatoire. Ne suivez que les "
+            "sections APPROVED. Rédigez tout en français.\n\n",
+        )
+        + "---MAIN ARTICLE DRAFT---\n"
         f"{draft.strip() or '[draft missing — use outline titles for interlinks]'}\n\n"
         f"---MAIN ARTICLE OUTLINE---\n"
         f"{outline.strip() or '[none]'}\n"
@@ -558,11 +653,19 @@ def run_supporting_posts(client_id: str, run_id: str, previous_artifact: str = "
         step_prompt=prompts.SUPPORTING_POSTS_PROMPT,
         unique_suffix=unique,
         step_label=step_label,
+        step_name=step_name,
     )
     output = _chat_complete(
         cached,
         temperature=0.55,
         max_tokens=8000,
+    )
+    output = _enforce_french(
+        output,
+        client_id=client_id,
+        run_id=run_id,
+        step_label=step_label,
+        spelling=True,
     )
     output = wrap_step_artifact(step_name, output)
     artifacts.save_artifact(client_id, run_id, step_name, output)
@@ -597,6 +700,7 @@ def run_paa_faq_research(client_id: str, run_id: str, previous_artifact: str = "
                 else f"---FROM ATP TOPIC RESEARCH---\n{bank}"
             )
 
+    notes = _research_language_note(client_id, run_id, notes)
     if config.PERPLEXITY_API_KEY:
         try:
             output = ppx.run_sonar_paa_faq(
@@ -623,12 +727,24 @@ def run_step_2(client_id: str, run_id: str, previous_artifact: str = "") -> str:
     step_name = "assignment_brief"
     wc_target = _word_count_target_for_run(client_id, run_id)
     step_label = _step_label(step_name)
-    unique = (
+    lang = _run_language(client_id, run_id)
+    unique = _t(
+        lang,
         "Use the shared TOPIC CARD, SERP ANALYSIS, ATP, PAA, and RESEARCH AUDIT documents "
         "above. Prefer **Research Audit → Approved FAQ questions** when present; otherwise "
         "use the Source Research FAQ bank. Do not invent a parallel FAQ set. "
         "Respect LOW SIGNAL / low-demand flags.\n"
-        "Prefer **Research Audit → Approved case study** for E-E-A-T proof — never invent one.\n"
+        "Prefer **Research Audit → Approved case study** for E-E-A-T proof — never invent one.\n",
+        "Utilisez la fiche sujet, l'analyse des résultats de recherche, la recherche "
+        "thématique, la banque de questions et l'audit de recherche partagés ci-dessus. "
+        "Privilégiez les questions de FAQ approuvées par l'audit (Approved FAQ questions) "
+        "quand elles existent, sinon la banque de questions de la recherche. N'inventez "
+        "pas une seconde série de questions. Respectez les signaux LOW SIGNAL (demande "
+        "faible).\n"
+        "Pour la preuve d'expérience (E-E-A-T), privilégiez l'étude de cas approuvée par "
+        "l'audit (Approved case study) : n'en inventez jamais.\n"
+        "Rédigez tout le brief en français, sans jargon anglais : les consignes "
+        "destinées au rédacteur sont aussi en français.\n",
     )
     unique += _editorial_notices_for_run(client_id, run_id)
     if wc_target:
@@ -641,6 +757,7 @@ def run_step_2(client_id: str, run_id: str, previous_artifact: str = "") -> str:
         unique_suffix=unique,
         step_label=step_label,
         wc_target=wc_target,
+        step_name=step_name,
     )
     output = _chat_complete(
         cached,
@@ -649,6 +766,10 @@ def run_step_2(client_id: str, run_id: str, previous_artifact: str = "") -> str:
     if wc_target:
         output = editorial_input.enforce_word_count_in_brief(output, wc_target)
     output = writing_format_enforce.enforce_brief(output, allow_llm_repair=True)
+    # French runs: English jargon in a brief is copied downstream. Retry, never pass it on.
+    output = _enforce_french(
+        output, client_id=client_id, run_id=run_id, step_label=step_label
+    )
     output = wrap_step_artifact(step_name, output)
     artifacts.save_artifact(client_id, run_id, step_name, output)
     logger.info("step complete %s", step_name)
@@ -661,11 +782,20 @@ def run_step_3(client_id: str, run_id: str, previous_artifact: str = "") -> str:
     serp_digest = (previous_artifact or "").strip() or _load_prior_artifact(
         client_id, run_id, "serp_research"
     )
+    if not serp_digest.strip():
+        raise RuntimeError("SERP research is missing: run serp_research before the analysis.")
+    lang = _run_language(client_id, run_id)
     unique = (
-        "Produce the SERP analysis from the shared TOPIC CARD above and this "
-        "SERP research digest.\n\n"
-        f"---SERP RESEARCH DIGEST---\n"
-        f"{serp_digest.strip() or '[SERP RESEARCH DIGEST MISSING — re-run serp_research]'}\n"
+        _t(
+            lang,
+            "Produce the SERP analysis from the shared TOPIC CARD above and this "
+            "SERP research digest.\n\n",
+            "Produisez l'analyse des résultats de recherche à partir de la fiche sujet "
+            "partagée ci-dessus et de ce condensé de recherche. Rédigez en français, en "
+            "traduisant les titres de concurrents et le jargon anglais.\n\n",
+        )
+        + "---SERP RESEARCH DIGEST---\n"
+        f"{serp_digest.strip()}\n"
     )
     cached = _cached_prompt(
         client_id,
@@ -673,6 +803,7 @@ def run_step_3(client_id: str, run_id: str, previous_artifact: str = "") -> str:
         step_prompt=prompts.RESEARCH_PROMPT,
         unique_suffix=unique,
         step_label=step_label,
+        step_name=step_name,
     )
     output = _chat_complete(cached)
     output = wrap_step_artifact(step_name, output)
@@ -685,9 +816,15 @@ def run_step_4(client_id: str, run_id: str, previous_artifact: str = "") -> str:
     step_name = "outline"
     wc_target = _word_count_target_for_run(client_id, run_id)
     step_label = _step_label(step_name)
-    unique = (
+    lang = _run_language(client_id, run_id)
+    unique = _t(
+        lang,
         "Build the outline from the shared ASSIGNMENT BRIEF, SERP ANALYSIS, "
-        "RESEARCH AUDIT, ATP, and PAA documents above.\n"
+        "RESEARCH AUDIT, ATP, and PAA documents above.\n",
+        "Construisez le plan à partir du brief, de l'analyse des résultats de recherche, "
+        "de l'audit de recherche, de la recherche thématique et de la banque de questions "
+        "partagés ci-dessus. Intertitres, notes de section et plan de la FAQ sont "
+        "rédigés en français, sans jargon anglais.\n",
     )
     unique += _editorial_notices_for_run(client_id, run_id)
     unique += editorial_input.outline_format_guidelines_notice()
@@ -701,11 +838,15 @@ def run_step_4(client_id: str, run_id: str, previous_artifact: str = "") -> str:
         unique_suffix=unique,
         step_label=step_label,
         wc_target=wc_target,
+        step_name=step_name,
     )
     output = _chat_complete(cached)
     if wc_target:
         output = editorial_input.enforce_outline_section_word_counts(output, wc_target)
     output = writing_format_enforce.enforce_outline(output, allow_llm_repair=True)
+    output = _enforce_french(
+        output, client_id=client_id, run_id=run_id, step_label=step_label
+    )
     output = wrap_step_artifact(step_name, output)
     artifacts.save_artifact(client_id, run_id, step_name, output)
     logger.info("step complete %s", step_name)
@@ -720,11 +861,22 @@ def run_step_5(client_id: str, run_id: str, previous_artifact: str = "") -> str:
         client_id, run_id, "outline"
     )
     serp_digest = _load_prior_artifact(client_id, run_id, "serp_research")
+    if not outline.strip():
+        # Never draft from a stand-in: generating from "[OUTLINE MISSING]" invents structure.
+        raise RuntimeError("Outline is missing: run the outline step before the draft.")
+    lang = _run_language(client_id, run_id)
     unique = (
-        "Write the draft from the shared BRIEF / SERP ANALYSIS / ATP / PAA / AUDIT "
-        "documents and this outline.\n\n"
-        f"---ARTICLE OUTLINE---\n"
-        f"{outline.strip() or '[OUTLINE MISSING — re-run outline]'}\n\n"
+        _t(
+            lang,
+            "Write the draft from the shared BRIEF / SERP ANALYSIS / ATP / PAA / AUDIT "
+            "documents and this outline.\n\n",
+            "Rédigez le brouillon à partir du brief, de l'analyse des résultats de "
+            "recherche, de la recherche thématique, de la banque de questions et de "
+            "l'audit partagés ci-dessus, ainsi que de ce plan. Tout le texte est en "
+            "français, sans mot anglais.\n\n",
+        )
+        + "---ARTICLE OUTLINE---\n"
+        f"{outline.strip()}\n\n"
         "---SERP RESEARCH DIGEST (use for external source URLs)---\n"
         f"{serp_digest.strip() or '[No SERP digest — cite only URLs you can justify from research]'}\n"
     )
@@ -741,6 +893,7 @@ def run_step_5(client_id: str, run_id: str, previous_artifact: str = "") -> str:
         unique_suffix=unique,
         step_label=step_label,
         wc_target=wc_target,
+        step_name=step_name,
     )
     output = _chat_complete(
         cached,
@@ -819,22 +972,24 @@ def run_step_6(client_id: str, run_id: str, previous_artifact: str = "") -> str:
     draft = _load_prior_artifact(client_id, run_id, "draft").strip() or (
         previous_artifact or ""
     ).strip()
+    lang = _run_language(client_id, run_id)
     ppx_block = ""
     if config.PERPLEXITY_API_KEY:
-        try:
-            from .integrations import perplexity as ppx
+        from .integrations import perplexity as ppx
 
-            ppx_block = ppx.run_sonar_draft_factcheck(draft)
-        except Exception as e:
-            logger.exception("Perplexity draft fact-check failed")
-            ppx_block = (
-                f"[Perplexity draft fact-check FAILED — editor may run manual check. "
-                f"Detail: {e}]"
-            )
+        # Retry, then fail the step. A "FAILED" note must never be passed on as if it
+        # were research.
+        ppx_block = _retry_call(
+            lambda: ppx.run_sonar_draft_factcheck(draft),
+            label="Perplexity draft fact-check",
+        )
     else:
-        ppx_block = (
+        ppx_block = _t(
+            lang,
             "[Perplexity web fact-check skipped — set PERPLEXITY_API_KEY in `.env` "
-            "to run an automatic web scan before the editor fact-check.]"
+            "to run an automatic web scan before the editor fact-check.]",
+            "[Vérification web Perplexity non exécutée : aucune clé PERPLEXITY_API_KEY "
+            "n'est configurée.]",
         )
 
     wc_target = _word_count_target_for_run(client_id, run_id)
@@ -862,6 +1017,7 @@ def run_step_6(client_id: str, run_id: str, previous_artifact: str = "") -> str:
         unique_suffix=unique,
         step_label=step_label,
         wc_target=wc_target,
+        step_name=step_name,
     )
     claude_out = _chat_complete(cached)
     # Keep corrected article inside the generation band when possible.
@@ -939,11 +1095,21 @@ def run_step_7(client_id: str, run_id: str, previous_artifact: str = "") -> str:
     fact_check = (previous_artifact or "").strip() or _load_prior_artifact(
         client_id, run_id, "fact_check"
     )
+    if not fact_check.strip():
+        raise RuntimeError("Fact-check output is missing: run the fact-check step first.")
+    lang = _run_language(client_id, run_id)
     # Client clusters/CTA live in the cached system prompt; form links vary per article.
     unique = (
-        "---ARTICLE-FORM INTERNAL LINKS (place these first, exact hrefs)---\n"
+        _t(
+            lang,
+            "",
+            "Finalisez l'article en français : tout le texte publié (titres, tableaux, "
+            "FAQ, appels à l'action, légendes d'images) est en français, sans mot "
+            "anglais. Chaque réponse de FAQ répond à sa question.\n\n",
+        )
+        + "---ARTICLE-FORM INTERNAL LINKS (place these first, exact hrefs)---\n"
         f"{form_link_lines}\n\n"
-        f"{fact_check.strip() or '[fact_check artifact missing]'}\n\n"
+        f"{fact_check.strip()}\n\n"
         "---SOURCES FOR EXTERNAL LINKS (URLs must appear here — do not invent)---\n"
         f"---SERP RESEARCH DIGEST---\n{serp_digest.strip()}\n\n"
         "Shared SERP ANALYSIS is in the documents above — cite only URLs that appear "
@@ -971,6 +1137,7 @@ def run_step_7(client_id: str, run_id: str, previous_artifact: str = "") -> str:
         unique_suffix=unique,
         step_label=step_label,
         wc_target=wc_target,
+        step_name=step_name,
     )
     output = _chat_complete(
         cached,
@@ -1021,10 +1188,17 @@ def run_meta_seo(client_id: str, run_id: str, previous_artifact: str = "") -> st
 
     article_excerpt = _article_excerpt_for_meta(fact_check)
 
+    lang = _run_language(client_id, run_id)
     unique = (
-        "Generate meta title and meta description options using these exact prompts. "
-        "Shared TOPIC CARD and ASSIGNMENT BRIEF are in the documents above.\n\n"
-        "META TITLE PROMPT:\n"
+        _t(
+            lang,
+            "Generate meta title and meta description options using these exact prompts. "
+            "Shared TOPIC CARD and ASSIGNMENT BRIEF are in the documents above.\n\n",
+            "Générez les options de titre méta et de description méta avec ces consignes "
+            "exactes. La fiche sujet et le brief partagés sont ci-dessus. Tous les titres "
+            "et toutes les descriptions sont rédigés en français, sans mot anglais.\n\n",
+        )
+        + "META TITLE PROMPT:\n"
         f"{seo_ctx['meta_title_prompt']}\n\n"
         "META DESCRIPTION PROMPT:\n"
         f"{seo_ctx['meta_description_prompt']}\n\n"
@@ -1040,8 +1214,18 @@ def run_meta_seo(client_id: str, run_id: str, previous_artifact: str = "") -> st
         step_prompt=prompts.META_SEO_PROMPT,
         unique_suffix=unique,
         step_label=step_label,
+        step_name=step_name,
     )
     output = _chat_complete(cached, temperature=0.65)
+    # Strip echoed prompt text first so only the real options are checked.
+    output = editorial_input.finalize_meta_seo_output(output)
+    output = _enforce_french(
+        output,
+        client_id=client_id,
+        run_id=run_id,
+        step_label=step_label,
+        spelling=True,
+    )
     output = editorial_input.finalize_meta_seo_output(output)
     artifacts.save_artifact(client_id, run_id, step_name, output)
     logger.info("step complete %s", step_name)

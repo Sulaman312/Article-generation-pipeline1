@@ -133,7 +133,8 @@ class EditorialNoticeTests(unittest.TestCase):
         )
         self.assertIn("## Questions fréquentes", notice)
         self.assertIn("PAA / FAQ RESEARCH", notice)
-        self.assertIn("French", notice)
+        self.assertIn("français", notice)
+        self.assertNotIn("Write the FAQ", notice)
 
     def test_article_language_from_notes(self):
         self.assertEqual(

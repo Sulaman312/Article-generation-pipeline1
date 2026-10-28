@@ -22,6 +22,7 @@ from typing import Any
 
 from . import artifacts
 from . import config
+from . import french_language
 from . import prompts
 from .context_extractor import extract_for_step_5, extract_for_step_7
 
@@ -250,17 +251,30 @@ def build_cached_prompt(
     unique_suffix: str,
     step_label: str,
     enable_cache: bool | None = None,
+    lang: str = "en",
+    step_name: str = "",
 ) -> CachedPrompt:
-    """Assemble system + shared docs + step prompt / unique suffix."""
+    """Assemble system + shared docs + step prompt / unique suffix.
+
+    French runs (``lang="fr"``) get the French language rule, banned-word list and
+    brand glossary at the top of the system prompt, and a short French reminder after
+    the step prompt (the last instruction the model reads).
+    """
     if enable_cache is None:
         enable_cache = bool(getattr(config, "PROMPT_CACHE_ENABLED", True))
 
     system_text = build_client_system_prompt(client_id)
+    glossary = None
+    if (lang or "").lower() == "fr":
+        glossary = french_language.load_glossary(client_id)
+        system_text = french_language.system_block(glossary) + "\n" + system_text
     shared = build_shared_documents_block(client_id, run_id)
     unique = (step_prompt or "").rstrip()
     suffix = (unique_suffix or "").strip()
     if suffix:
         unique = f"{unique}\n\n---STEP-SPECIFIC INPUT---\n{suffix}\n" if unique else suffix
+    if glossary is not None:
+        unique = f"{unique}\n\n{french_language.step_directive(step_name, glossary)}".strip()
     if not unique.strip():
         unique = "(No additional step-specific input.)\n"
 

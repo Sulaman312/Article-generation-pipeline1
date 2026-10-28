@@ -11,6 +11,7 @@ from pathlib import Path
 
 from . import config
 from . import editorial_input
+from . import french_language
 from .pipeline_steps import ARTICLE_STEP_ORDER
 
 logger = logging.getLogger(__name__)
@@ -72,6 +73,18 @@ _BUILTIN_SPECS: list[dict[str, str]] = [
         ),
     },
 ]
+
+_BUILTIN_SPECS.append(
+    {
+        "filename": french_language.GLOSSARY_FILENAME,
+        "title": french_language.GLOSSARY_LABEL,
+        "description": (
+            "Articles en français : termes de la marque à employer tels quels, mots "
+            "anglais interdits avec leur remplacement, et mots étrangers autorisés."
+        ),
+        "placeholder": french_language.GLOSSARY_PLACEHOLDER,
+    }
+)
 
 _SLUG_RE = re.compile(r"^[a-z0-9][a-z0-9_-]{0,62}$")
 

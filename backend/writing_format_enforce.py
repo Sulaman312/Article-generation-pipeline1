@@ -161,6 +161,17 @@ def _repair_llm(
             "toutefois, en revanche, par ailleurs, en outre, en plus, car, "
             "parce que, c'est pourquoi). Never use \"de plus\" — Yoast ignores it.\n"
         )
+    if any(v.code == "REPEATED_SENTENCE_START" for v in report.violations):
+        fr_note += (
+            "\nSentence openings: never start three sentences in a row with the same "
+            "word. Reorder the clause, merge two sentences, or open with a connector"
+            + (
+                " (ainsi, en effet, par ailleurs, en revanche, donc, toutefois)."
+                if article_lang == "fr"
+                else "."
+            )
+            + "\n"
+        )
     user = (
         f"Stage: {stage}\n"
         f"Repair round: {round_i}\n"

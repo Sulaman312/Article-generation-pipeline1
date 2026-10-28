@@ -6,6 +6,8 @@ import logging
 import re
 
 from . import artifacts
+from . import config
+from . import french_language
 from . import editorial_input
 from . import faq_schema
 from . import writing_format_enforce
@@ -15,45 +17,6 @@ logger = logging.getLogger(__name__)
 
 _URL_RE = re.compile(r"https?://[^\s\)\]>\"']+")
 _SKIP_URL_SUBSTR = ("youtube.com", "youtu.be", "facebook.com", "twitter.com", "x.com/")
-
-_FAQ_TEMPLATES: tuple[tuple[str, str], ...] = (
-    (
-        "How long does it take to implement AI CV screening?",
-        "Most agencies run a pilot in 2–4 weeks: integrate with your ATS or inbox, "
-        "train ranking rules on 2–3 live roles, then roll out team-wide. Full ROI "
-        "usually shows within the first placement cycle after go-live.",
-    ),
-    (
-        "Will AI replace our recruiters?",
-        "No — AI removes repetitive CV triage so consultants spend time on client "
-        "relationships, interviews, and closing. The best setups keep humans in control "
-        "of every shortlist decision.",
-    ),
-    (
-        "Is AI screening GDPR-compliant for candidate data?",
-        "Yes, when you use a processor with encryption, audit logs, lawful basis "
-        "documented in privacy notices, and human review of automated decisions. "
-        "Verify retention limits and cross-border hosting with your DPO before launch.",
-    ),
-    (
-        "How much faster are shortlists with AI screening?",
-        "Agencies typically cut time-to-shortlist by 40–60% on high-volume roles; "
-        "case studies report up to 2× faster project delivery when screening was the bottleneck.",
-    ),
-    (
-        "How does AI CV screening differ from keyword filters?",
-        "Keyword filters miss context (titles vs skills). NLP-based screening scores fit "
-        "against the full brief, explains why a candidate ranked, and adapts to "
-        "recruitment terminology — not just exact string matches.",
-    ),
-    (
-        "What ROI should we expect from recruitment AI automation?",
-        "Track time-to-shortlist, placements per consultant, and repeat-business rate. "
-        "Strong implementations improve client satisfaction scores while holding "
-        "submission quality steady or better.",
-    ),
-)
-
 
 def extract_citable_urls(*texts: str, exclude_host_substrings: tuple[str, ...] = ()) -> list[str]:
     seen: set[str] = set()
@@ -472,41 +435,142 @@ def count_cta_blocks(article: str, cta_href: str | None) -> int:
     return n
 
 
+MAX_CTAS = 2
+_TAKEAWAY_HEADING = re.compile(
+    r"^##\s+(key\s+takeaways?|à\s+retenir|points?\s+cl[ée]s?)", re.I
+)
+_FAQ_HEADING = re.compile(r"^##\s+(frequently asked|questions\s+fr[ée]quentes)", re.I)
+
+
+def _line_offsets(lines: list[str]) -> list[int]:
+    offsets, pos = [], 0
+    for ln in lines:
+        offsets.append(pos)
+        pos += len(ln) + 1
+    return offsets
+
+
+def _drop_spans(article: str, spans: list[tuple[int, int]]) -> str:
+    for start, end in sorted(spans, reverse=True):
+        article = article[:start].rstrip("\n") + "\n\n" + article[end:].lstrip("\n")
+    return article
+
+
+def _first_content_h2_offset(article: str) -> int | None:
+    """Char offset of the first H2 that is not the opening takeaways block."""
+    for m in re.finditer(r"(?m)^##\s+\S.*$", article):
+        if not _TAKEAWAY_HEADING.match(m.group(0).strip()):
+            return m.start()
+    return None
+
+
 def ensure_min_ctas(
     article: str,
     *,
     cta_href: str | None,
     lang: str = "en",
     cta_examples: list[str] | None = None,
-    min_ctas: int = 2,
+    min_ctas: int = MAX_CTAS,
+    max_ctas: int = MAX_CTAS,
 ) -> tuple[str, int]:
-    """Insert markdown CTAs at H2 breaks when the model wrote fewer than ``min_ctas``.
+    """Exactly ``max_ctas`` CTAs, in the middle and at the end, never in the opening.
 
-    Returns (article, number_inserted). Only ever adds; never touches existing CTAs.
+    - CTAs sitting before the first content section (opening block) are removed.
+    - Extra CTAs beyond ``max_ctas`` are removed (the last one and the one nearest
+      the middle are kept).
+    - Missing CTAs are added: one between sections, one at the end (before the FAQ).
+
+    Returns ``(article, number_inserted)``.
     """
+    from . import cta_html
+
+    if not (article or "").strip():
+        return article, 0
     href = (cta_href or "").strip() or "/contact"
-    have = count_cta_blocks(article, href)
-    need = min_ctas - have
-    if need <= 0 or not (article or "").strip():
-        return article, 0
+    text = article
 
-    lines = article.split("\n")
+    # 1. Opening block: no CTA before the first content section.
+    first_content = _first_content_h2_offset(text)
+    if first_content is not None:
+        early = [
+            (c.start, c.end)
+            for c in cta_html.find_markdown_ctas(text, cta_href=href)
+            if c.start < first_content
+        ]
+        if early:
+            logger.info("removed %s CTA block(s) from the opening of the article", len(early))
+            text = _drop_spans(text, early)
+
+    # 2. Never more than max_ctas.
+    found = cta_html.find_markdown_ctas(text, cta_href=href)
+    if len(found) > max_ctas:
+        mid = len(text) / 2
+        keep = {len(found) - 1}
+        others = sorted(range(len(found) - 1), key=lambda k: abs(found[k].start - mid))
+        keep.update(others[: max(0, max_ctas - 1)])
+        extra = [(c.start, c.end) for k, c in enumerate(found) if k not in keep]
+        logger.info("removed %s extra CTA block(s) (max %s)", len(extra), max_ctas)
+        text = _drop_spans(text, extra)
+
+    # 3. Top up to min_ctas.
+    have = count_cta_blocks(text, href)
+    need = min(min_ctas, max_ctas) - have
+    if need <= 0:
+        return text, 0
+
+    lines = text.split("\n")
+    offsets = _line_offsets(lines)
     h2_idx = [i for i, ln in enumerate(lines) if re.match(r"^##\s+\S", ln)]
-    # Skip the first content H2 (opening takeaways / lede sit before it) and
-    # closing sections (FAQ, conclusion).
-    candidates = [
-        i for i in h2_idx[1:] if not _CTA_SKIP_HEADING.match(lines[i].strip())
-    ]
-    if not candidates:
-        return article, 0
+    content_h2 = [i for i in h2_idx if not _TAKEAWAY_HEADING.match(lines[i].strip())]
+    existing = cta_html.find_markdown_ctas(text, cta_href=href)
 
-    # Spread insertions across the article; avoid sitting next to an existing CTA.
-    if need >= len(candidates):
-        chosen = list(candidates)
+    def occupied(slot: int) -> bool:
+        """A CTA already sits in the section right before this slot."""
+        prev = max((h for h in h2_idx if h < slot), default=-1)
+        lo = offsets[prev] if prev >= 0 else 0
+        hi = offsets[slot] if slot < len(offsets) else len(text)
+        return any(lo <= c.start < hi for c in existing)
+
+    # "In between": before a content H2 from the second one on, not FAQ / conclusion.
+    middle = [
+        i
+        for i in content_h2[1:]
+        if not _CTA_SKIP_HEADING.match(lines[i].strip()) and not occupied(i)
+    ]
+    # "At the end": just before the FAQ, else the very end of the article.
+    faq = next((i for i in h2_idx if _FAQ_HEADING.match(lines[i].strip())), None)
+    end_slot = faq if faq is not None else len(lines)
+    end_free = not occupied(end_slot)
+
+    total = len(text) or 1
+    late = any(c.start / total > 0.65 for c in existing)
+    wants: list[str] = []
+    if need >= 2:
+        wants = ["middle", "end"]
+    elif late:
+        wants = ["middle"]
     else:
-        step = len(candidates) / (need + 1)
-        chosen = [candidates[min(len(candidates) - 1, int(step * (k + 1)))] for k in range(need)]
-    chosen = sorted(set(chosen))
+        wants = ["end"]
+
+    chosen: list[int] = []
+    for want in wants:
+        if want == "middle" and middle:
+            target = total * 0.5
+            slot = min(middle, key=lambda i: abs(offsets[i] - target))
+            middle.remove(slot)
+            chosen.append(slot)
+        elif want == "end" and end_free and end_slot not in chosen:
+            chosen.append(end_slot)
+        elif middle:
+            slot = min(middle, key=lambda i: abs(offsets[i] - total * 0.8))
+            middle.remove(slot)
+            chosen.append(slot)
+        elif end_slot not in chosen:
+            chosen.append(end_slot)
+    if len(chosen) < need and len(lines) not in chosen:
+        chosen.append(len(lines))  # short article: last spot is the very end
+    if not chosen:
+        return text, 0
 
     headline, body, button = _CTA_COPY.get((lang or "en").lower(), _CTA_COPY["en"])
     for ex in cta_examples or []:
@@ -516,8 +580,13 @@ def ensure_min_ctas(
             break
 
     block = f"**{headline}**\n\n{body}\n\n[{button}]({href})\n"
-    for i in reversed(chosen):
-        lines[i:i] = block.split("\n") + [""]
+    for slot in sorted(chosen, reverse=True):
+        if slot >= len(lines):
+            while lines and not lines[-1].strip():
+                lines.pop()
+            lines.extend([""] + block.split("\n"))
+        else:
+            lines[slot:slot] = block.split("\n") + [""]
     logger.info("inserted %s fallback CTA block(s) (model wrote %s)", len(chosen), have)
     return "\n".join(lines), len(chosen)
 
@@ -538,23 +607,25 @@ def inject_faq_template(
     from . import paa_faq
 
     bank_prompt = paa_faq.format_faq_bank_for_prompt(paa_faq_research)
-    if bank_prompt or lang != "en":
-        return _inject_faq_llm(
+    # No stock Q&A is ever inserted: the model writes the FAQ, and we retry until the
+    # result has real questions with answers (or fail the step).
+    attempts = config.QUALITY_RETRY_ATTEMPTS
+    for attempt in range(attempts):
+        result = _inject_faq_llm(
             article,
             topic=topic,
             lang=lang,
             heading=heading,
             faq_bank_prompt=bank_prompt,
         )
-
-    faq_lines = [f"\n{heading}\n"]
-    for q, a in _FAQ_TEMPLATES[:6]:
-        faq_lines.append(f"### {q}\n\n{a}\n")
-    faq_block = "\n".join(faq_lines)
-    m = re.search(r"\n##\s+Conclusion\b", article, re.I)
-    if m:
-        return article[: m.start()] + "\n" + faq_block + article[m.start() :]
-    return article.rstrip() + "\n" + faq_block + "\n"
+        if len(faq_schema.extract_faq_pairs(result)) >= 2:
+            return result
+        logger.warning(
+            "FAQ injection returned fewer than 2 Q&As (attempt %s/%s)", attempt + 1, attempts
+        )
+    raise RuntimeError(
+        f"Final output: the model did not produce a usable FAQ after {attempts} attempts."
+    )
 
 
 def _inject_faq_llm(
@@ -567,6 +638,7 @@ def _inject_faq_llm(
 ) -> str:
     """Generate a topic-relevant FAQ block in the article language."""
     language_label = editorial_input.language_label_for_code(lang)
+    french = (lang or "").lower() == "fr"
     system = (
         f"Return ONLY the full article markdown. Write exactly ONE FAQ section in "
         f"{language_label} using H2 `{heading}`. Prefer the provided FAQ bank questions. "
@@ -575,6 +647,12 @@ def _inject_faq_llm(
         "Do not use bullets, numbered lists, or one sentence per line. "
         "Do not pad FAQ to hit article word count."
     )
+    if french:
+        system += (
+            f"\n{french_language.FRENCH_RULE}\nUse a French term, never an English one "
+            "(bol, collation, formule, accompagnement...). Each answer must really answer "
+            "its question."
+        )
     bank = faq_bank_prompt.strip() or (
         "No FAQ bank provided — write only as many specific questions as the topic supports "
         "(prefer 4–7; fewer if thin)."
@@ -932,8 +1010,16 @@ def enforce_final_output(
 
     # After all LLM/markdown repairs: wrap markdown CTAs in the workspace HTML shell.
     body = faq_schema.extract_final_article_body(text) or text
+    # The repairs above may have added, moved or duplicated CTAs: exactly two,
+    # never in the opening, before the HTML shell is applied.
+    body_policy, _ = ensure_min_ctas(
+        body,
+        cta_href=cta_href,
+        lang=article_lang,
+        cta_examples=_ctx7(client_id).get("cta_examples"),
+    )
     wrapped = cta_html.apply_workspace_cta_html(
-        body, client_id=client_id, cta_href=cta_href
+        body_policy, client_id=client_id, cta_href=cta_href
     )
     if wrapped != body:
         if faq_schema.FINAL_OUTPUT_START in text or faq_schema.FINAL_ARTICLE_START in text:

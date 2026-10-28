@@ -21,6 +21,7 @@
 - No sentence may carry more than one subordinate clause. If it needs more than two commas, split it. Apply the read-aloud test (one breath).
 - Vary sentence structure and length; avoid mechanically repeating short-sentence-then-long-explanation.
 - No trailing filler: every sentence should end on its strongest word; cut closing clauses that add nothing.
+- **Repeated openings:** never start three sentences in a row with the same word (« Le… Le… Le… », « Vous… Vous… Vous… »). Reorder the clause, merge two sentences, or open with a connector. The lint blocks runs of three or more.
 - **Transition words (Yoast):** at least **30%** of body sentences must include a **Yoast-recognized** transition/connector in the article language. When you split a long idea into short sentences, start follow-ups with connectors so the prose does not read as an unlinked stack.
   - EN examples: however, therefore, for example, in addition, also, next, finally, meanwhile, as a result, because, so, first, then, instead, specifically.
   - FR examples (Yoast-recognized only): en effet, par exemple, donc, ainsi, ensuite, enfin, cependant, toutefois, en revanche, par ailleurs, en outre, en plus, car, parce que, c'est pourquoi, d'abord, puis, également, notamment, autrement dit.
@@ -37,7 +38,7 @@
 
 - **Opening (required):** Immediately after the H1, use this exact order:
   1. Localized takeaways H2 — **English:** `## Key takeaways` · **French:** `## À retenir` (never English labels in a French article). **40–80 words** of **actionable takeaways** as **exactly 3–5 markdown bullets** (required — not prose paragraphs). This is **not** an article summary/recap of sections. Use the **exact** primary keyword once, in the **first bullet**, so it falls inside the first 100 body words. A synonym or a heading does not count. Do **not** title this block `## Summary`.
-  2. **Hero image** — `![descriptive alt text](IMAGE: slug-or-description)` on the next line after the takeaways content.
+  2. **Hero image** — `![descriptive alt text](IMAGE: slug-or-description)` on the next line after the takeaways content. Every image's alt text is one meaningful phrase (8 to 15 words) with **no hyphen or dash**; never paste the slug as alt text.
   3. Then the first content H2.
 - **FAQ H2 language:** English `## Frequently Asked Questions` · French `## Questions fréquentes`. Match the article language.
 - Do **not** put body prose or CTAs between the takeaways image and the first content H2.
@@ -55,7 +56,7 @@
 
 ## CTAs
 
-- Place **two to three** CTA blocks per article, inline at natural section breaks (transitions between H2s). Never cluster them at the end or mid-paragraph.
+- Place **exactly two** CTA blocks per article, never more: one **in between** (at a transition between two H2 sections, after the first content section) and one **at the end** (after the last content section, before the FAQ). **Never** put a CTA in the opening (title, takeaways, hero image, intro) or mid-paragraph.
 - Each CTA has **three elements on separate lines**: bold heading, one-to-two-sentence description, and a markdown link with the button label. Preserve the markdown and spacing; do not collapse into one paragraph.
 - CTA href comes from the client workspace artifacts: prefer an explicit URL/path in
   `cta_guidelines.md`, otherwise use the live Website from `context.md` with `/contact`

@@ -120,6 +120,34 @@ HARD_GATES_STRICT = (os.getenv("HARD_GATES_STRICT") or "1").strip().lower() not 
     "off",
 )
 
+
+def _env_flag(name: str, default: str = "1") -> bool:
+    return (os.getenv(name) or default).strip().lower() not in ("0", "false", "no", "off")
+
+
+def _env_int(name: str, default: int, *, minimum: int = 1) -> int:
+    try:
+        return max(minimum, int(os.getenv(name) or default))
+    except ValueError:
+        return default
+
+
+# Language used when neither the article form nor the topic says otherwise.
+DEFAULT_ARTICLE_LANGUAGE = (os.getenv("DEFAULT_ARTICLE_LANGUAGE") or "en").strip().lower() or "en"
+
+# French quality layer (only runs for French articles).
+#   FRENCH_QA_ENABLED       English words / banned words / placeholders / brand terms
+#   FRENCH_SPELLCHECK       French spelling check (needs `pyspellchecker`)
+#   FRENCH_FAQ_LLM_CHECK    ask the model whether each FAQ answer is French AND answers its question
+FRENCH_QA_ENABLED = _env_flag("FRENCH_QA_ENABLED")
+FRENCH_SPELLCHECK_ENABLED = _env_flag("FRENCH_SPELLCHECK")
+FRENCH_FAQ_LLM_CHECK = _env_flag("FRENCH_FAQ_LLM_CHECK")
+
+# Retries instead of fallback text: how many times a failed quality check regenerates.
+QUALITY_RETRY_ATTEMPTS = _env_int("QUALITY_RETRY_ATTEMPTS", 3)
+# Claude API call attempts (network / provider errors).
+CLAUDE_MAX_ATTEMPTS = _env_int("CLAUDE_MAX_ATTEMPTS", 3, minimum=1)
+
 STEP_CONTEXT_FILES = {
     "topic_card": ["context.md"],
     "serp_research": [],
@@ -142,9 +170,12 @@ STEP_CONTEXT_FILES = {
     "fact_check": [],
     "final_output": ["cta_guidelines.md", "internal_links.md"],
     "meta_seo": ["context.md"],
+    # Read by the French quality layer (not appended to step prompts as a raw file).
+    "french_glossary": ["french_glossary.md"],
 }
 
 CONTEXT_FILE_LABELS: dict[str, str] = {
+    "french_glossary.md": "Glossaire français (termes de marque, mots interdits)",
     "context.md": "Company / product context",
     "personas.md": "Audience personas",
     "brand_voice.md": "Brand voice",

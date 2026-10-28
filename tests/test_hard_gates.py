@@ -196,7 +196,7 @@ class HardGateUnitTests(unittest.TestCase):
         self.assertIn("How do I book an online visit?", questions)
         self.assertNotIn("What is the meaning of life?", questions)
 
-    def test_align_faq_strips_source_and_uses_french_fillers(self):
+    def test_align_faq_strips_source_and_never_invents_answers(self):
         art = (
             _opening("Guide repas", GOOD_LEDE)
             + "\n## Repas\n\nPréparez des menus simples.\n\n"
@@ -212,42 +212,58 @@ class HardGateUnitTests(unittest.TestCase):
         ]
         fixed = hard_gates.align_faq_to_allowed(art, bank, lang="fr")
         pairs = hard_gates.faq_schema.extract_faq_pairs(fixed)
-        self.assertEqual(len(pairs), 2)
-        for q, a in pairs:
-            self.assertNotIn("source signal", q.lower())
-            self.assertNotIn("ptitchef", q.lower())
-            self.assertNotIn("It depends on the task", a)
-            self.assertTrue(
-                "Cela dépend" in a or "Commencez" in a or "Gardez" in a,
-                msg=a,
-            )
-        issues = hard_gates.check_faq(
-            fixed,
-            require_faq=True,
-            approved_faq=[
-                "Comment éviter qu'une salade ne se détrempe au bureau ?",
-                "Comment préparer un dîner équilibré en moins de 20 minutes ?",
-            ],
-            paa_bank=[],
-        )
-        self.assertFalse(any(i.code == "faq_unapproved" for i in issues), msg=issues)
-        self.assertFalse(any(i.code == "faq_answer_length" for i in issues), msg=issues)
+        # Only the question that already had an answer is kept: nothing is made up.
+        self.assertEqual(len(pairs), 1)
+        q, a = pairs[0]
+        self.assertNotIn("source signal", q.lower())
+        self.assertNotIn("ptitchef", q.lower())
+        self.assertIn("Gardez la vinaigrette", a)
+        self.assertNotIn("Cela dépend", fixed)
+        self.assertNotIn("It depends on the task", fixed)
+
+    def test_no_default_filler_text_in_module(self):
+        import inspect
+
+        source = inspect.getsource(hard_gates)
+        self.assertNotIn("It depends on the task", source)
+        self.assertNotIn("Cela dépend de votre situation", source)
 
     def test_french_questions_detect_lang_without_notes(self):
-        art = (
-            _opening("Guide", GOOD_LEDE)
-            + "\n## Body\n\nText.\n\n"
-            "## Frequently Asked Questions\n\n"
-            "### Old?\n\nOne English leftover. Two English leftover.\n"
-        )
-        bank = [
+        questions = [
             "Comment éviter qu'une salade ne se détrempe au bureau ?",
             "Pourquoi préparer la vinaigrette à part ?",
         ]
-        fixed = hard_gates.align_faq_to_allowed(art, bank, lang="en")
-        answers = " ".join(a for _q, a in hard_gates.faq_schema.extract_faq_pairs(fixed))
-        self.assertIn("Cela dépend", answers)
-        self.assertNotIn("It depends on the task", answers)
+        self.assertEqual(
+            hard_gates._detect_faq_language("", lang_hint="en", questions=questions), "fr"
+        )
+
+    def test_french_answer_in_english_is_flagged(self):
+        problem = hard_gates._faq_answer_problem(
+            "Comment préparer un bol ?",
+            "Start with the base. Add your toppings and a good dressing.",
+            "fr",
+            hard_gates.french_language.Glossary(),
+        )
+        self.assertTrue(problem)
+
+    def test_french_answer_with_banned_word_is_flagged(self):
+        problem = hard_gates._faq_answer_problem(
+            "Que contient la formule Énergie ?",
+            "La formule Énergie contient un bowl et une collation. Elle se prépare en dix minutes.",
+            "fr",
+            hard_gates.french_language.Glossary(),
+        )
+        self.assertIn("bowl", problem)
+
+    def test_clean_french_answer_passes(self):
+        problem = hard_gates._faq_answer_problem(
+            "Que contient la formule Énergie ?",
+            "La formule Énergie contient un bol de céréales et une collation. "
+            "Elle se prépare en dix minutes.",
+            "fr",
+            hard_gates.french_language.Glossary(),
+        )
+        self.assertEqual(problem, "")
 
     def test_two_sentence_faq_answer_passes(self):
         art = (
@@ -376,6 +392,106 @@ class HardGateUnitTests(unittest.TestCase):
             links,
         )
         self.assertEqual(placed, [])
+
+
+class FaqRegenerationTests(unittest.TestCase):
+    """FAQ answers that are not French / do not answer are regenerated (mocked model)."""
+
+    QUESTION = "Que contient la formule Énergie ?"
+    BAD = "The pack has a bowl and a snack. Eat it fast."
+    GOOD = (
+        "La formule Énergie contient un bol de céréales, des fruits et une collation. "
+        "Elle se prépare en dix minutes."
+    )
+
+    def _article(self, answer: str) -> str:
+        return (
+            _opening("Guide", GOOD_LEDE)
+            + "\n## Corps\n\nTexte du corps.\n\n"
+            f"## Questions fréquentes\n\n### {self.QUESTION}\n\n{answer}\n"
+        )
+
+    def _patch(self, answers_by_call, judge=None):
+        calls = []
+
+        def fake_llm_json(system, user, *, label, max_tokens, temperature):
+            calls.append(label)
+            if "Contrôle" in label:
+                return judge(user) if judge else [{"n": 1, "en_francais": True, "repond": True}]
+            return {"1": {"question": self.QUESTION, "reponse": answers_by_call.pop(0)}}
+
+        original = hard_gates._llm_json
+        hard_gates._llm_json = fake_llm_json
+        self.addCleanup(setattr, hard_gates, "_llm_json", original)
+        return calls
+
+    def test_english_answer_is_regenerated(self):
+        calls = self._patch([self.GOOD])
+        fixed, issues, questions = hard_gates.ensure_faq_quality(
+            self._article(self.BAD), allowed=[self.QUESTION], lang="fr"
+        )
+        self.assertEqual(issues, [])
+        self.assertIn("bol de céréales", fixed)
+        self.assertNotIn("bowl", fixed)
+        self.assertIn("Régénération des réponses de FAQ", calls)
+
+    def test_judge_rejects_off_topic_answer(self):
+        off_topic = (
+            "La météo change souvent en automne. Pensez à vous couvrir avant de sortir."
+        )
+
+        def judge(user):
+            if "météo" in user:
+                return [{"n": 1, "en_francais": True, "repond": False, "raison": "hors sujet"}]
+            return [{"n": 1, "en_francais": True, "repond": True, "raison": ""}]
+
+        calls = self._patch([self.GOOD], judge=judge)
+        fixed, issues, _ = hard_gates.ensure_faq_quality(
+            self._article(off_topic), allowed=[self.QUESTION], lang="fr"
+        )
+        self.assertEqual(issues, [])
+        self.assertNotIn("météo", fixed)
+        self.assertIn("formule Énergie", fixed)
+        self.assertEqual(calls.count("Régénération des réponses de FAQ"), 1)
+
+    def test_still_failing_after_retries_blocks_without_default_text(self):
+        from backend import config
+
+        calls = self._patch([self.BAD] * (config.QUALITY_RETRY_ATTEMPTS + 2))
+        fixed, issues, _ = hard_gates.ensure_faq_quality(
+            self._article(self.BAD), allowed=[self.QUESTION], lang="fr"
+        )
+        self.assertEqual([i.code for i in issues], ["faq_answer_invalid"])
+        self.assertEqual(
+            calls.count("Régénération des réponses de FAQ"), config.QUALITY_RETRY_ATTEMPTS
+        )
+        self.assertNotIn("Cela dépend", fixed)
+        self.assertNotIn("depends", fixed.lower())
+
+    def test_good_answer_needs_no_regeneration(self):
+        calls = self._patch([], judge=lambda user: [{"n": 1, "en_francais": True, "repond": True}])
+        fixed, issues, _ = hard_gates.ensure_faq_quality(
+            self._article(self.GOOD), allowed=[self.QUESTION], lang="fr"
+        )
+        self.assertEqual(issues, [])
+        self.assertNotIn("Régénération des réponses de FAQ", calls)
+        self.assertIn("bol de céréales", fixed)
+
+
+class FrenchGateTests(unittest.TestCase):
+    def test_gate_reports_english_and_banned_words(self):
+        article = (
+            _opening("Guide", GOOD_LEDE)
+            + "\n## Idées\n\nPréparez un bowl et une galette. Le healthy snack du matin.\n"
+        )
+        issues = hard_gates.check_french_language(article, lang="fr")
+        codes = {i.code for i in issues}
+        self.assertTrue(codes & {"fr_banned_word", "fr_english_word"}, msg=issues)
+
+    def test_gate_skipped_for_other_languages(self):
+        self.assertEqual(
+            hard_gates.check_french_language("Prepare a bowl and a snack.", lang="en"), []
+        )
 
 
 if __name__ == "__main__":

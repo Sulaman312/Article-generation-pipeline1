@@ -62,6 +62,16 @@ WEBFLOW_LIVE_URL_BASE=https://www.yoursite.com/blog
 
 Install the new dependency (`pip install -r requirements.txt`) and restart the backend. Running the step again updates the same Webflow draft instead of creating a duplicate. Field slugs (not labels) come from the Webflow collection settings.
 
+## French articles (no English words)
+
+When the article language is French (Language field on the article form, or detected from the topic), every Claude step gets a French rule block (`Tout en français, aucun mot anglais, y compris titres, FAQ, tableaux et méta.`), the banned-word list and the brand glossary.
+
+- **Glossary:** add a workspace context file `french_glossary.md` (Edit workspace → context files) with sections `Termes de la marque`, `Mots interdits` (`bowl -> bol`) and `Mots autorisés`. Built-in defaults cover `bowl`, `wrap`, `snack`, `pack` and the `formule Découverte / Énergie / Gagnant` names. Banned words in the file are added to the defaults; brand terms in the file replace the default names (so another brand can use its own).
+- **No default text:** failed steps are retried (`QUALITY_RETRY_ATTEMPTS`) and then stop with an error. Fallback sentences such as « It depends on the task » are gone.
+- **FAQ:** each answer is checked to be French and to answer its question, and is regenerated otherwise.
+- **Before publishing:** Content to CMS scans the article, title and meta for English words, banned words, placeholders and spelling errors, and blocks the send with a report. Needs `pyspellchecker` for the spelling part.
+- Settings: `FRENCH_QA_ENABLED`, `FRENCH_SPELLCHECK`, `FRENCH_FAQ_LLM_CHECK` (see `.env.example`).
+
 ## Prompt caching (Phase 2)
 
 Claude steps share a stable cacheable prefix:

@@ -66,7 +66,7 @@ what emotion or next-step clarity the reader leaves with,
 and how the final sentence sets up the CTA naturally.
 The draft's final H2 must be a unique topical heading — never "Conclusion", "Final thoughts", or "In summary".]
 
-CTA NOTE: [exact placement at H2 transitions + type (soft/direct) — plan 2–3 CTAs spread inline, not clustered at the end]
+CTA NOTE: [exact placement at H2 transitions + type (soft/direct) — plan exactly 2 CTAs: one between sections, one at the end, none in the opening]
 INTERNAL LINK NOTE: [**First:** plan a mid-sentence placement for every URL/path from the
   article-form Internal Links field — `[short anchor](exact href)`. Name the H2 for each.
   **Then** (optional extra) ATP supporting cluster placeholders:

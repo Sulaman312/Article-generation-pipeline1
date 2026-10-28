@@ -17,6 +17,7 @@ from datetime import datetime, timezone
 from . import editorial_input
 from . import artifacts
 from . import config  # noqa: F401  (loads .env before os.getenv below)
+from . import publish_check
 from .integrations import webflow
 from .step_markers import extract_step_body, wrap_step_artifact
 
@@ -253,6 +254,9 @@ def _spaces_outside_links(text: str) -> str:
 
 
 def _clean_markdown(text: str) -> str:
+    from . import image_alt
+
+    text = image_alt.normalize_image_alts(text)
     text = _spaces_outside_links(text)
     # INTERNAL links: keep only the anchor text for now.
     text = re.sub(r"\[([^\]]+)\]\(INTERNAL:[^)]*\)", r"\1", text)
@@ -274,12 +278,63 @@ def _blank_line_before_lists(text: str) -> str:
     return "\n".join(out)
 
 
+_HTML_BLOCK_OPEN_RE = re.compile(r"^[ \t]*<(div|section|style|aside)\b", re.I)
+_HTML_TAG_TOKEN_RE = re.compile(r"<(/?)(div|section|style|aside)\b[^>]*?(/?)>", re.I)
+
+
+def _protect_html_blocks(text: str) -> tuple[str, list[str]]:
+    """Cut top-level HTML blocks (workspace CTA shell + its <style>) out of the markdown.
+
+    They are put back after the markdown conversion, so the HTML is never reparsed
+    as markdown (indented lines turned into code, blank lines splitting the block)
+    and the article around it converts normally.
+    """
+    lines = text.split("\n")
+    out: list[str] = []
+    blocks: list[str] = []
+    in_fence = False
+    i = 0
+    while i < len(lines):
+        line = lines[i]
+        if re.match(r"^[ \t]*`{3,}", line):
+            in_fence = not in_fence
+        m = None if in_fence else _HTML_BLOCK_OPEN_RE.match(line)
+        if not m:
+            out.append(line)
+            i += 1
+            continue
+        depth = 0
+        j = i
+        while j < len(lines):
+            for t in _HTML_TAG_TOKEN_RE.finditer(lines[j]):
+                if t.group(3) == "/":
+                    continue
+                depth += -1 if t.group(1) else 1
+            j += 1
+            if depth <= 0:
+                break
+        if depth > 0:
+            # Never closed: drop the stray tag, or markdown would treat the whole
+            # rest of the article as raw HTML.
+            out.append(_HTML_TAG_TOKEN_RE.sub("", line))
+            i += 1
+            continue
+        blocks.append("\n".join(s.strip() for s in lines[i:j] if s.strip()))
+        out.extend(["", f"HTMLBLOCKTOKEN{len(blocks) - 1}END", ""])
+        i = j
+    return "\n".join(out), blocks
+
+
 def _markdown_to_html(text: str) -> str:
     import markdown  # imported here so the rest of the backend works without it
 
+    text, protected = _protect_html_blocks(text)
     html = markdown.markdown(
         _blank_line_before_lists(text), extensions=["sane_lists", "tables"]
     )
+    for n, block in enumerate(protected):
+        token = f"HTMLBLOCKTOKEN{n}END"
+        html = html.replace(f"<p>{token}</p>", block).replace(token, block)
     # Webflow's rich text field drops lists that contain line breaks between
     # tags, or bold text right at the start of a list item. Normalise both.
     html = re.sub(r">\s*\n\s*<", "><", html)
@@ -340,6 +395,18 @@ def run_content_to_cms(client_id: str, run_id: str, previous_artifact: str = "")
     if not post["html"]:
         raise RuntimeError("The final output is empty, nothing to send to the CMS.")
 
+    # Pre-publish check: English words, banned words, placeholders and French spelling
+    # errors block the send. Nothing is changed here; the editor fixes and re-runs.
+    meta_title, meta_description = _recommended_meta(client_id, run_id)
+    publish_check.ensure_publishable(
+        client_id=client_id,
+        run_id=run_id,
+        article_md=_split_title(_article_markdown(final_output), run_id)[1],
+        title=post["title"],
+        meta_title=meta_title,
+        meta_description=meta_description,
+    )
+
     cms = resolve_cms_config(client_id)
     provider = normalize_cms_provider(cms.get("provider"))
     if provider == "none":
@@ -370,7 +437,6 @@ def run_content_to_cms(client_id: str, run_id: str, previous_artifact: str = "")
         )
 
     # Meta title / meta description — only when field slugs are configured.
-    meta_title, meta_description = _recommended_meta(client_id, run_id)
     meta_title_field = (cms.get("field_meta_title") or "").strip()
     meta_description_field = (cms.get("field_meta_description") or "").strip()
 

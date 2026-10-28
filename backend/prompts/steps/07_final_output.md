@@ -19,8 +19,9 @@ TASK 1 — CTA PLACEMENT
   Follow **WRITING FORMAT GUIDELINES** (CTAs section) in your system prompt.
   If CTA Guidelines provided: follow them exactly.
   If placeholder — apply these defaults:
-    - Place **2–3** CTA blocks inline at natural H2 section breaks (transitions between sections).
-      Never cluster all CTAs at the end or insert mid-paragraph.
+    - Place **exactly 2** CTA blocks, never more: one between two H2 sections (not before the first
+      content section) and one at the end (after the last content section, before the FAQ).
+      Never put a CTA in the opening (takeaways, hero image, intro) or mid-paragraph.
     - Each CTA uses **three separate lines** (preserve spacing; do not collapse into one paragraph):
       1. **Bold heading** (product or action line)
       2. One-to-two-sentence description
@@ -110,12 +111,13 @@ TASK 3 — FINAL SEO & READABILITY CHECK (article body only)
   [ ] Article has a clear H1 → H2 hierarchy (no H3s without a parent H2)
   [ ] All headings use sentence case (not title case); closing H2 is topical (not "Conclusion")
   [ ] No em dashes or en dashes in headings, body, CTAs, FAQ, meta titles, or meta descriptions
-  [ ] 2–3 inline CTAs at H2 breaks, each with bold heading + description + markdown link on separate lines
+  [ ] Exactly 2 CTAs (one between sections, one at the end), none in the opening, each with bold heading + description + markdown link on separate lines
   [ ] CTAs use the Required CTA markdown href from workspace artifacts (live site + `/contact` unless guidelines specify another path)
   [ ] FAQ section present: H2 localized (`## Frequently Asked Questions` EN / `## Questions fréquentes` FR) with at least 5 H3 Q&As — if missing, add a minimal FAQ block from the article topic (do not rewrite body sections)
   [ ] FAQ H3 questions are clean question text only (no SOURCE SIGNAL / CITATION / competitor notes)
   [ ] Each FAQ answer is **one normal paragraph of 2-4 sentences** (min 2, max 4; max ~70 words), in the article language. No bullets, numbered lists, or one sentence per line. Do not pad FAQ.
   [ ] Transition words: ≥30% of body sentences use a natural connector (Yoast); add short connectors when splitting ideas — do not leave unlinked sentence stacks
+  [ ] Never start three sentences in a row with the same word
   [ ] Tone remains consistent throughout
 
 OUTPUT FORMAT — follow exactly:

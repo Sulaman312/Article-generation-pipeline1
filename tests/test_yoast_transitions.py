@@ -88,5 +88,56 @@ class YoastTransitionTests(unittest.TestCase):
         self.assertNotIn("TRANSITION_WORDS", codes)
 
 
+class RepeatedSentenceStartTests(unittest.TestCase):
+    def _codes(self, body: str) -> list[str]:
+        report = writing_format_lint.lint(body, stage="draft", lang="fr")
+        return [v.code for v in report.violations]
+
+    def test_three_same_starts_in_a_row_fail(self):
+        body = (
+            "## Le rituel\n\n"
+            "Le four tourne. Le stress diminue. Le repas est prêt. Ainsi, tout va bien.\n"
+        )
+        self.assertIn("REPEATED_SENTENCE_START", self._codes(body))
+
+    def test_two_same_starts_are_fine(self):
+        body = (
+            "## Le rituel\n\n"
+            "Le four tourne. Le stress diminue. Ainsi, le repas est prêt.\n"
+        )
+        self.assertNotIn("REPEATED_SENTENCE_START", self._codes(body))
+
+    def test_run_is_found_across_paragraphs_but_not_across_headings(self):
+        same_section = "## A\n\nVous cuisinez. Vous rangez.\n\nVous mangez.\n"
+        self.assertIn("REPEATED_SENTENCE_START", self._codes(same_section))
+        split = "## A\n\nVous cuisinez. Vous rangez.\n\n## B\n\nVous mangez.\n"
+        self.assertNotIn("REPEATED_SENTENCE_START", self._codes(split))
+
+    def test_elision_and_case_are_normalised(self):
+        sents = ["L'équipe cuisine.", "L’objectif est clair.", "l'idée est simple."]
+        self.assertEqual(len(writing_format_lint.find_repeated_starts(sents)), 1)
+
+    def test_french_hard_gate_flags_style(self):
+        from backend import hard_gates
+
+        choppy = (
+            "Le four tourne. Le stress diminue. Le repas est prêt. Les boîtes partent. "
+            "Les soirs sont simples. Les enfants mangent. La cuisine reste propre.\n"
+        )
+        codes = {i.code for i in hard_gates.check_french_sentence_style(choppy, lang="fr")}
+        self.assertEqual(codes, {"transition_words", "repeated_sentence_start"})
+        self.assertEqual(hard_gates.check_french_sentence_style(choppy, lang="en"), [])
+
+    def test_french_hard_gate_passes_good_prose(self):
+        from backend import hard_gates
+
+        good = (
+            "D'abord, fixez deux heures le dimanche. Ensuite, découpez les tâches par poste. "
+            "Par exemple, une personne gère le four. En parallèle, une autre prépare les "
+            "sauces. Ainsi, rien n'attend inutilement. Le stress diminue donc nettement.\n"
+        )
+        self.assertEqual(hard_gates.check_french_sentence_style(good, lang="fr"), [])
+
+
 if __name__ == "__main__":
     unittest.main()

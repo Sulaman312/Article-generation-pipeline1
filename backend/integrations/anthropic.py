@@ -240,7 +240,8 @@ def chat_complete(
             raise TypeError("user_msg is required when system_msg is a string")
 
     last_exc: Exception | None = None
-    for attempt in range(2):
+    max_attempts = max(1, int(getattr(config, "CLAUDE_MAX_ATTEMPTS", 2)))
+    for attempt in range(max_attempts):
         job_control.raise_if_cancelled()
         try:
             if cached is not None:
@@ -277,15 +278,15 @@ def chat_complete(
                 type(e).__name__,
                 detail,
             )
-            if attempt == 0:
+            if attempt < max_attempts - 1:
                 if job_control.is_cancelled():
                     raise job_control.JobCancelled(
                         "Pipeline step cancelled by user"
                     )
-                time.sleep(3)
+                time.sleep(3 * (attempt + 1))
             else:
                 raise RuntimeError(
-                    f"Claude API call failed after retry for {step_label}: "
+                    f"Claude API call failed after {max_attempts} attempt(s) for {step_label}: "
                     f"{type(e).__name__}: {detail}"
                 ) from last_exc
     raise AssertionError("unreachable")

@@ -5,12 +5,15 @@ These are deterministic checks (not prompt hope). Call after draft / final gener
 
 from __future__ import annotations
 
+import json
 import logging
 import re
 from dataclasses import dataclass, field
 
 from . import editorial_input
 from . import faq_schema
+from . import french_language
+from . import image_alt
 from . import paa_faq
 from . import url_verify
 from .step_markers import extract_step_body
@@ -893,39 +896,8 @@ def check_faq(
     return issues
 
 
-_FAQ_ANSWER_FILLERS_BY_LANG: dict[str, tuple[str, ...]] = {
-    "en": (
-        "It depends on your situation, your constraints, and what you can prepare first.",
-        "Start with one clear step that has a result you can check.",
-        "Adjust based on that result before you widen the approach.",
-    ),
-    "fr": (
-        "Cela dépend de votre situation, de vos contraintes et de ce que vous pouvez préparer d'abord.",
-        "Commencez par une étape claire avec un résultat simple à vérifier.",
-        "Ajustez ensuite selon ce résultat avant d'élargir.",
-    ),
-    "de": (
-        "Das hängt von Ihrer Situation, Ihren Rahmenbedingungen und dem ab, was Sie zuerst vorbereiten können.",
-        "Beginnen Sie mit einem klaren Schritt, dessen Ergebnis Sie prüfen können.",
-        "Passen Sie den Ansatz danach an, bevor Sie ihn ausweiten.",
-    ),
-    "es": (
-        "Depende de tu situación, tus límites y de lo que puedas preparar primero.",
-        "Empieza con un paso claro que tenga un resultado fácil de comprobar.",
-        "Ajusta según ese resultado antes de ampliar el enfoque.",
-    ),
-    "it": (
-        "Dipende dalla tua situazione, dai vincoli e da ciò che puoi preparare per primo.",
-        "Inizia con un passo chiaro che abbia un risultato verificabile.",
-        "Poi regola l'approccio in base a quel risultato prima di allargarlo.",
-    ),
-}
-
-
-def _faq_fillers_for_lang(lang: str) -> tuple[str, ...]:
-    return _FAQ_ANSWER_FILLERS_BY_LANG.get(
-        (lang or "en").lower(), _FAQ_ANSWER_FILLERS_BY_LANG["en"]
-    )
+_FAQ_LANGS = frozenset({"en", "fr", "de", "es", "it"})
+_FAQ_MAX_QUESTIONS = 7
 
 
 def _detect_faq_language(
@@ -935,7 +907,7 @@ def _detect_faq_language(
     questions: list[str] | None = None,
 ) -> str:
     hint = (lang_hint or "").strip().lower()
-    if hint in _FAQ_ANSWER_FILLERS_BY_LANG and hint != "en":
+    if hint in _FAQ_LANGS and hint != "en":
         return hint
     sections = faq_schema.extract_faq_sections(article or "")
     if sections:
@@ -958,89 +930,13 @@ def _detect_faq_language(
         low,
     ):
         return "fr"
-    if hint in _FAQ_ANSWER_FILLERS_BY_LANG:
+    if hint in _FAQ_LANGS:
         return hint
     return "en"
 
 
-def _shape_faq_answer(answer: str, *, lang: str = "en") -> str:
-    """Keep a normal 2–4 sentence paragraph so the FAQ length gate passes."""
-    fillers = _faq_fillers_for_lang(lang)
-    sentences = faq_schema.split_faq_sentences(faq_schema.trim_faq_answer(answer))
-    # Drop stale English automation fillers when writing a non-English FAQ.
-    if lang != "en":
-        english = set(_FAQ_ANSWER_FILLERS_BY_LANG["en"])
-        legacy_en = {
-            "It depends on the task, the tools already in place, and how much should stay with a person.",
-            "Start with one clear job that has a known input and a known output.",
-            "Review the result before you widen the setup.",
-            "Change the approach when the process or the volume changes.",
-        }
-        sentences = [s for s in sentences if s not in english and s not in legacy_en]
-    for filler in fillers:
-        if len(sentences) >= FAQ_ANSWER_MIN_SENTENCES:
-            break
-        if filler not in sentences:
-            sentences.append(filler)
-    text = " ".join(sentences[:FAQ_ANSWER_MAX_SENTENCES])
-    return faq_schema.trim_faq_answer(text)
-
-
-def align_faq_to_allowed(
-    article: str,
-    allowed: list[str],
-    *,
-    lang: str = "",
-) -> str:
-    """Replace invented FAQ questions with the approved or PAA bank wording."""
-    questions = []
-    seen: set[str] = set()
-    for raw in allowed or []:
-        q = paa_faq.clean_faq_question(raw)
-        if not q:
-            continue
-        key = _norm_q(q)
-        if not key or key in seen:
-            continue
-        seen.add(key)
-        questions.append(q if q.endswith("?") else f"{q}?")
-        if len(questions) >= 7:
-            break
-    if not questions or not (article or "").strip():
-        return article
-
-    faq_lang = _detect_faq_language(article, lang_hint=lang, questions=questions)
-    pairs = faq_schema.extract_faq_pairs(article)
-    sections = faq_schema.extract_faq_sections(article)
-    heading = (
-        sections[0][0]
-        if sections
-        else editorial_input.faq_heading_for_language(faq_lang)
-    )
-    fillers = _faq_fillers_for_lang(faq_lang)
-    new_pairs: list[tuple[str, str]] = []
-    for idx, q in enumerate(questions):
-        nq = _norm_q(q)
-        answer = ""
-        for existing_q, existing_a in pairs:
-            en = _norm_q(existing_q)
-            if nq and en and (nq == en or nq in en or en in nq):
-                answer = existing_a
-                break
-        # Index fallback when wording drifted but answers already exist.
-        if not answer and idx < len(pairs):
-            answer = pairs[idx][1]
-        if answer and faq_lang != "en" and _looks_wrong_faq_lang(answer, faq_lang):
-            # Don't keep English stub answers under French (etc.) questions.
-            answer = ""
-        if not answer:
-            answer = fillers[0]
-        new_pairs.append((q, _shape_faq_answer(answer, lang=faq_lang)))
-    return faq_schema.insert_faq_block(article, new_pairs, heading=heading)
-
-
 def _looks_wrong_faq_lang(answer: str, lang: str) -> bool:
-    """True when a fallback answer is clearly not in the article FAQ language."""
+    """True when an answer is clearly not in the article FAQ language."""
     text = (answer or "").strip()
     if not text or lang == "en":
         return False
@@ -1061,6 +957,377 @@ def _looks_wrong_faq_lang(answer: str, lang: str) -> bool:
         )
         return has_en and not has_fr
     return False
+
+
+def _expected_faq_questions(article: str, allowed: list[str]) -> list[str]:
+    """Questions the FAQ must contain: the approved/PAA bank, else what the article has."""
+    questions: list[str] = []
+    seen: set[str] = set()
+    source = list(allowed or [])
+    if not source:
+        source = [q for q, _a in faq_schema.extract_faq_pairs(article or "")]
+    for raw in source:
+        q = paa_faq.clean_faq_question(raw)
+        if not q:
+            continue
+        key = _norm_q(q)
+        if not key or key in seen:
+            continue
+        seen.add(key)
+        questions.append(q if q.endswith("?") else f"{q}?")
+        if len(questions) >= _FAQ_MAX_QUESTIONS:
+            break
+    return questions
+
+
+def _existing_answers(
+    article: str, questions: list[str], faq_lang: str
+) -> list[str]:
+    """Answer already in the article for each question ('' when none is usable).
+
+    Matches by question wording, then by position when the wording drifted. An answer
+    that is clearly in the wrong language is dropped so it gets regenerated, never
+    reused and never replaced by stock text.
+    """
+    pairs = faq_schema.extract_faq_pairs(article)
+    answers: list[str] = []
+    for idx, q in enumerate(questions):
+        nq = _norm_q(q)
+        answer = ""
+        for existing_q, existing_a in pairs:
+            en = _norm_q(existing_q)
+            if nq and en and (nq == en or nq in en or en in nq):
+                answer = existing_a
+                break
+        if not answer and idx < len(pairs):
+            answer = pairs[idx][1]
+        if answer and faq_lang != "en" and _looks_wrong_faq_lang(answer, faq_lang):
+            answer = ""
+        answers.append(faq_schema.trim_faq_answer(answer) if answer else "")
+    return answers
+
+
+def align_faq_to_allowed(
+    article: str,
+    allowed: list[str],
+    *,
+    lang: str = "",
+) -> str:
+    """Use the approved / PAA bank wording for FAQ questions.
+
+    Questions without a usable answer are left out. Nothing is invented here: the
+    FAQ quality step regenerates the missing answers with the model.
+    """
+    questions = _expected_faq_questions(article, allowed)
+    if not questions or not (article or "").strip():
+        return article
+    faq_lang = _detect_faq_language(article, lang_hint=lang, questions=questions)
+    answers = _existing_answers(article, questions, faq_lang)
+    sections = faq_schema.extract_faq_sections(article)
+    heading = (
+        sections[0][0]
+        if sections
+        else editorial_input.faq_heading_for_language(faq_lang)
+    )
+    pairs = [(q, a) for q, a in zip(questions, answers) if a]
+    if not pairs:
+        return article
+    return faq_schema.insert_faq_block(article, pairs, heading=heading)
+
+
+# ---------------------------------------------------------------------------
+# FAQ quality: every answer is in the article language AND answers its question.
+# Anything else is regenerated (retries), never replaced by default text.
+# ---------------------------------------------------------------------------
+
+
+def _faq_answer_problem(question: str, answer: str, faq_lang: str, glossary) -> str:
+    """Deterministic reason an FAQ answer is unusable ('' when it passes)."""
+    if not (answer or "").strip():
+        return "réponse manquante" if faq_lang == "fr" else "missing answer"
+    sentences = _answer_sentence_count(answer)
+    if sentences < FAQ_ANSWER_MIN_SENTENCES:
+        return (
+            "réponse trop courte (2 à 4 phrases attendues)"
+            if faq_lang == "fr"
+            else "answer too short (2-4 sentences required)"
+        )
+    if faq_lang != "fr":
+        return ""
+    found = french_language.scan_french(
+        f"{question}\n{answer}", glossary=glossary, spelling=False
+    )
+    if found:
+        return "; ".join(i.message() for i in found[:3])
+    if _looks_wrong_faq_lang(answer, "fr"):
+        return "réponse pas en français"
+    return ""
+
+
+def _parse_json_payload(raw: str):
+    text = (raw or "").strip()
+    text = re.sub(r"^```(?:json)?\s*|\s*```$", "", text, flags=re.I)
+    for opener, closer in (("[", "]"), ("{", "}")):
+        start, end = text.find(opener), text.rfind(closer)
+        if start != -1 and end > start:
+            try:
+                return json.loads(text[start : end + 1])
+            except json.JSONDecodeError:
+                continue
+    raise ValueError("model reply is not valid JSON")
+
+
+def _llm_json(system: str, user: str, *, label: str, max_tokens: int, temperature: float):
+    """Call the model and parse JSON. Retry; raise when every attempt fails."""
+    from . import config
+    from .integrations import anthropic as claude
+
+    attempts = config.QUALITY_RETRY_ATTEMPTS
+    last: Exception | None = None
+    for attempt in range(attempts):
+        try:
+            raw = claude.chat_complete(
+                system,
+                user,
+                step_label=f"{label} (essai {attempt + 1})",
+                max_tokens=max_tokens,
+                temperature=temperature,
+            )
+            return _parse_json_payload(raw)
+        except ValueError as e:
+            last = e
+            logger.warning("%s: unusable reply (attempt %s/%s): %s", label, attempt + 1, attempts, e)
+    raise RuntimeError(f"{label}: no usable reply after {attempts} attempts: {last}")
+
+
+def _judge_faq_answers(
+    questions: list[str],
+    answers: list[str],
+    indexes: list[int],
+    *,
+    faq_lang: str,
+    glossary,
+) -> dict[int, str]:
+    """Ask the model whether each answer is in French AND answers its question.
+
+    Returns ``{index: reason}`` for the answers that fail.
+    """
+    if not indexes:
+        return {}
+    items = [
+        {"n": i + 1, "question": questions[i], "reponse": answers[i]} for i in indexes
+    ]
+    system = (
+        "Vous êtes un relecteur éditorial francophone, strict et factuel. "
+        f"{french_language.FRENCH_RULE}\n"
+        "Pour chaque entrée de FAQ, jugez deux points :\n"
+        "1. en_francais : la question ET la réponse sont entièrement en français "
+        "(aucun mot anglais, hors noms propres et marques).\n"
+        "2. repond : la réponse répond directement et précisément à la question posée. "
+        "Faux si elle est générique, hors sujet, évasive ou si elle pourrait convenir à "
+        "n'importe quelle autre question.\n"
+        "Répondez uniquement par un tableau JSON, sans texte autour : "
+        '[{"n": 1, "en_francais": true, "repond": true, "raison": "..."}]. '
+        "Une entrée par numéro reçu."
+    )
+    user = (
+        "Entrées de FAQ à juger :\n"
+        + json.dumps(items, ensure_ascii=False, indent=2)
+    )
+    payload = _llm_json(
+        system, user, label="Contrôle des réponses de FAQ", max_tokens=2000, temperature=0.0
+    )
+    if isinstance(payload, dict):
+        payload = payload.get("resultats") or payload.get("results") or [payload]
+    verdicts = {int(v.get("n", 0)): v for v in payload if isinstance(v, dict)}
+    failed: dict[int, str] = {}
+    for i in indexes:
+        verdict = verdicts.get(i + 1)
+        if verdict is None:
+            failed[i] = "aucun verdict reçu"
+            continue
+        reasons = []
+        if verdict.get("en_francais") is not True:
+            reasons.append("pas entièrement en français")
+        if verdict.get("repond") is not True:
+            reasons.append("ne répond pas à la question")
+        if reasons:
+            extra = str(verdict.get("raison") or "").strip()
+            failed[i] = ", ".join(reasons) + (f" ({extra})" if extra else "")
+    return failed
+
+
+def _regenerate_faq_answers(
+    article: str,
+    questions: list[str],
+    answers: list[str],
+    bad: dict[int, str],
+    *,
+    faq_lang: str,
+    glossary,
+) -> dict[int, tuple[str, str]]:
+    """Regenerate the failing answers. Returns ``{index: (question, answer)}``."""
+    context = faq_schema.strip_faq_section(article).strip()[:9000]
+    language_label = editorial_input.language_label_for_code(faq_lang)
+    items = [
+        {
+            "n": i + 1,
+            "question": questions[i],
+            "ancienne_reponse": answers[i],
+            "probleme": reason,
+        }
+        for i, reason in sorted(bad.items())
+    ]
+    if faq_lang == "fr":
+        system = (
+            "Vous êtes un rédacteur web francophone expert. "
+            f"{french_language.FRENCH_RULE}\n"
+            "Vous rédigez des réponses de FAQ qui répondent vraiment à la question.\n"
+            "Règles :\n"
+            "- Chaque réponse est un seul paragraphe de 2 à 4 phrases (70 mots au maximum), "
+            "sans puces ni liste.\n"
+            "- La première phrase répond directement à la question ; les suivantes "
+            "précisent ou nuancent.\n"
+            "- Appuyez-vous sur l'article fourni. N'inventez ni chiffre, ni prix, ni marque, "
+            "ni source.\n"
+            "- Aucun mot anglais. Mots interdits et remplacements :\n"
+            + french_language._banned_lines(glossary)
+            + "\n- Termes de marque exacts : "
+            + (" / ".join(glossary.brand_terms) or "(aucun)")
+            + ".\n"
+            "- Gardez la question telle quelle, sauf si elle contient un mot anglais : "
+            "dans ce cas, traduisez-la en français naturel.\n"
+            "Répondez uniquement par un objet JSON, sans texte autour : "
+            '{"1": {"question": "...", "reponse": "..."}, "2": {...}}, avec les numéros reçus.'
+        )
+        user = (
+            "---ARTICLE (sans la FAQ)---\n"
+            f"{context}\n---FIN DE L'ARTICLE---\n\n"
+            "Entrées de FAQ à rédiger ou à corriger :\n"
+            + json.dumps(items, ensure_ascii=False, indent=2)
+        )
+    else:
+        system = (
+            f"You are an expert web writer. Write every FAQ answer in {language_label}. "
+            "Each answer directly answers its question as one paragraph of 2-4 sentences "
+            f"(max {faq_schema.FAQ_ANSWER_MAX_WORDS} words), no bullets. Use the article as "
+            "the source; do not invent numbers, prices, brands or sources. Keep the "
+            "question as given. Reply with ONLY a JSON object: "
+            '{"1": {"question": "...", "reponse": "..."}, "2": {...}} using the numbers received.'
+        )
+        user = (
+            f"---ARTICLE (without FAQ)---\n{context}\n---END ARTICLE---\n\n"
+            "FAQ entries to write or fix:\n" + json.dumps(items, ensure_ascii=False, indent=2)
+        )
+    payload = _llm_json(
+        system,
+        user,
+        label="Régénération des réponses de FAQ",
+        max_tokens=3500,
+        temperature=0.3,
+    )
+    if not isinstance(payload, dict):
+        raise RuntimeError("FAQ regeneration reply must be a JSON object")
+    out: dict[int, tuple[str, str]] = {}
+    for key, value in payload.items():
+        try:
+            idx = int(key) - 1
+        except (TypeError, ValueError):
+            continue
+        if idx not in bad or not isinstance(value, dict):
+            continue
+        answer = str(value.get("reponse") or value.get("answer") or "").strip()
+        question = paa_faq.clean_faq_question(str(value.get("question") or "")) or questions[idx]
+        if answer:
+            out[idx] = (question, faq_schema.trim_faq_answer(answer))
+    return out
+
+
+def ensure_faq_quality(
+    article: str,
+    *,
+    allowed: list[str],
+    lang: str = "",
+    allow_llm: bool = True,
+    glossary=None,
+) -> tuple[str, list[GateIssue], list[str]]:
+    """Make every FAQ answer present, in the article language, and on-topic.
+
+    Failing answers are regenerated up to ``QUALITY_RETRY_ATTEMPTS`` times. Returns
+    ``(article, blocking issues still open, final question list)``. No default text
+    is ever inserted.
+    """
+    from . import config
+
+    questions = _expected_faq_questions(article, allowed)
+    if not questions or not (article or "").strip():
+        return article, [], list(allowed or [])
+    faq_lang = _detect_faq_language(article, lang_hint=lang, questions=questions)
+    glossary = glossary or french_language.Glossary()
+    judge = (
+        allow_llm
+        and faq_lang == "fr"
+        and config.FRENCH_QA_ENABLED
+        and config.FRENCH_FAQ_LLM_CHECK
+    )
+    sections = faq_schema.extract_faq_sections(article)
+    heading = (
+        sections[0][0] if sections else editorial_input.faq_heading_for_language(faq_lang)
+    )
+    answers = _existing_answers(article, questions, faq_lang)
+    attempts = config.QUALITY_RETRY_ATTEMPTS
+    bad: dict[int, str] = {}
+
+    for attempt in range(attempts + 1):
+        bad = {}
+        for i, (q, a) in enumerate(zip(questions, answers)):
+            problem = _faq_answer_problem(q, a, faq_lang, glossary)
+            if problem:
+                bad[i] = problem
+        if judge:
+            ok_idx = [i for i in range(len(questions)) if i not in bad]
+            bad.update(
+                _judge_faq_answers(
+                    questions, answers, ok_idx, faq_lang=faq_lang, glossary=glossary
+                )
+            )
+        if not bad or not allow_llm or attempt == attempts:
+            break
+        logger.warning(
+            "FAQ quality: regenerating %s answer(s) (attempt %s/%s): %s",
+            len(bad),
+            attempt + 1,
+            attempts,
+            "; ".join(f"Q{i + 1}: {r}" for i, r in sorted(bad.items())),
+        )
+        fixed = _regenerate_faq_answers(
+            article, questions, answers, bad, faq_lang=faq_lang, glossary=glossary
+        )
+        for i, (new_q, new_a) in fixed.items():
+            questions[i] = new_q
+            answers[i] = new_a
+        # An answer that failed must not survive just because it exists.
+        for i in bad:
+            if i not in fixed:
+                answers[i] = ""
+        # Questions without a usable answer are left out until they are regenerated.
+        pairs = [(q, a) for q, a in zip(questions, answers) if a]
+        if pairs:
+            article = faq_schema.insert_faq_block(article, pairs, heading=heading)
+
+    issues = [
+        GateIssue(
+            "faq_answer_invalid",
+            f'FAQ answer for "{questions[i][:70]}" is not usable after {attempts} '
+            f"regeneration attempt(s): {reason}",
+        )
+        for i, reason in sorted(bad.items())
+    ]
+    if not bad:
+        pairs = [(q, a) for q, a in zip(questions, answers) if a]
+        if pairs:
+            article = faq_schema.insert_faq_block(article, pairs, heading=heading)
+    return article, issues, questions
 
 
 def check_form_internal_links(
@@ -1088,6 +1355,51 @@ def check_form_internal_links(
     ]
 
 
+def check_french_language(
+    article: str, *, lang: str | None = None, glossary=None
+) -> list[GateIssue]:
+    """English words, banned words, placeholders and spelling errors in a French article."""
+    from . import config
+
+    if (lang or "").lower() != "fr" or not config.FRENCH_QA_ENABLED:
+        return []
+    issues = french_language.scan_french(
+        article,
+        glossary=glossary,
+        spelling=config.FRENCH_SPELLCHECK_ENABLED,
+    )
+    return [GateIssue(i.code, i.message()) for i in issues[:25]]
+
+
+def check_image_alt(article: str) -> list[GateIssue]:
+    """Every image has a meaningful alt text (3+ words) without any hyphen."""
+    return [
+        GateIssue(
+            "image_alt",
+            f'Alt text of an image is not usable ({p.reason}): "{p.alt[:80]}". '
+            "Write one descriptive phrase of 8 to 15 words, without hyphen or dash.",
+        )
+        for p in image_alt.find_alt_problems(article)
+    ]
+
+
+def check_french_sentence_style(article: str, *, lang: str | None = None) -> list[GateIssue]:
+    """French readability: ≥30% of sentences carry a transition word, and no three
+    sentences in a row start with the same word."""
+    if (lang or "").lower() != "fr":
+        return []
+    from . import writing_format_lint as lint
+
+    report = lint.LintReport(stage="draft")
+    lint._lint_transition_words(article, report, lang="fr")
+    lint._lint_repeated_starts(article, report, lang="fr")
+    issues: list[GateIssue] = []
+    for v in report.violations:
+        code = "transition_words" if v.code == "TRANSITION_WORDS" else "repeated_sentence_start"
+        issues.append(GateIssue(code, v.message if not v.excerpt else f"{v.message} ({v.excerpt})"))
+    return issues
+
+
 def evaluate_article_gates(
     article_md: str,
     *,
@@ -1100,6 +1412,8 @@ def evaluate_article_gates(
     form_internal_links: list[dict[str, str]] | None = None,
     stage: str = "draft",
     lang: str | None = None,
+    glossary=None,
+    faq_question_bank: list[str] | None = None,
 ) -> GateReport:
     article = _article_body(article_md, stage=stage)
     report = GateReport(primary_keyword=(primary_keyword or "").strip())
@@ -1146,6 +1460,9 @@ def evaluate_article_gates(
 
     approved_faq = parse_audit_approved_faq(research_audit)
     paa_bank = paa_faq.extract_recommended_faq_questions(paa_faq_research)
+    if faq_question_bank:
+        # Questions may have been translated into the article language.
+        approved_faq, paa_bank = list(faq_question_bank), []
     faq_issues = check_faq(
         article,
         require_faq=require_faq,
@@ -1155,6 +1472,9 @@ def evaluate_article_gates(
     report.issues.extend(faq_issues)
     report.faq_count = len(faq_schema.extract_faq_pairs(article))
     report.issues.extend(check_form_internal_links(article, form_internal_links))
+    report.issues.extend(check_french_language(article, lang=lang, glossary=glossary))
+    report.issues.extend(check_french_sentence_style(article, lang=lang))
+    report.issues.extend(check_image_alt(article))
     return report
 
 
@@ -1163,8 +1483,68 @@ def _repair_article_llm(
     report: GateReport,
     *,
     step_label: str,
+    lang: str = "en",
+    glossary=None,
 ) -> str:
     from .integrations import anthropic as claude
+
+    if (lang or "").lower() == "fr":
+        g = glossary or french_language.Glossary()
+        system = (
+            "Vous êtes un éditeur francophone. Corrigez UNIQUEMENT les échecs de contrôle "
+            "listés. Ne réécrivez pas tout l'article : conservez le sens, la voix de la "
+            "marque et la structure.\n"
+            f"{french_language.FRENCH_RULE}\n"
+            "Mots interdits et remplacements :\n"
+            f"{french_language._banned_lines(g)}\n"
+            "Termes de marque exacts : "
+            + (" / ".join(g.brand_terms) or "(aucun)")
+            + ".\nN'ajoutez jamais de texte générique de remplissage.\n"
+            "Renvoyez uniquement l'article complet corrigé en markdown, sans préambule."
+        )
+        user = (
+            f"{report.as_prompt_block()}\n\n"
+            "Règles :\n"
+            f"- Ouverture : `# H1` → `## À retenir` ({LEDE_MIN_WORDS} à {LEDE_MAX_WORDS} mots, "
+            "3 à 5 puces d'actions concrètes, pas un résumé) → image d'en-tête "
+            "`![texte alternatif](IMAGE: …)` → premier H2 de contenu. Pas de `## Résumé`.\n"
+            f"- Le mot-clé principal apparaît tel quel une seule fois dans les "
+            f"{FIRST_N_BODY_WORDS} premiers mots du corps, dans la première puce de « À retenir ». "
+            "Les titres ne comptent pas, un synonyme non plus. Pas d'autre répétition exacte.\n"
+            "- Tout prix, pourcentage ou frais précis exige un lien HTTPS dans le même "
+            "paragraphe, sinon retirez ou généralisez le chiffre.\n"
+            "- Retirez les affirmations marquées FLAGGED et les adresses FAIL.\n"
+            "- Si [late_takeaways] a échoué : supprimez les titres « À retenir », « Résumé » "
+            "ou équivalents du corps et gardez un seul `## À retenir` en haut.\n"
+            "- Les questions de FAQ reprennent exactement la banque approuvée ou PAA. "
+            "N'inventez pas de questions.\n"
+            f"- Chaque réponse de FAQ est un seul paragraphe de {FAQ_ANSWER_MIN_SENTENCES} à "
+            f"{FAQ_ANSWER_MAX_SENTENCES} phrases ({faq_schema.FAQ_ANSWER_MAX_WORDS} mots "
+            "au maximum), sans puces, et répond réellement à sa question.\n"
+            "- Si [form_internal_link] a échoué : insérez chaque adresse ou chemin listé "
+            "sous la forme `[ancre de 2 à 3 mots](href exact)` au milieu d'une phrase.\n"
+            "- Si un mot anglais, un mot interdit, un terme de marque ou une faute est "
+            "signalé : remplacez-le par l'équivalent français indiqué, partout dans le texte "
+            "(titres, tableaux, FAQ, textes alternatifs compris).\n"
+            "- Si [image_alt] a échoué : chaque `![texte alternatif](IMAGE: …)` a un texte "
+            "alternatif descriptif de 8 à 15 mots, sans trait d'union ni tiret.\n"
+            "- Si [transition_words] a échoué : au moins 30 % des phrases contiennent un "
+            "connecteur (ainsi, en effet, par ailleurs, en revanche, donc, toutefois, "
+            "cependant, ensuite, enfin, par exemple, car…). N'utilisez pas « de plus ».\n"
+            "- Si [repeated_sentence_start] a échoué : ne commencez jamais trois phrases "
+            "de suite par le même mot ; réorganisez la phrase ou ouvrez avec un connecteur.\n"
+            "- Respectez la fourchette de mots si word_count a échoué.\n\n"
+            "---ARTICLE---\n"
+            f"{article.strip()}\n"
+            "---FIN DE L'ARTICLE---"
+        )
+        return claude.chat_complete(
+            system,
+            user,
+            step_label=step_label,
+            max_tokens=8000,
+            temperature=0.2,
+        ).strip()
 
     system = (
         "You are a publishing editor. Fix ONLY the hard-gate failures listed. "
@@ -1192,6 +1572,8 @@ def _repair_article_llm(
         f"(max {faq_schema.FAQ_ANSWER_MAX_WORDS} words). "
         "Do not use bullets, numbered lists, or one sentence per line. "
         "Do not pad FAQ; keep article word count in the body.\n"
+        "- If [image_alt] failed: every `![alt](IMAGE: …)` needs a descriptive alt text of "
+        "8-15 words with no hyphen or dash.\n"
         "- If [form_internal_link] failed: weave each listed URL/path as "
         "`[2–3 word anchor](exact-href)` mid-sentence. Do not invent different URLs "
         "or dump a footer list.\n"
@@ -1239,7 +1621,11 @@ def enforce_article_gates(
     allow_llm_repair: bool = True,
     raise_on_fail: bool = True,
 ) -> str:
-    """Evaluate hard gates; optionally LLM-repair once; raise HardGateError if still failing."""
+    """Evaluate hard gates and repair failures; raise HardGateError if still failing.
+
+    Failures are retried (``QUALITY_RETRY_ATTEMPTS`` repair rounds, and FAQ answers
+    are regenerated one by one). No default text is ever inserted to make a gate pass.
+    """
     from . import artifacts
     from . import config
 
@@ -1275,36 +1661,67 @@ def enforce_article_gates(
     allowed_faq = parse_audit_approved_faq(research_audit) or paa_faq.extract_recommended_faq_questions(
         paa
     )
+    had_bank = bool(allowed_faq)
     faq_lang = editorial_input.article_language_from_manual(manual)
     if faq_lang == "en":
         paa_lang = paa_faq.extract_faq_language(paa)
         if paa_lang:
             faq_lang = paa_lang
+    glossary = french_language.load_glossary(client_id) if faq_lang == "fr" else None
+
+    faq_issues: list[GateIssue] = []
 
     def _correct(body: str) -> str:
-        text = localize_structural_headings(body, lang=faq_lang)
+        text = image_alt.normalize_image_alts(body)
+        text = localize_structural_headings(text, lang=faq_lang)
         text = ensure_takeaways_as_bullets(text)
         if require_faq and allowed_faq:
             text = align_faq_to_allowed(text, allowed_faq, lang=faq_lang)
         return ensure_primary_keyword_in_first_100(text, primary)
 
+    def _faq_quality(body: str) -> str:
+        """Regenerate FAQ answers that are missing, off-language or off-topic."""
+        nonlocal allowed_faq
+        faq_issues.clear()
+        if not require_faq:
+            return body
+        fixed, issues, questions = ensure_faq_quality(
+            body,
+            allowed=allowed_faq,
+            lang=faq_lang,
+            allow_llm=allow_llm_repair,
+            glossary=glossary,
+        )
+        faq_issues.extend(issues)
+        if had_bank and questions:
+            # Questions may have been translated to the article language; keep them.
+            allowed_faq = questions
+        return fixed
+
+    def _evaluate(current_text: str) -> GateReport:
+        rep = evaluate_article_gates(
+            current_text,
+            primary_keyword=primary,
+            word_target=word_target,
+            research_audit=research_audit,
+            lang=faq_lang,
+            case_study_research=case_study,
+            paa_faq_research=paa,
+            require_faq=require_faq,
+            form_internal_links=form_internal_links,
+            stage=stage,
+            glossary=glossary,
+            faq_question_bank=allowed_faq if had_bank else None,
+        )
+        rep.issues.extend(faq_issues)
+        return rep
+
     current = _replace_stage_body(
         article_md,
-        _correct(_article_body(article_md, stage=stage)),
+        _faq_quality(_correct(_article_body(article_md, stage=stage))),
         stage=stage,
     )
-    report = evaluate_article_gates(
-        current,
-        primary_keyword=primary,
-        word_target=word_target,
-        research_audit=research_audit,
-        lang=faq_lang,
-        case_study_research=case_study,
-        paa_faq_research=paa,
-        require_faq=require_faq,
-        form_internal_links=form_internal_links,
-        stage=stage,
-    )
+    report = _evaluate(current)
 
     if report.ok:
         logger.info(
@@ -1318,30 +1735,33 @@ def enforce_article_gates(
 
     logger.warning("hard gates failed (%s): %s", stage, report.failure_message())
 
-    if allow_llm_repair and report.blocking_issues():
+    rounds = config.QUALITY_RETRY_ATTEMPTS if allow_llm_repair else 0
+    for round_i in range(rounds):
+        if report.ok or not report.blocking_issues():
+            break
         try:
             repaired = _repair_article_llm(
                 _article_body(current, stage=stage),
                 report,
-                step_label=f"Hard gate repair ({stage})",
+                step_label=f"Hard gate repair ({stage}, {round_i + 1}/{rounds})",
+                lang=faq_lang,
+                glossary=glossary,
             )
-            if repaired:
-                repaired = _correct(repaired)
-                current = _replace_stage_body(current, repaired, stage=stage)
-                report = evaluate_article_gates(
-                    current,
-                    primary_keyword=primary,
-                    word_target=word_target,
-                    research_audit=research_audit,
-                    case_study_research=case_study,
-                    paa_faq_research=paa,
-                    require_faq=require_faq,
-                    form_internal_links=form_internal_links,
-                    stage=stage,
-                    lang=faq_lang,
+            if not repaired:
+                continue
+            repaired = _faq_quality(_correct(repaired))
+            current = _replace_stage_body(current, repaired, stage=stage)
+            report = _evaluate(current)
+            if not report.ok:
+                logger.warning(
+                    "hard gates still failing after repair %s/%s (%s): %s",
+                    round_i + 1,
+                    rounds,
+                    stage,
+                    report.failure_message(),
                 )
         except Exception:
-            logger.exception("hard gate LLM repair failed (%s)", stage)
+            logger.exception("hard gate LLM repair failed (%s, round %s)", stage, round_i + 1)
 
     if report.ok:
         logger.info("hard gates passed after repair (%s)", stage)
