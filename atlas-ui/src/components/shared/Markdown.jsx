@@ -1,6 +1,12 @@
-import { Fragment } from "react";
+import { Fragment, useDeferredValue, useMemo } from "react";
 import { parseBlocks } from "../../utils/markdownBlocks";
-import { normalizePipelineMarkdown } from "../../constants/markdownPreview";
+import {
+  normalizePipelineMarkdown,
+  normalizeStepArtifactMarkdown,
+  isStepBoundaryMarker,
+  formatStepBoundaryLabel,
+} from "../../constants/markdownPreview";
+import { sanitizeHref } from "../../utils/safeHref";
 
 const INLINE_TOKEN =
   /(`[^`\n]+`)|(\*\*[^*\n]+\*\*)|(__[^_\n]+__)|(\*[^*\n]+\*)|(_[^_\n]+_)|(\[[^\]]+\]\([^)\s]+\))/g;
@@ -33,16 +39,21 @@ function renderInline(text, keyPrefix = "i") {
     } else if (tok.startsWith("[")) {
       const lm = tok.match(/^\[([^\]]+)\]\(([^)\s]+)\)$/);
       if (lm) {
-        parts.push(
-          <a
-            key={k}
-            href={lm[2]}
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            {lm[1]}
-          </a>
-        );
+        const href = sanitizeHref(lm[2]);
+        if (href) {
+          parts.push(
+            <a
+              key={k}
+              href={href}
+              target="_blank"
+              rel="noopener noreferrer"
+            >
+              {lm[1]}
+            </a>
+          );
+        } else {
+          parts.push(<span key={k}>{lm[1]}</span>);
+        }
       } else {
         parts.push(tok);
       }
@@ -57,6 +68,52 @@ function renderInline(text, keyPrefix = "i") {
 
 function isSystemMetaKey(key) {
   return /^(MODEL|VERSION|STATUS)$/i.test(String(key || "").trim());
+}
+
+function isHiddenPipelineBanner(label) {
+  if (isStepBoundaryMarker(label)) return false;
+  const t = String(label || "").trim();
+  if (/^META SEO (?:START|END)$/i.test(t)) return false;
+  if (/^SERP RESEARCH (?:START|END)$/i.test(t)) return false;
+  if (/^SERP ANALYSIS (?:START|END)$/i.test(t)) return false;
+  if (/^FACT CHECK (?:START|END)$/i.test(t)) return false;
+  if (/^TOPIC CARD (?:START|END)$/i.test(t)) return false;
+  if (/^BRIEF (?:START|END)$/i.test(t)) return false;
+  if (/^OUTLINE (?:START|END)$/i.test(t)) return false;
+  if (/^DRAFT (?:START|END)$/i.test(t)) return false;
+  if (/^FINAL OUTPUT (?:START|END)$/i.test(t)) return false;
+  if (/^FINAL ARTICLE (?:START|END)$/i.test(t)) return false;
+  if (/^SERP RESEARCH/i.test(t)) return true;
+  if (/^SERP ANALYSIS/i.test(t)) return true;
+  if (/^FACT CHECK REPORT/i.test(t)) return true;
+  if (/^CORRECTED ARTICLE/i.test(t)) return true;
+  if (/^PERPLEXITY WEB FACT-CHECK/i.test(t)) return true;
+  if (/^DRAFT FACT-CHECK SCAN/i.test(t)) return true;
+  if (/^EDITOR FACT-CHECK/i.test(t)) return true;
+  if (/^PUBLISHING METADATA/i.test(t)) return true;
+  if (/^(MAIN RESPONSE|RESPONSE)$/i.test(t)) return true;
+  if (/^PASTE PERPLEXITY/i.test(t)) return true;
+  return false;
+}
+
+function isSerpPreambleTitle(text) {
+  const t = String(text || "")
+    .trim()
+    .replace(/^\*\*|\*\*$/g, "")
+    .replace(/^#+\s*/, "");
+  return /^SERP[- ]Oriented Research Summary\s*:/i.test(t);
+}
+
+function isFactcheckPreambleTitle(text) {
+  const t = String(text || "")
+    .trim()
+    .replace(/^\*\*|\*\*$/g, "")
+    .replace(/^#+\s*/, "");
+  return /^Web[- ]Grounded Fact[- ]Check Scan\s*:/i.test(t);
+}
+
+function isRedundantSectionLabel(label) {
+  return /^SERP SNAPSHOT$/i.test(String(label || "").trim());
 }
 
 function isPipelineFieldKey(key) {
@@ -122,6 +179,21 @@ function renderDelimiterHeading(text, key) {
   );
 }
 
+function renderStepBoundary(label, key) {
+  const display = formatStepBoundaryLabel(label);
+  const isStart = /\bSTART$/i.test(display);
+  return (
+    <div
+      key={key}
+      className={`md-step-boundary md-step-boundary--${isStart ? "start" : "end"}`}
+      role="separator"
+      aria-label={display}
+    >
+      <span className="md-step-boundary-label">{display}</span>
+    </div>
+  );
+}
+
 function renderBoldHeading(title, key) {
   const text = title.trim();
   const clean = text.replace(/:$/, "");
@@ -147,6 +219,22 @@ function renderBoldHeading(title, key) {
 
 function renderPipelineField(label, bodyText, key) {
   const cleanLabel = label.trim().replace(/:$/, "");
+  if (isRedundantSectionLabel(cleanLabel)) {
+    const body = bodyText.trim();
+    if (!body) return null;
+    return (
+      <div key={key} className="md-labeled-block md-pipeline-field">
+        <div className="md-labeled-block-body">
+          {body.split("\n").map((seg, j) => (
+            <Fragment key={`${key}-b-${j}`}>
+              {j > 0 ? <br /> : null}
+              {renderInline(seg, `${key}-${j}`)}
+            </Fragment>
+          ))}
+        </div>
+      </div>
+    );
+  }
   const body = bodyText.trim();
   return (
     <div key={key} className="md-labeled-block md-pipeline-field">
@@ -266,8 +354,15 @@ function renderParagraphBlock(block, key) {
 
   const banner = trimmed.match(/^---(.+?)---$/);
   if (banner) {
-    return renderDelimiterHeading(banner[1].trim(), key);
+    const label = banner[1].trim();
+    if (isStepBoundaryMarker(label)) {
+      return renderStepBoundary(label, key);
+    }
+    if (isHiddenPipelineBanner(label)) return null;
+    return renderDelimiterHeading(label, key);
   }
+
+  if (isSerpPreambleTitle(trimmed) || isFactcheckPreambleTitle(trimmed)) return null;
 
   if (isMajorSectionTitle(trimmed) && !trimmed.includes(":")) {
     return renderBoldHeading(trimmed, key);
@@ -276,6 +371,7 @@ function renderParagraphBlock(block, key) {
   const boldOnly = trimmed.match(/^\*\*([^*]+)\*\*\s*$/);
   if (boldOnly) {
     const inner = boldOnly[1].trim();
+    if (isSerpPreambleTitle(inner) || isFactcheckPreambleTitle(inner)) return null;
     const outlineFromBold = renderOutlineHeading(inner, key);
     if (outlineFromBold) return outlineFromBold;
     if (inner.includes(":") && inner.length > 48 && !isMajorSectionTitle(inner)) {
@@ -305,6 +401,7 @@ function renderParagraphBlock(block, key) {
 
   const metaLine = trimmed.match(/^([A-Z][A-Z0-9_ \-]+):\s*(.+)$/);
   if (metaLine && !trimmed.includes("**") && !/^H[1-6]$/i.test(metaLine[1].trim())) {
+    if (isSystemMetaKey(metaLine[1])) return null;
     return (
       <div key={key} className="md-meta-line">
         <span className="md-meta-line-key">{metaLine[1]}</span>
@@ -347,10 +444,33 @@ function renderParagraphBlock(block, key) {
   );
 }
 
+function sanitizeWorkspaceHtml(html) {
+  // Workspace CTA templates only — strip scripts/handlers; keep structure + styles.
+  return String(html || "")
+    .replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi, "")
+    .replace(/\son\w+\s*=\s*(['"]).*?\1/gi, "")
+    .replace(/\son\w+\s*=\s*[^\s>]+/gi, "")
+    .replace(/javascript:/gi, "");
+}
+
 function renderBlock(block, idx) {
   const k = `b-${idx}`;
   switch (block.type) {
+    case "html": {
+      const safe = sanitizeWorkspaceHtml(block.html);
+      if (!safe.trim()) return null;
+      return (
+        <div
+          key={k}
+          className="md-html-block md-workspace-cta"
+          // Trusted workspace CTA shell from cta_guidelines.md (scripts stripped).
+          dangerouslySetInnerHTML={{ __html: safe }}
+        />
+      );
+    }
     case "heading": {
+      if (isSerpPreambleTitle(block.text) || isFactcheckPreambleTitle(block.text))
+        return null;
       const outline = renderOutlineHeading(block.text, k);
       if (outline) return outline;
       const level = Math.min(6, Math.max(1, block.level));
@@ -416,8 +536,12 @@ function renderBlock(block, idx) {
   }
 }
 
-export default function Markdown({ text, className = "md" }) {
-  const blocks = parseBlocks(normalizePipelineMarkdown(text || ""));
+export default function Markdown({ text, className = "md", stepKey = null }) {
+  const deferredText = useDeferredValue(text || "");
+  const blocks = useMemo(
+    () => parseBlocks(normalizeStepArtifactMarkdown(deferredText, stepKey)),
+    [deferredText, stepKey]
+  );
   if (blocks.length === 0) {
     return <div className="empty-state">empty artifact</div>;
   }

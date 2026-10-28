@@ -6,6 +6,8 @@ import re
 from dataclasses import dataclass, field
 from typing import Literal
 
+from . import yoast_transitions
+
 Stage = Literal["outline", "draft", "final", "brief"]
 
 BRIEF_START = "---BRIEF START---"
@@ -13,10 +15,23 @@ BRIEF_END = "---BRIEF END---"
 
 MAX_SENTENCE_WORDS = 30
 MAX_PARAGRAPH_SENTENCES = 4
+# Legacy Arsuno default — prefer resolve_cta_href() from workspace artifacts.
 DEMO_CTA_SLUG = "/book-a-demo/"
+DEFAULT_CTA_HREF = "/contact"
 _BANNED_DEMO_SLUGS = ("/demo", "/request-demo")
 
-_EM_DASH_CHARS = ("\u2014",)  # — only; en-dash in ranges (2–4) is allowed in stats
+# Long dashes that must never appear in published copy (article, meta, brief).
+# Includes em dash, en dash, figure dash, horizontal bar, minus, 2/3-em dashes.
+_EM_DASH_CHARS = (
+    "\u2014",  # —
+    "\u2013",  # –
+    "\u2015",  # ―
+    "\u2012",  # ‒
+    "\u2212",  # −
+    "\u2e3a",  # ⸺
+    "\u2e3b",  # ⸻
+)
+_DASH_CLASS = "".join(_EM_DASH_CHARS)
 _BANNED_CLOSING_HEADING = re.compile(
     r"^(conclusion|final thoughts|in summary|summary|closing thoughts|wrap[- ]?up)\.?$",
     re.I,
@@ -24,8 +39,17 @@ _BANNED_CLOSING_HEADING = re.compile(
 _HEADING_MD_RE = re.compile(r"^(#{1,4})\s+(.+)$")
 _OUTLINE_HEADING_RE = re.compile(r"^(H[1-4]):\s*(.+)$", re.I)
 _WORD_RE = re.compile(r"\b[\w''’-]+\b", re.UNICODE)
-_SENTENCE_SPLIT_RE = re.compile(r'(?<=[.!?])\s+(?=[A-Z"\'(])')
+# Allow accented capitals (French À, É, …) at sentence starts.
+_SENTENCE_SPLIT_RE = re.compile(
+    r'(?<=[.!?])\s+(?=[\\"\'(\[]*[A-ZÀÂÄÆÇÉÈÊËÎÏÔŒÙÛÜŸ])',
+    re.UNICODE,
+)
 _ACRONYM_RE = re.compile(r"^[A-Z0-9]{2,}$")
+_FR_BODY_HINT_RE = re.compile(
+    r"\b(les|des|une|dans|pour|avec|est|sont|cette|ces|qui|que|pas|"
+    r"aussi|donc|ainsi|cependant|lorsque|selon)\b",
+    re.I,
+)
 
 
 @dataclass(frozen=True)
@@ -54,24 +78,52 @@ class LintReport:
         return "\n".join(lines)
 
 
-def lint(text: str, *, stage: Stage = "draft") -> LintReport:
+def lint(
+    text: str,
+    *,
+    stage: Stage = "draft",
+    cta_href: str | None = None,
+    lang: str | None = None,
+) -> LintReport:
     """Run stage-appropriate format checks."""
     if stage == "outline":
         return _lint_outline(text)
     if stage == "brief":
         return _lint_brief(text)
-    return _lint_article(text, stage=stage)
+    return _lint_article(text, stage=stage, cta_href=cta_href, lang=lang)
+
+
+def detect_article_lang(text: str, *, hint: str | None = None) -> str:
+    """Prefer explicit hint; otherwise score French function words in the body."""
+    code = (hint or "").strip().lower()
+    if code in ("fr", "en", "de", "es", "it"):
+        return code
+    body = _article_body(text)
+    sample = body[:8000]
+    fr_hits = len(_FR_BODY_HINT_RE.findall(sample))
+    if fr_hits >= 12 or "questions fréquentes" in sample.lower():
+        return "fr"
+    return "en"
 
 
 def strip_em_dashes(text: str) -> tuple[str, bool]:
-    """Replace Unicode em dashes with colons or commas."""
-    if not text or "\u2014" not in text:
+    """Replace Unicode em/en dashes with colons, commas, or ASCII hyphens."""
+    if not text:
         return text, False
-    out = text.replace(" — ", ": ")
-    out = out.replace(" —", ":")
-    out = out.replace("— ", ": ")
-    out = out.replace("—", ", ")
-    return out, out != text
+    original = text
+    out = text
+    out = re.sub(r"&mdash;|&#8212;|&#x2014;", ": ", out, flags=re.I)
+    out = re.sub(r"&ndash;|&#8211;|&#x2013;", "-", out, flags=re.I)
+    out = out.replace(" -- ", ": ")
+    if any(ch in out for ch in _EM_DASH_CHARS):
+        for dash in _EM_DASH_CHARS:
+            out = out.replace(f" {dash} ", ": ")
+            out = out.replace(f" {dash}", ":")
+            out = out.replace(f"{dash} ", ": ")
+        out = re.sub(rf"(?<=\d)[{_DASH_CLASS}](?=\d)", "-", out)
+        out = re.sub(r"[\u2014\u2015\u2e3a\u2e3b]", ", ", out)
+        out = re.sub(r"[\u2012\u2013\u2212]", "-", out)
+    return out, out != original
 
 
 def _lint_em_dashes_in_lines(body: str, report: LintReport) -> None:
@@ -84,7 +136,7 @@ def _lint_em_dashes_in_lines(body: str, report: LintReport) -> None:
                 report.violations.append(
                     FormatViolation(
                         "EM_DASH",
-                        "Em dash found; use commas, colons, or sentence breaks.",
+                        "Em dash or en dash found; use commas, colons, or ASCII hyphens.",
                         line=i,
                         excerpt=stripped[:120],
                     )
@@ -118,7 +170,7 @@ def _lint_outline(text: str) -> LintReport:
                 report.violations.append(
                     FormatViolation(
                         "EM_DASH",
-                        "Em dash found; use commas, colons, or sentence breaks.",
+                        "Em dash or en dash found; use commas, colons, or ASCII hyphens.",
                         line=i,
                         excerpt=stripped[:120],
                     )
@@ -144,11 +196,18 @@ def _lint_outline(text: str) -> LintReport:
     return report
 
 
-def _lint_article(text: str, *, stage: Stage) -> LintReport:
+def _lint_article(
+    text: str,
+    *,
+    stage: Stage,
+    cta_href: str | None = None,
+    lang: str | None = None,
+) -> LintReport:
     report = LintReport(stage=stage)
     body = _article_body(text)
     lines = body.splitlines()
     h2_lines: list[tuple[int, str]] = []
+    article_lang = detect_article_lang(text, hint=lang)
 
     for i, line in enumerate(lines, start=1):
         stripped = line.strip()
@@ -174,7 +233,7 @@ def _lint_article(text: str, *, stage: Stage) -> LintReport:
                 report.violations.append(
                     FormatViolation(
                         "EM_DASH",
-                        "Em dash found; use commas, colons, or sentence breaks.",
+                        "Em dash or en dash found; use commas, colons, or ASCII hyphens.",
                         line=i,
                         excerpt=stripped[:120],
                     )
@@ -187,11 +246,140 @@ def _lint_article(text: str, *, stage: Stage) -> LintReport:
     _lint_paragraphs(body, report)
     _lint_h2_h3_bridges(lines, report)
     _lint_sections_end_on_bullets(lines, report)
+    _lint_transition_words(body, report, lang=article_lang)
+    _lint_repeated_starts(body, report, lang=article_lang)
 
     if stage == "final":
-        _lint_cta_slugs(body, report)
+        _lint_cta_slugs(body, report, cta_href=cta_href)
 
     return report
+
+
+def _collect_body_sentence_groups(body: str) -> list[list[str]]:
+    """Body prose sentences grouped by section (a heading starts a new group).
+
+    Skips CTAs, images, bullets and code. Used for the transition ratio (flattened)
+    and for the repeated-sentence-start check (which must not run across headings).
+    """
+    groups: list[list[str]] = [[]]
+    for block in re.split(r"\n\s*\n", body or ""):
+        block = block.strip()
+        if not block:
+            continue
+        first = block.splitlines()[0].strip()
+        if _HEADING_MD_RE.match(first):
+            if groups[-1]:
+                groups.append([])
+            continue
+        if first.startswith("```"):
+            continue
+        if re.match(r"^[-*+]\s", first):
+            continue
+        if first.startswith("**") and first.endswith("**"):
+            continue
+        if first.startswith("![") or first.startswith("IMAGE:"):
+            continue
+        groups[-1].extend(_sentences(block))
+    return [g for g in groups if g]
+
+
+def _collect_body_sentences(body: str) -> list[str]:
+    """Body prose sentences only (skip headings, CTAs, images, bullets)."""
+    return [s for group in _collect_body_sentence_groups(body) for s in group]
+
+
+def _lint_transition_words(body: str, report: LintReport, *, lang: str) -> None:
+    """Yoast: ≥30% of body sentences need a recognized transition word."""
+    if lang not in ("en", "fr"):
+        return
+    sents = _collect_body_sentences(body)
+    if not yoast_transitions.meets_threshold(sents, lang):
+        ratio = yoast_transitions.transition_ratio(sents, lang)
+        pct = int(round(ratio * 100))
+        need = int(yoast_transitions.MIN_TRANSITION_RATIO * 100)
+        examples = yoast_transitions.prompt_examples(lang)
+        avoid = (
+            ' Do not use "de plus" — Yoast French does not count it; use "en outre" or "en plus".'
+            if lang == "fr"
+            else ""
+        )
+        report.violations.append(
+            FormatViolation(
+                "TRANSITION_WORDS",
+                (
+                    f"Only ~{pct}% of body sentences use Yoast-recognized transition "
+                    f"words (need ≥{need}%). Weave natural connectors "
+                    f"({examples}).{avoid} Prefer starting follow-up sentences with a "
+                    "connector after you split long ideas."
+                ),
+                excerpt=f"{len(sents)} sentences scored",
+            )
+        )
+
+
+MAX_SAME_START_RUN = 2  # three sentences in a row with the same first word is a violation
+_LEADING_NOISE_RE = re.compile(r"^[\s\"'“”‘’«»(\[*_>•\-]+")
+_FIRST_WORD_RE = re.compile(r"[^\W\d_]+|\d+", re.UNICODE)
+
+
+def sentence_first_word(sentence: str) -> str:
+    """Lower-cased first word of a sentence; an elision counts as its own word
+    (« L'équipe » starts with « l »), so « L'… L'… L'… » is caught too."""
+    text = _LEADING_NOISE_RE.sub("", (sentence or "").replace("’", "'"))
+    m = _FIRST_WORD_RE.match(text)
+    return m.group(0).lower() if m else ""
+
+
+def find_repeated_starts(
+    sentences: list[str], *, max_run: int = MAX_SAME_START_RUN
+) -> list[tuple[str, list[str]]]:
+    """Runs longer than ``max_run`` sentences that start with the same word.
+
+    Returns ``[(word, [sentences of the run])]``, one entry per maximal run.
+    """
+    runs: list[tuple[str, list[str]]] = []
+    current_word = ""
+    current: list[str] = []
+
+    def flush() -> None:
+        if current_word and len(current) > max_run:
+            runs.append((current_word, list(current)))
+
+    for sent in sentences:
+        word = sentence_first_word(sent)
+        if word and word == current_word:
+            current.append(sent)
+            continue
+        flush()
+        current_word, current = word, ([sent] if word else [])
+    flush()
+    return runs
+
+
+def _lint_repeated_starts(body: str, report: LintReport, *, lang: str) -> None:
+    """Never start three sentences in a row with the same word."""
+    for group in _collect_body_sentence_groups(body):
+        for word, run in find_repeated_starts(group):
+            if lang == "fr":
+                message = (
+                    f"{len(run)} phrases de suite commencent par « {word} » (maximum "
+                    f"{MAX_SAME_START_RUN}). Variez les débuts de phrase : réorganisez ou "
+                    "ajoutez un connecteur (ainsi, en effet, par ailleurs, en revanche, "
+                    "donc, toutefois…)."
+                )
+            else:
+                message = (
+                    f"{len(run)} sentences in a row start with \"{word}\" (max "
+                    f"{MAX_SAME_START_RUN}). Vary the openings: restructure or add a "
+                    "connector."
+                )
+            report.violations.append(
+                FormatViolation(
+                    "REPEATED_SENTENCE_START",
+                    message,
+                    excerpt=" | ".join(s[:50] for s in run[:3]),
+                )
+            )
 
 
 def _article_body(text: str) -> str:
@@ -361,7 +549,18 @@ def _check_section_ends_on_bullet(
         break
 
 
-def _lint_cta_slugs(body: str, report: LintReport) -> None:
+def _preferred_cta_href(cta_href: str | None) -> str:
+    href = (cta_href or "").strip()
+    if href:
+        return href.rstrip("/")
+    return DEFAULT_CTA_HREF
+
+
+def _lint_cta_slugs(
+    body: str, report: LintReport, *, cta_href: str | None = None
+) -> None:
+    preferred = _preferred_cta_href(cta_href)
+    # Relative banned paths only (absolute URLs are checked separately below).
     for m in re.finditer(r"\]\((/[^)]+)\)", body):
         slug = m.group(1).rstrip("/") + "/"
         norm = slug if slug.startswith("/") else f"/{slug}"
@@ -371,13 +570,27 @@ def _lint_cta_slugs(body: str, report: LintReport) -> None:
                 report.violations.append(
                     FormatViolation(
                         "CTA_DEMO_SLUG",
-                        f"Demo CTA must use {DEMO_CTA_SLUG}, not {banned}.",
+                        f"CTA must use {preferred}, not {banned}.",
                         excerpt=m.group(0)[:80],
                     )
                 )
+    # Hardcoded legacy Arsuno demo slug is wrong when this client uses /contact.
+    if preferred.rstrip("/") != DEMO_CTA_SLUG.rstrip("/"):
+        for m in re.finditer(
+            rf"\]\({re.escape(DEMO_CTA_SLUG.rstrip('/'))}/?\)", body, re.I
+        ):
+            report.violations.append(
+                FormatViolation(
+                    "CTA_WRONG_HREF",
+                    f"CTA must use the project CTA URL ({preferred}), not {DEMO_CTA_SLUG}.",
+                    excerpt=m.group(0)[:80],
+                )
+            )
 
 
-def apply_deterministic_fixes(text: str) -> tuple[str, list[str]]:
+def apply_deterministic_fixes(
+    text: str, *, cta_href: str | None = None
+) -> tuple[str, list[str]]:
     """Safe mechanical fixes before LLM repair. Returns (text, log)."""
     log: list[str] = []
     if not (text or "").strip():
@@ -391,6 +604,13 @@ def apply_deterministic_fixes(text: str) -> tuple[str, list[str]]:
     if not body:
         return current, log
 
+    preferred = _preferred_cta_href(cta_href)
+    # Absolute preferred URLs keep no forced trailing slash; relative keep one.
+    if preferred.startswith("http://") or preferred.startswith("https://"):
+        replacement = preferred
+    else:
+        replacement = preferred if preferred.endswith("/") else preferred + "/"
+
     fixed = body
     for banned in _BANNED_DEMO_SLUGS:
         pattern = re.compile(
@@ -398,8 +618,18 @@ def apply_deterministic_fixes(text: str) -> tuple[str, list[str]]:
             re.I,
         )
         if pattern.search(fixed):
-            fixed = pattern.sub(f"]({DEMO_CTA_SLUG.rstrip('/')}/)", fixed)
-            log.append(f"Replaced demo slug {banned} → {DEMO_CTA_SLUG}")
+            fixed = pattern.sub(f"]({replacement})", fixed)
+            log.append(f"Replaced demo slug {banned} → {replacement}")
+
+    # Replace legacy /book-a-demo/ when this workspace uses a different CTA.
+    if preferred.rstrip("/") != DEMO_CTA_SLUG.rstrip("/"):
+        demo_pat = re.compile(
+            rf"\]\({re.escape(DEMO_CTA_SLUG.rstrip('/'))}/?\)",
+            re.I,
+        )
+        if demo_pat.search(fixed):
+            fixed = demo_pat.sub(f"]({replacement})", fixed)
+            log.append(f"Replaced {DEMO_CTA_SLUG} → {replacement}")
 
     if fixed == body and not em_fixed:
         return text, log

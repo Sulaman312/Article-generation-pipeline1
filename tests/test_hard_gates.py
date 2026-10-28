@@ -1,0 +1,498 @@
+from __future__ import annotations
+
+import unittest
+
+from backend import hard_gates
+
+
+GOOD_LEDE = (
+    "- Online vet visits let pet owners get clinical advice without a long clinic wait.\n"
+    "- This guide explains who telehealth works for and what to prepare beforehand.\n"
+    "- Know when you still need an in-person exam so you can book the right option with confidence."
+)
+
+HERO = "![Pet owner on a laptop during an online vet visit](IMAGE: telehealth-hero)"
+
+
+def _opening(title: str, summary: str, *, heading: str = "## Key takeaways") -> str:
+    return f"# {title}\n\n{heading}\n\n{summary}\n\n{HERO}\n"
+
+
+SAMPLE_AUDIT = """
+---RESEARCH AUDIT START---
+## Approved case study (for draft E-E-A-T)
+- STATUS: APPROVED
+- TITLE: Clinic X telehealth pilot
+- SOURCE URL: https://example.com/case-ok
+- URL CHECK: OK
+- DO NOT CLAIM: 400% ROI
+
+## Flagged / reject list (do not put in draft)
+- CLAIM: AcmePets cut costs by 400% overnight | WHY: invented stat
+
+## Approved FAQ questions
+1. How do I book an online visit?
+2. What does an online visit cost?
+3. Is telehealth safe for cats?
+4. When should I go in person?
+5. Can I get prescriptions online?
+
+## URL verification (pipeline)
+- [OK] `https://example.com/case-ok` — HTTP 200 — GET ok
+- [FAIL] `https://example.com/dead` — HTTP 404 — GET HTTP 404
+---RESEARCH AUDIT END---
+"""
+
+FAQ_ANSWER = (
+    "Start in your clinic portal and pick a telehealth slot that fits your schedule. "
+    "Upload recent photos or videos of the concern before the call begins. "
+    "Join a few minutes early so audio and video work without scrambling. "
+    "Have your pet's medication list ready for the clinician."
+)
+
+
+class HardGateUnitTests(unittest.TestCase):
+    def test_good_lede_word_band(self):
+        n = len(hard_gates._word_tokens(GOOD_LEDE))
+        self.assertGreaterEqual(n, hard_gates.LEDE_MIN_WORDS)
+        self.assertLessEqual(n, hard_gates.LEDE_MAX_WORDS)
+
+    def test_lede_length_gate(self):
+        short = _opening("Title", "- Too short.\n- Still short.\n- Also short.") + "\n## Next\n\nBody.\n"
+        issue = hard_gates.check_lede(short)
+        self.assertIsNotNone(issue)
+        self.assertEqual(issue.code, "lede_length")
+
+        good = _opening("Title", GOOD_LEDE) + "\n## Next\n\nBody words here for section.\n"
+        self.assertIsNone(hard_gates.check_lede(good))
+
+    def test_summary_heading_and_image_required(self):
+        plain = f"# Title\n\n{GOOD_LEDE}\n\n## Next\n\nBody.\n"
+        issue = hard_gates.check_lede(plain)
+        self.assertIsNotNone(issue)
+        self.assertEqual(issue.code, "summary_heading")
+
+        no_img = f"# Title\n\n## Key takeaways\n\n{GOOD_LEDE}\n\n## Next\n\nBody.\n"
+        issue = hard_gates.check_lede(no_img)
+        self.assertIsNotNone(issue)
+        self.assertEqual(issue.code, "summary_image")
+
+        wrong_heading = f"# Title\n\n## Summary\n\n{GOOD_LEDE}\n\n{HERO}\n\n## Next\n\nBody.\n"
+        issue = hard_gates.check_lede(wrong_heading)
+        self.assertIsNotNone(issue)
+        self.assertEqual(issue.code, "summary_heading")
+
+    def test_french_opening_heading_and_bullets(self):
+        fr_lede = (
+            "- Une session express structure votre semaine cuisine en seulement deux heures.\n"
+            "- Travaillez en parallèle pendant que le four tourne pour vraiment gagner du temps.\n"
+            "- Rangez chaque plat en boîte étiquetée pour des soirs de semaine nettement plus simples.\n"
+            "- Anticipez le week-end afin de réduire le stress des repas en semaine."
+        )
+        art = (
+            _opening("Titre", fr_lede, heading="## À retenir")
+            + "\n## Suite\n\nCorps de l'article ici.\n"
+        )
+        self.assertIsNone(hard_gates.check_lede(art, lang="fr"))
+        self.assertIsNone(hard_gates.check_takeaways_bullets(art))
+
+        en_heading = _opening("Titre", fr_lede) + "\n## Suite\n\nCorps.\n"
+        issue = hard_gates.check_lede(en_heading, lang="fr")
+        self.assertIsNotNone(issue)
+        self.assertEqual(issue.code, "summary_heading_lang")
+
+        localized = hard_gates.localize_structural_headings(
+            "# T\n\n## Key takeaways\n\nx\n\n## Frequently Asked Questions\n\n### Q?\n\nA.\n",
+            lang="fr",
+        )
+        self.assertIn("## À retenir", localized)
+        self.assertIn("## Questions fréquentes", localized)
+        self.assertNotIn("## Key takeaways", localized)
+
+    def test_prose_takeaways_convert_to_bullets(self):
+        prose = (
+            "Online vet visits let pet owners get clinical advice without a long clinic wait. "
+            "This guide explains who telehealth works for and what to prepare beforehand. "
+            "Know when you still need an in-person exam so you book with confidence today."
+        )
+        art = _opening("Title", prose) + "\n## Next\n\nBody.\n"
+        fixed = hard_gates.ensure_takeaways_as_bullets(art)
+        self.assertIsNone(hard_gates.check_takeaways_bullets(fixed))
+        self.assertGreaterEqual(
+            len(hard_gates._TAKEAWAY_BULLET_RE.findall(hard_gates.extract_lede_text(fixed))),
+            hard_gates.TAKEAWAY_BULLET_MIN,
+        )
+
+    def test_keyword_once_in_first_100(self):
+        lede = (
+            "- An online vet appointment helps busy owners skip waiting rooms for mild issues.\n"
+            "- You will learn prep steps, red flags, and how to choose a reputable provider.\n"
+            "- Avoid wasting time on the wrong option for your pet today."
+        )
+        pad = " ".join(["clinic"] * 90)
+        art = (
+            _opening("Guide", lede)
+            + f"\n## Details\n\n{pad}\n"
+            "More prose about clinics and scheduling without repeating the phrase.\n"
+        )
+        self.assertIsNone(hard_gates.check_primary_keyword(art, "online vet appointment"))
+
+        bad = art + "\nAlso book an online vet appointment again later.\n"
+        issue = hard_gates.check_primary_keyword(bad, "online vet appointment")
+        self.assertIsNotNone(issue)
+        self.assertEqual(issue.code, "keyword_repeat")
+
+    def test_keyword_is_placed_in_first_100_when_missing(self):
+        lede = (
+            "Busy owners can skip the waiting room for mild issues and prepare photos first. "
+            "You will learn the red flags and how to choose a reputable provider "
+            "without wasting time on the wrong option for your pet today."
+        )
+        art = (
+            _opening("How to book care", lede)
+            + "\n## Details\n\n"
+            + " ".join(["clinic"] * 120)
+            + " Book an online vet appointment only after the opening.\n"
+        )
+        issue = hard_gates.check_primary_keyword(art, "online vet appointment")
+        self.assertEqual(issue.code, "keyword_first_100")
+
+        fixed = hard_gates.ensure_primary_keyword_in_first_100(
+            art, "online vet appointment"
+        )
+        self.assertIsNone(
+            hard_gates.check_primary_keyword(fixed, "online vet appointment")
+        )
+        self.assertIn("online vet appointment", fixed.lower().split("## details")[0])
+
+    def test_unapproved_faq_is_replaced_with_bank(self):
+        lede = (
+            "An online vet appointment helps owners get advice without a long clinic wait. "
+            "This guide explains who telehealth fits, what to prepare, and when an exam "
+            "in person is still the safer choice for your animal."
+        )
+        art = (
+            _opening("How to book telehealth care", lede)
+            + "\n## When telehealth works\n\n"
+            "Use remote care for mild issues and triage decisions carefully.\n\n"
+            "## Frequently Asked Questions\n\n"
+            f"### What is the meaning of life?\n\n{FAQ_ANSWER}\n\n"
+            f"### How does an AI agent differ from a virtual assistant?\n\n{FAQ_ANSWER}\n"
+        )
+        bank = [
+            "How do I book an online visit?",
+            "What does an online visit cost?",
+            "Is telehealth safe for cats?",
+            "When should I go in person?",
+            "Can I get prescriptions online?",
+        ]
+        fixed = hard_gates.align_faq_to_allowed(art, bank)
+        issues = hard_gates.check_faq(
+            fixed, require_faq=True, approved_faq=bank, paa_bank=[]
+        )
+        self.assertFalse(any(i.code == "faq_unapproved" for i in issues), msg=issues)
+        self.assertFalse(any(i.code == "faq_answer_length" for i in issues), msg=issues)
+        questions = [q for q, _a in hard_gates.faq_schema.extract_faq_pairs(fixed)]
+        self.assertIn("How do I book an online visit?", questions)
+        self.assertNotIn("What is the meaning of life?", questions)
+
+    def test_align_faq_strips_source_and_never_invents_answers(self):
+        art = (
+            _opening("Guide repas", GOOD_LEDE)
+            + "\n## Repas\n\nPréparez des menus simples.\n\n"
+            "## Questions fréquentes\n\n"
+            "### Ancienne question?\n\n"
+            "Gardez la vinaigrette à part. Ajoutez-la juste avant de manger.\n"
+        )
+        bank = [
+            "Comment éviter qu'une salade ne se détrempe au bureau ? "
+            "(source signal: competitor H2: ptitchef.com; same caveat)?",
+            "Comment préparer un dîner équilibré en moins de 20 minutes ? "
+            "(source signal: competitor H2: quiquandcomment.com, URL unverified)?",
+        ]
+        fixed = hard_gates.align_faq_to_allowed(art, bank, lang="fr")
+        pairs = hard_gates.faq_schema.extract_faq_pairs(fixed)
+        # Only the question that already had an answer is kept: nothing is made up.
+        self.assertEqual(len(pairs), 1)
+        q, a = pairs[0]
+        self.assertNotIn("source signal", q.lower())
+        self.assertNotIn("ptitchef", q.lower())
+        self.assertIn("Gardez la vinaigrette", a)
+        self.assertNotIn("Cela dépend", fixed)
+        self.assertNotIn("It depends on the task", fixed)
+
+    def test_no_default_filler_text_in_module(self):
+        import inspect
+
+        source = inspect.getsource(hard_gates)
+        self.assertNotIn("It depends on the task", source)
+        self.assertNotIn("Cela dépend de votre situation", source)
+
+    def test_french_questions_detect_lang_without_notes(self):
+        questions = [
+            "Comment éviter qu'une salade ne se détrempe au bureau ?",
+            "Pourquoi préparer la vinaigrette à part ?",
+        ]
+        self.assertEqual(
+            hard_gates._detect_faq_language("", lang_hint="en", questions=questions), "fr"
+        )
+
+    def test_french_answer_in_english_is_flagged(self):
+        problem = hard_gates._faq_answer_problem(
+            "Comment préparer un bol ?",
+            "Start with the base. Add your toppings and a good dressing.",
+            "fr",
+            hard_gates.french_language.Glossary(),
+        )
+        self.assertTrue(problem)
+
+    def test_french_answer_with_banned_word_is_flagged(self):
+        problem = hard_gates._faq_answer_problem(
+            "Que contient la formule Énergie ?",
+            "La formule Énergie contient un bowl et une collation. Elle se prépare en dix minutes.",
+            "fr",
+            hard_gates.french_language.Glossary(),
+        )
+        self.assertIn("bowl", problem)
+
+    def test_clean_french_answer_passes(self):
+        problem = hard_gates._faq_answer_problem(
+            "Que contient la formule Énergie ?",
+            "La formule Énergie contient un bol de céréales et une collation. "
+            "Elle se prépare en dix minutes.",
+            "fr",
+            hard_gates.french_language.Glossary(),
+        )
+        self.assertEqual(problem, "")
+
+    def test_two_sentence_faq_answer_passes(self):
+        art = (
+            _opening("T", GOOD_LEDE)
+            + "\n## S\n\nBody.\n\n"
+            "## Frequently Asked Questions\n\n"
+            "### How do I book an online visit?\n\n"
+            "Open the clinic portal and choose a telehealth slot. "
+            "Join a few minutes early so audio works.\n"
+        )
+        issues = hard_gates.check_faq(
+            art,
+            require_faq=True,
+            approved_faq=["How do I book an online visit?"],
+            paa_bank=[],
+        )
+        self.assertFalse(any(i.code == "faq_answer_length" for i in issues), msg=issues)
+
+    def test_flagged_claim_detected(self):
+        art = (
+            _opening("T", GOOD_LEDE)
+            + "\n## S\n\nAcmePets cut costs by 400% overnight somehow.\n"
+        )
+        claims = hard_gates.parse_audit_flagged_claims(SAMPLE_AUDIT)
+        self.assertTrue(claims)
+        issues = hard_gates.check_flagged_claims(art, claims)
+        self.assertTrue(any(i.code == "flagged_claim" for i in issues))
+
+    def test_fail_url_blocked(self):
+        art = (
+            _opening("T", GOOD_LEDE)
+            + "\n## S\n\nSee the [pilot](https://example.com/dead) for detail.\n"
+        )
+        issues = hard_gates.check_case_study_urls(art, SAMPLE_AUDIT, "")
+        self.assertTrue(any(i.code == "fail_url" for i in issues))
+
+    def test_uncited_price_blocked(self):
+        art = (
+            _opening("T", GOOD_LEDE)
+            + "\n## Pricing\n\nVisits usually cost $49 per consult with no source.\n"
+        )
+        issues = hard_gates.check_cited_numbers(art)
+        self.assertTrue(any(i.code == "uncited_number" for i in issues))
+
+        cited = (
+            _opening("T", GOOD_LEDE)
+            + "\n## Pricing\n\n"
+            "Visits usually cost [$49](https://example.com/fees) per consult when booked online.\n"
+        )
+        self.assertEqual(hard_gates.check_cited_numbers(cited), [])
+
+    def test_faq_answer_length(self):
+        short = "One short line only."
+        self.assertEqual(hard_gates._answer_sentence_count(short), 1)
+        self.assertEqual(hard_gates._answer_sentence_count(FAQ_ANSWER), 4)
+
+    def test_faq_unapproved(self):
+        lede = (
+            "- An online vet appointment helps owners get advice without a long clinic wait.\n"
+            "- This guide explains who telehealth fits and what to prepare beforehand.\n"
+            "- Know when an exam in person is still the safer choice for your animal."
+        )
+        art = (
+            _opening("How to book telehealth care", lede)
+            + "\n## When telehealth works\n\n"
+            "Use remote care for mild issues and triage decisions carefully.\n\n"
+            "## Frequently Asked Questions\n\n"
+            f"### How do I book an online visit?\n\n{FAQ_ANSWER}\n\n"
+            f"### What does an online visit cost?\n\n{FAQ_ANSWER}\n\n"
+            f"### Is telehealth safe for cats?\n\n{FAQ_ANSWER}\n\n"
+            f"### When should I go in person?\n\n{FAQ_ANSWER}\n\n"
+            f"### What is the meaning of life?\n\n{FAQ_ANSWER}\n\n"
+        )
+        approved = hard_gates.parse_audit_approved_faq(SAMPLE_AUDIT)
+        issues = hard_gates.check_faq(
+            art, require_faq=True, approved_faq=approved, paa_bank=[]
+        )
+        self.assertTrue(any(i.code == "faq_unapproved" for i in issues))
+
+    def test_evaluate_passes_clean_article(self):
+        lede = (
+            "- An online vet appointment helps owners get advice without a long clinic wait time.\n"
+            "- This guide explains who telehealth fits best and what to prepare beforehand.\n"
+            "- Know when an exam in person is still the safer choice for your animal today."
+        )
+        filler = " ".join(["detail"] * 80)
+        art = (
+            _opening("How to book telehealth care", lede)
+            + "\n## When telehealth works\n\n"
+            "Use remote care for mild issues and triage decisions carefully. "
+            f"Keep emergencies at the clinic with your regular veterinarian. {filler}\n\n"
+            "## Frequently Asked Questions\n\n"
+            f"### How do I book an online visit?\n\n{FAQ_ANSWER}\n\n"
+            f"### What does an online visit cost?\n\n{FAQ_ANSWER}\n\n"
+            f"### Is telehealth safe for cats?\n\n{FAQ_ANSWER}\n\n"
+            f"### When should I go in person?\n\n{FAQ_ANSWER}\n\n"
+            f"### Can I get prescriptions online?\n\n{FAQ_ANSWER}\n\n"
+        )
+        report = hard_gates.evaluate_article_gates(
+            art,
+            primary_keyword="online vet appointment",
+            word_target=150,
+            research_audit=SAMPLE_AUDIT,
+            require_faq=True,
+            stage="draft",
+        )
+        self.assertTrue(report.ok, msg=report.failure_message())
+
+    def test_form_internal_links_required(self):
+        links = [
+            {
+                "title": "Patient portal",
+                "href": "https://clinic.example/portal",
+                "kind": "url",
+            }
+        ]
+        missing = hard_gates.check_form_internal_links(
+            _opening("T", GOOD_LEDE) + "\n## S\n\nNo site links here.\n",
+            links,
+        )
+        self.assertTrue(any(i.code == "form_internal_link" for i in missing))
+
+        placed = hard_gates.check_form_internal_links(
+            _opening("T", GOOD_LEDE)
+            + "\n## S\n\nOpen the [patient portal](https://clinic.example/portal) to book.\n",
+            links,
+        )
+        self.assertEqual(placed, [])
+
+
+class FaqRegenerationTests(unittest.TestCase):
+    """FAQ answers that are not French / do not answer are regenerated (mocked model)."""
+
+    QUESTION = "Que contient la formule Énergie ?"
+    BAD = "The pack has a bowl and a snack. Eat it fast."
+    GOOD = (
+        "La formule Énergie contient un bol de céréales, des fruits et une collation. "
+        "Elle se prépare en dix minutes."
+    )
+
+    def _article(self, answer: str) -> str:
+        return (
+            _opening("Guide", GOOD_LEDE)
+            + "\n## Corps\n\nTexte du corps.\n\n"
+            f"## Questions fréquentes\n\n### {self.QUESTION}\n\n{answer}\n"
+        )
+
+    def _patch(self, answers_by_call, judge=None):
+        calls = []
+
+        def fake_llm_json(system, user, *, label, max_tokens, temperature):
+            calls.append(label)
+            if "Contrôle" in label:
+                return judge(user) if judge else [{"n": 1, "en_francais": True, "repond": True}]
+            return {"1": {"question": self.QUESTION, "reponse": answers_by_call.pop(0)}}
+
+        original = hard_gates._llm_json
+        hard_gates._llm_json = fake_llm_json
+        self.addCleanup(setattr, hard_gates, "_llm_json", original)
+        return calls
+
+    def test_english_answer_is_regenerated(self):
+        calls = self._patch([self.GOOD])
+        fixed, issues, questions = hard_gates.ensure_faq_quality(
+            self._article(self.BAD), allowed=[self.QUESTION], lang="fr"
+        )
+        self.assertEqual(issues, [])
+        self.assertIn("bol de céréales", fixed)
+        self.assertNotIn("bowl", fixed)
+        self.assertIn("Régénération des réponses de FAQ", calls)
+
+    def test_judge_rejects_off_topic_answer(self):
+        off_topic = (
+            "La météo change souvent en automne. Pensez à vous couvrir avant de sortir."
+        )
+
+        def judge(user):
+            if "météo" in user:
+                return [{"n": 1, "en_francais": True, "repond": False, "raison": "hors sujet"}]
+            return [{"n": 1, "en_francais": True, "repond": True, "raison": ""}]
+
+        calls = self._patch([self.GOOD], judge=judge)
+        fixed, issues, _ = hard_gates.ensure_faq_quality(
+            self._article(off_topic), allowed=[self.QUESTION], lang="fr"
+        )
+        self.assertEqual(issues, [])
+        self.assertNotIn("météo", fixed)
+        self.assertIn("formule Énergie", fixed)
+        self.assertEqual(calls.count("Régénération des réponses de FAQ"), 1)
+
+    def test_still_failing_after_retries_blocks_without_default_text(self):
+        from backend import config
+
+        calls = self._patch([self.BAD] * (config.QUALITY_RETRY_ATTEMPTS + 2))
+        fixed, issues, _ = hard_gates.ensure_faq_quality(
+            self._article(self.BAD), allowed=[self.QUESTION], lang="fr"
+        )
+        self.assertEqual([i.code for i in issues], ["faq_answer_invalid"])
+        self.assertEqual(
+            calls.count("Régénération des réponses de FAQ"), config.QUALITY_RETRY_ATTEMPTS
+        )
+        self.assertNotIn("Cela dépend", fixed)
+        self.assertNotIn("depends", fixed.lower())
+
+    def test_good_answer_needs_no_regeneration(self):
+        calls = self._patch([], judge=lambda user: [{"n": 1, "en_francais": True, "repond": True}])
+        fixed, issues, _ = hard_gates.ensure_faq_quality(
+            self._article(self.GOOD), allowed=[self.QUESTION], lang="fr"
+        )
+        self.assertEqual(issues, [])
+        self.assertNotIn("Régénération des réponses de FAQ", calls)
+        self.assertIn("bol de céréales", fixed)
+
+
+class FrenchGateTests(unittest.TestCase):
+    def test_gate_reports_english_and_banned_words(self):
+        article = (
+            _opening("Guide", GOOD_LEDE)
+            + "\n## Idées\n\nPréparez un bowl et une galette. Le healthy snack du matin.\n"
+        )
+        issues = hard_gates.check_french_language(article, lang="fr")
+        codes = {i.code for i in issues}
+        self.assertTrue(codes & {"fr_banned_word", "fr_english_word"}, msg=issues)
+
+    def test_gate_skipped_for_other_languages(self):
+        self.assertEqual(
+            hard_gates.check_french_language("Prepare a bowl and a snack.", lang="en"), []
+        )
+
+
+if __name__ == "__main__":
+    unittest.main()

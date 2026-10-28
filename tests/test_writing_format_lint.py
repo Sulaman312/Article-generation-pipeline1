@@ -35,8 +35,20 @@ class WritingFormatLintTests(unittest.TestCase):
 
     def test_deterministic_demo_slug_fix(self):
         text = "## Section\n\n[Book a demo](/request-demo/)"
-        fixed, log = lint.apply_deterministic_fixes(text)
-        self.assertIn("/book-a-demo/", fixed)
+        fixed, log = lint.apply_deterministic_fixes(
+            text, cta_href="https://methodeapna.fr/contact"
+        )
+        self.assertIn("https://methodeapna.fr/contact", fixed)
+        self.assertNotIn("/request-demo", fixed)
+        self.assertTrue(log)
+
+    def test_replaces_legacy_book_a_demo_with_project_cta(self):
+        text = "## Section\n\n[Book a demo](/book-a-demo/)"
+        fixed, log = lint.apply_deterministic_fixes(
+            text, cta_href="https://methodeapna.fr/contact"
+        )
+        self.assertIn("https://methodeapna.fr/contact", fixed)
+        self.assertNotIn("/book-a-demo", fixed)
         self.assertTrue(log)
 
     def test_outline_title_case_flag(self):
@@ -48,10 +60,11 @@ class WritingFormatLintTests(unittest.TestCase):
         text = (
             "## Why shadow AI matters\n\n"
             "Teams deploy AI tools without oversight. "
-            "That gap creates compliance risk you can fix today.\n\n"
+            "However, that gap creates compliance risk you can fix today.\n\n"
             "## What to do next\n\n"
-            "Start with an inventory of every AI tool in use. "
-            "Document owners and data flows before you scale."
+            "First, start with an inventory of every AI tool in use. "
+            "Then document owners and data flows before you scale. "
+            "Finally, assign clear ownership so the program holds."
         )
         report = lint.lint(text, stage="draft")
         self.assertTrue(report.ok, report.summary())
@@ -73,6 +86,22 @@ class WritingFormatLintTests(unittest.TestCase):
         self.assertTrue(changed)
         self.assertNotIn("\u2014", fixed)
         self.assertIn("Foo: bar", fixed)
+
+    def test_strip_en_dashes_and_ranges(self):
+        text = "Learn more – then book. Range 2–4 weeks."
+        fixed, changed = lint.strip_em_dashes(text)
+        self.assertTrue(changed)
+        self.assertNotIn("\u2013", fixed)
+        self.assertIn("Learn more: then book.", fixed)
+        self.assertIn("2-4 weeks", fixed)
+
+    def test_strip_html_mdash_and_double_hyphen(self):
+        text = "Scope &mdash; cost. Next -- then book."
+        fixed, changed = lint.strip_em_dashes(text)
+        self.assertTrue(changed)
+        self.assertNotIn("&mdash;", fixed)
+        self.assertIn("Scope :", fixed)
+        self.assertIn("Next: then book.", fixed)
 
 
 if __name__ == "__main__":

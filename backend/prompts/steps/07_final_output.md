@@ -19,23 +19,40 @@ TASK 1 — CTA PLACEMENT
   Follow **WRITING FORMAT GUIDELINES** (CTAs section) in your system prompt.
   If CTA Guidelines provided: follow them exactly.
   If placeholder — apply these defaults:
-    - Place **2–3** CTA blocks inline at natural H2 section breaks (transitions between sections).
-      Never cluster all CTAs at the end or insert mid-paragraph.
+    - Place **exactly 2** CTA blocks, never more: one between two H2 sections (not before the first
+      content section) and one at the end (after the last content section, before the FAQ).
+      Never put a CTA in the opening (takeaways, hero image, intro) or mid-paragraph.
     - Each CTA uses **three separate lines** (preserve spacing; do not collapse into one paragraph):
       1. **Bold heading** (product or action line)
       2. One-to-two-sentence description
-      3. Markdown link with button label, e.g. `[Book a demo](/book-a-demo/)`
-    - Demo slug: `/book-a-demo/` only (never `/demo` or `/request-demo`).
+      3. Markdown link with button label pointing at the **Required CTA markdown href**
+         from the INTERNAL LINKING GUIDE (workspace artifacts). Example shape:
+         `[Contactez-nous](https://example.com/contact)` or `[Get in touch](/contact)`.
+    - Prefer CTA Guidelines wording/tone; the href must be the project live URL + `/contact`
+      (or the explicit CTA URL from `cta_guidelines.md`). Never use `/demo`, `/request-demo`,
+      or another client's demo slug such as `/book-a-demo/` unless that exact path is the
+      Required CTA markdown href for this workspace.
     - Use a **colon** as the separator in CTA markers, never an em dash or hyphen.
     - No em dashes anywhere in CTA copy.
+    - Do **not** paste raw HTML CTA markup yourself. If this workspace has an HTML CTA
+      Template in `cta_guidelines.md`, keep markdown CTAs; the pipeline converts them to
+      that HTML after generation (statements change; contact URL stays fixed).
   CTA tone must match article tone — if article is direct and no-nonsense, CTA must be too.
   Do NOT add urgency language ("act now", "limited spots") unless CTA Guidelines explicitly call for it.
 
 TASK 2 — INTERNAL LINKS
 
-2. INTERNAL LINKS — MAPPED TO CLIENT CLUSTERS
-   This article can link to other articles in the client's content strategy.
+2A. FORM-PROVIDED INTERNAL LINKS (HIGHEST PRIORITY)
+   If the user message includes **INTERNAL LINKS FROM ARTICLE FORM**, those exact URLs/paths
+   must appear in the publish-ready article as mid-sentence markdown:
+   `[2–3 word anchor](exact href from the form)`
+   Keep any that the draft already placed. If one is missing, weave it into the most relevant
+   H2 — do not convert a real form URL into an `INTERNAL:` placeholder.
+
+2B. INTERNAL LINKS — MAPPED TO CLIENT CLUSTERS
+   This article can also link to other articles in the client's content strategy.
    The client's content clusters are listed in your context above.
+   Use cluster placeholders only **after** every form-provided page is already linked.
 
    Read through the article body. Identify 2–4 places where a link to another article
    makes sense contextually. For each location, use the cluster structure from context:
@@ -57,9 +74,6 @@ TASK 2 — INTERNAL LINKS
 
    If you cannot find 2–4 natural placements after careful reading, insert at least 1.
 
-   After inserting all links, COUNT them. Update INTERNAL LINKS ADDED in metadata
-   to match inline internal links (`](INTERNAL:`) in the body.
-
 TASK 2B — EXTERNAL AUTHORITY LINKS (authenticity / E-E-A-T)
 
    The article should read like expert journalism — cite real third-party sources.
@@ -76,82 +90,61 @@ TASK 2B — EXTERNAL AUTHORITY LINKS (authenticity / E-E-A-T)
    6. Links must be inline in prose (not a “Sources” footer list unless the draft already used one).
 
    Count markdown links whose URL is `http://` or `https://` and is **not** a placeholder.
-   Update EXTERNAL LINKS ADDED in metadata to that count.
 
-TASK 3 — FINAL SEO & READABILITY CHECK
+TASK 3 — FINAL SEO & READABILITY CHECK (article body only)
   Run through this checklist in order. Fix any item that fails — minimal edit only.
-  [ ] H1 is no more than 60 characters and 5–12 words; record both counts
+  [ ] H1 is no more than 60 characters and 5–12 words
   [ ] H1 contains the primary keyword once (exact or near-exact)
-  [ ] Primary keyword appears once in the first 100 body words and nowhere else exactly in body prose
-  [ ] Each secondary keyword appears at most once across headings/body; metadata is separate
-  [ ] Meta description is 150–160 characters and contains primary keyword once
+  [ ] Opening order: `# H1` → localized takeaways H2 (`## Key takeaways` EN / `## À retenir` FR) with **3–5 bullets** (40–80 words, not a summary) → hero `![alt](IMAGE: …)` → first content H2
+  [ ] French articles use `## À retenir` and `## Questions fréquentes` — never English "Key takeaways" / "Frequently Asked Questions"
+  [ ] No second takeaways/summary heading later in the body — remove them if present
+  [ ] Exact primary keyword appears once in the first 100 body words (first takeaways bullet). Headings do not count. Nowhere else exactly in body prose
+  [ ] Each secondary keyword appears at most once across headings/body
   [ ] At least one H2 contains a secondary keyword — natural placement only
   [ ] Article body stays within target and is not padded relative to SERP norms
-  [ ] 2–3 in-text image placeholders use `![alt](IMAGE: …)` with descriptive alt text
-  [ ] External links: 3–5 valid inline HTTPS markdown links
-  [ ] Internal links: 2–4 valid `](INTERNAL:` placeholders without duplicate clusters
+  [ ] 2–3 in-text image placeholders use `![alt](IMAGE: …)` with descriptive alt text (first after Key takeaways)
+  [ ] External links: 3–5 valid inline HTTPS markdown links (E-E-A-T — real sources only)
+  [ ] Proof points and cited claims preserved from draft — no invented brands, stats, or prices added;
+      every concrete price/% keeps its citation or is generalized
+  [ ] Form Internal Links: every editor-provided URL/path from step 1 is an inline markdown link
+  [ ] Extra cluster links: 0–4 valid `](INTERNAL:` placeholders without duplicate clusters
   [ ] Article has a clear H1 → H2 hierarchy (no H3s without a parent H2)
   [ ] All headings use sentence case (not title case); closing H2 is topical (not "Conclusion")
-  [ ] No em dashes in headings, body, CTAs, or FAQ
-  [ ] 2–3 inline CTAs at H2 breaks, each with bold heading + description + markdown link on separate lines
-  [ ] Demo CTAs use `/book-a-demo/` slug
-  [ ] FAQ section present: H2 "Frequently Asked Questions" with at least 5 H3 Q&As — if missing, add a minimal FAQ block from the article topic (do not rewrite body sections)
+  [ ] No em dashes or en dashes in headings, body, CTAs, FAQ, meta titles, or meta descriptions
+  [ ] Exactly 2 CTAs (one between sections, one at the end), none in the opening, each with bold heading + description + markdown link on separate lines
+  [ ] CTAs use the Required CTA markdown href from workspace artifacts (live site + `/contact` unless guidelines specify another path)
+  [ ] FAQ section present: H2 localized (`## Frequently Asked Questions` EN / `## Questions fréquentes` FR) with at least 5 H3 Q&As — if missing, add a minimal FAQ block from the article topic (do not rewrite body sections)
+  [ ] FAQ H3 questions are clean question text only (no SOURCE SIGNAL / CITATION / competitor notes)
+  [ ] Each FAQ answer is **one normal paragraph of 2-4 sentences** (min 2, max 4; max ~70 words), in the article language. No bullets, numbered lists, or one sentence per line. Do not pad FAQ.
+  [ ] Transition words: ≥30% of body sentences use a natural connector (Yoast); add short connectors when splitting ideas — do not leave unlinked sentence stacks
+  [ ] Never start three sentences in a row with the same word
   [ ] Tone remains consistent throughout
 
 OUTPUT FORMAT — follow exactly:
 
----PUBLISHING METADATA START---
-H1 TITLE: [final title — max 60 characters, 5–12 words; fix if SEO check failed]
-H1 CHARACTER COUNT: [number]
-H1 WORD COUNT: [number]
-META DESCRIPTION: [150–160 characters — count exactly]
-PRIMARY KEYWORD: [from brief]
-SECONDARY KEYWORDS: [comma separated, from brief]
-ESTIMATED WORD COUNT: [count the article body — exclude metadata block]
-IMAGE PLACEHOLDERS: [count of in-text `](IMAGE:` placeholders]
-INTERNAL LINKS ADDED: [count]
-EXTERNAL LINKS ADDED: [count of https markdown links to third-party sites]
-CTA PLACEMENT: [mid-article / end / both — specify which type at each location]
-FAQ COUNT: [number of H3 questions under the FAQ H2]
-FAQ SCHEMA NOTE: [ContentFlow auto-generates FAQPage JSON-LD after this step — list H3 questions for reference]
-SEO CHECK RESULTS:
-  H1 length (≤60 chars, 5–12 words): [PASS / FIXED — note what changed]
-  H1 keyword match (once): [PASS / FIXED — note what changed]
-  Keyword in first 100 body words (once): [PASS / FIXED — note what changed]
-  Secondary keywords (each once max): [PASS / FIXED — note what changed]
-  Meta description: [PASS / FIXED — note what changed]
-  H2 secondary keyword: [PASS / FIXED — note what changed]
-  Article length vs target: [PASS / TRIMMED — note if filler was removed]
-  In-text images (2–3): [PASS / ADDED — note if placeholders inserted]
-  External links (3–5 valid): [PASS / FIXED — note what changed]
-  Internal links (2–4 valid): [PASS / FIXED — note what changed]
-  H1→H2 hierarchy: [PASS / FIXED — note what changed]
-  Heading sentence case & closing H2: [PASS / FIXED — note what changed]
-  No em dashes: [PASS / FIXED — note what changed]
-  Inline CTAs (2–3, three-line format): [PASS / FIXED — note what changed]
-  FAQ section: [PASS / ADDED — note if you inserted FAQ]
-  Tone consistency: [PASS / FIXED — note what changed]
-STATUS: READY FOR CMS
----PUBLISHING METADATA END---
-
----FINAL ARTICLE START---
+---FINAL OUTPUT START---
 [Full publish-ready article in clean markdown — including all CTAs and internal link placeholders]
----FINAL ARTICLE END---
+---FINAL OUTPUT END---
 
 RULES:
 - Do NOT rewrite content broadly — only add CTAs, links, images, trim filler, and make minimal SEO fixes
-- **Preserve the full FAQ section** from the fact-check corrected article: keep every H3 Q&A (typically 5–7). Never reduce FAQ count.
+- **Preserve the H1 → takeaways H2 → hero image opening** from the draft — do not rename it to ## Summary, flatten takeaways into a recap, or remove the hero image
+- Keep takeaways as **3–5 bullets**. If the draft still has `## Summary` or prose takeaways, rewrite as localized takeaways H2 + bullets (FR: `## À retenir`)
+- **Do NOT output meta titles, meta descriptions, publishing metadata, or SEO checklist blocks** — those are generated in the separate Meta Title & Description step.
+- **Preserve the full FAQ section** from the fact-check corrected article: keep every H3 Q&A (typically 5–7). Never reduce FAQ count. Keep answers at 3–4 lines each.
 - H1 hard limits: 60 characters, 5–12 words, primary keyword once
-- Primary keyword: once in H1 and once in first 100 body words; no further exact body repetition
-- Each secondary keyword appears at most once across article headings/body; metadata is separate
-- Maximum 4 internal links — more feels spammy and dilutes link equity
+- Primary keyword: once in H1, and the exact phrase once in the first 100 body words (first Key takeaways sentence; headings do not count); no further exact body repetition
+- Each secondary keyword appears at most once across article headings/body
+- Form-provided Internal Links always count first and must keep their exact hrefs
+- Maximum 4 extra cluster/`INTERNAL:` links — more feels spammy and dilutes link equity
 - Target 3–5 external authority links — real URLs only, from the sources block in the user message
 - Target 2–3 in-text image placeholders with descriptive alt text
-- If no SEO issues are found, write PASS for each item — do not skip the checklist
-- Meta description character count is a hard constraint — 150–160, no exceptions
-- Output metadata block first, then the full article. No preamble. No commentary after.
+- Output only the final article block. No preamble. No commentary after.
 - The client's content clusters are in your context above — use them, not generic cluster names
+- Also keep any `](INTERNAL: Supporting: …)` placeholders from the draft that match ATP supporting titles
 - Each internal link must use `](INTERNAL: …)` with an actual cluster from the list provided
+  **or** an ATP supporting title already present in the draft
 - Anchor text for **both** internal and external links: **2–3 words max**, embedded mid-sentence
-- Do not fabricate cluster names — if it's not in the context cluster list, do not link to it
+- Do not fabricate cluster names — if it's not in the context cluster list and not an existing
+  Supporting: placeholder from the draft, do not invent a new one
 - Links should feel like natural next steps for the reader, not random internal cross-sells

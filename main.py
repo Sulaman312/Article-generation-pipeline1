@@ -24,12 +24,13 @@ if __name__ == "__main__":
     import os
 
     # Windows: debug reloader often hangs browser requests on :8000. Set FLASK_RELOAD=1 to enable.
-    use_reloader = os.getenv("FLASK_RELOAD", "").strip() in ("1", "true", "yes")
+    use_reloader = os.getenv("FLASK_RELOAD", "").strip().lower() in ("1", "true", "yes")
+    debug = os.getenv("FLASK_DEBUG", "0").strip().lower() in ("1", "true", "yes")
     port = int(os.getenv("API_PORT") or os.getenv("FLASK_RUN_PORT") or "8000")
     app.run(
-        host="0.0.0.0",
+        host=os.getenv("API_HOST") or "0.0.0.0",
         port=port,
-        debug=True,
+        debug=debug,
         use_reloader=use_reloader,
         threaded=True,
     )

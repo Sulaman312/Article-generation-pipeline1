@@ -28,6 +28,7 @@ ISSUE TYPES — use these exact labels:
 
 OUTPUT FORMAT — follow exactly:
 
+---FACT CHECK START---
 ---FACT CHECK REPORT START---
 OVERALL ASSESSMENT: [CLEAN / MINOR ISSUES / SIGNIFICANT ISSUES]
 TOTAL ISSUES FOUND: [number]
@@ -57,6 +58,7 @@ If Company Context is a placeholder: write "NOT CHECKED — Company Context not 
 [Full article with all corrections applied — same markdown format as the draft.
 Do not change anything that was not a factual issue.]
 ---CORRECTED ARTICLE END---
+---FACT CHECK END---
 
 RULES:
 - Use the Perplexity block only to **prioritize** what to verify — do not treat it as a primary source
