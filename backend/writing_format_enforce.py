@@ -1,24 +1,24 @@
-"""Enforce writing-format guidelines: lint → deterministic fix → targeted LLM repair."""
+"""Enforce writing-format guidelines: lint → deterministic fix → sentence-only LLM."""
 
 from __future__ import annotations
 
+import json
 import logging
+import re
 
+from . import config
 from . import prompts
 from . import writing_format_lint as lint_mod
 from .integrations import anthropic as claude
 
 logger = logging.getLogger(__name__)
 
-_MAX_REPAIR_ROUNDS = 2
+_MAX_REPAIR_ROUNDS = 1
 
-_REPAIR_SYSTEM = (
-    "You are a copy editor enforcing house style. Fix ONLY the listed violations.\n"
-    "Do not rewrite unaffected sections, change facts, or alter valid URLs except "
-    "to correct banned demo paths.\n"
-    "Never remove or shorten the FAQ section; keep every H3 Q&A from the input.\n"
-    "Preserve H1/H2 structure unless a violation requires a heading change.\n"
-    "Output ONLY the full markdown document with the same delimiters/wrappers as input.\n\n"
+_SENTENCE_REPAIR_SYSTEM = (
+    "You are a copy editor. Fix ONLY the listed sentences. "
+    "Return a JSON array of objects {\"old\": \"...\", \"new\": \"...\"} and nothing else. "
+    "Do not rewrite the rest of the article. Keep facts, URLs, and markdown links.\n\n"
     "--- WRITING FORMAT GUIDELINES ---\n"
     f"{prompts.WRITING_FORMAT_GUIDELINES.strip()}\n"
     "--- END GUIDELINES ---\n"
@@ -94,7 +94,9 @@ def _enforce(
         text = html_leak.strip_leaked_html(text, cta_href=cta_href)
         logger.warning("writing_format: removed leaked HTML/CSS template (%s)", stage)
 
-    current, fix_log = lint_mod.apply_deterministic_fixes(text, cta_href=cta_href)
+    current, fix_log = lint_mod.apply_deterministic_fixes(
+        text, cta_href=cta_href, lang=lang
+    )
     for entry in fix_log:
         logger.info("writing_format deterministic: %s", entry)
 
@@ -103,88 +105,111 @@ def _enforce(
         return current
 
     logger.info(
-        "writing_format lint (%s): %s violation(s)",
+        "writing_format lint (%s): %s violation(s) after mechanical fixes",
         stage,
         len(report.violations),
     )
 
-    if not allow_llm_repair:
-        logger.warning("writing_format violations (repair disabled): %s", report.summary())
+    if not allow_llm_repair or stage in ("outline", "brief"):
+        if not report.ok:
+            logger.warning(
+                "writing_format violations (no full rewrite): %s", report.summary()
+            )
         return current
 
     for round_i in range(_MAX_REPAIR_ROUNDS):
         report = lint_mod.lint(current, stage=stage, cta_href=cta_href, lang=lang)
         if report.ok:
             break
+        excerpts = [
+            (v.excerpt or v.message)
+            for v in report.violations
+            if v.code in {"SENTENCE_TOO_LONG", "PARAGRAPH_TOO_LONG", "REPEATED_SENTENCE_START"}
+            and (v.excerpt or "").strip()
+        ]
+        if not excerpts:
+            break
         try:
-            current = _repair_llm(
+            current = _repair_sentences_llm(
                 current,
-                report,
+                excerpts,
                 stage=stage,
                 round_i=round_i + 1,
-                cta_href=cta_href,
                 lang=lang,
             )
         except Exception:
-            logger.exception("writing_format LLM repair failed (stage=%s)", stage)
+            logger.exception("writing_format sentence LLM repair failed (stage=%s)", stage)
             break
-        current, _ = lint_mod.apply_deterministic_fixes(current, cta_href=cta_href)
+        current, _ = lint_mod.apply_deterministic_fixes(
+            current, cta_href=cta_href, lang=lang
+        )
 
     final = lint_mod.lint(current, stage=stage, cta_href=cta_href, lang=lang)
     if not final.ok:
         logger.warning(
-            "writing_format still has %s violation(s) after repair: %s",
+            "writing_format still has %s violation(s) after local repair: %s",
             len(final.violations),
             final.summary(max_items=8),
         )
     return current
 
 
-def _repair_llm(
+def _repair_sentences_llm(
     markdown: str,
-    report: lint_mod.LintReport,
+    excerpts: list[str],
     *,
     stage: lint_mod.Stage,
     round_i: int,
-    cta_href: str | None = None,
     lang: str | None = None,
 ) -> str:
-    preferred = (cta_href or lint_mod.DEFAULT_CTA_HREF).strip()
+    """Rewrite only the listed sentences; splice them back into the original."""
+    unique = []
+    seen: set[str] = set()
+    for ex in excerpts:
+        key = (ex or "").strip()
+        if len(key) < 12 or key in seen:
+            continue
+        seen.add(key)
+        unique.append(key[:240])
+        if len(unique) >= 8:
+            break
+    if not unique:
+        return markdown
     article_lang = lint_mod.detect_article_lang(markdown, hint=lang)
-    fr_note = ""
-    if article_lang == "fr" and any(
-        v.code == "TRANSITION_WORDS" for v in report.violations
-    ):
-        fr_note = (
-            "\nFrench Yoast transition fix: use recognized connectors only "
-            "(en effet, par exemple, donc, ainsi, ensuite, enfin, cependant, "
-            "toutefois, en revanche, par ailleurs, en outre, en plus, car, "
-            "parce que, c'est pourquoi). Never use \"de plus\" — Yoast ignores it.\n"
-        )
-    if any(v.code == "REPEATED_SENTENCE_START" for v in report.violations):
-        fr_note += (
-            "\nSentence openings: never start three sentences in a row with the same "
-            "word. Reorder the clause, merge two sentences, or open with a connector"
-            + (
-                " (ainsi, en effet, par ailleurs, en revanche, donc, toutefois)."
-                if article_lang == "fr"
-                else "."
-            )
-            + "\n"
-        )
     user = (
-        f"Stage: {stage}\n"
-        f"Repair round: {round_i}\n"
-        f"Preferred CTA href for this client: {preferred}\n"
-        f"Article language: {article_lang}\n"
-        f"{fr_note}\n"
-        f"Fix these format violations only:\n{report.summary()}\n\n"
-        f"---DOCUMENT---\n{markdown.strip()}\n"
+        f"Stage: {stage}\nRepair round: {round_i}\nLanguage: {article_lang}\n"
+        "Rewrite each excerpt so it no longer violates house style "
+        "(max 30 words/sentence, vary openings, keep meaning).\n\n"
+        "Excerpts:\n"
+        + json.dumps(unique, ensure_ascii=False, indent=2)
     )
-    return claude.chat_complete(
-        _REPAIR_SYSTEM,
+    raw = claude.chat_complete(
+        _SENTENCE_REPAIR_SYSTEM,
         user,
-        step_label=f"Writing format repair ({stage})",
-        max_tokens=8192,
-        temperature=0.3,
+        step_label=f"Writing format sentence repair ({stage})",
+        max_tokens=int(getattr(config, "REPAIR_MAX_TOKENS", 1500) or 1500),
+        temperature=0.2,
     ).strip()
+    payload = _parse_json_array(raw)
+    current = markdown
+    for item in payload:
+        if not isinstance(item, dict):
+            continue
+        old = str(item.get("old") or "").strip()
+        new = str(item.get("new") or "").strip()
+        if old and new and old in current:
+            current = current.replace(old, new, 1)
+    return current
+
+
+def _parse_json_array(raw: str) -> list:
+    text = (raw or "").strip()
+    text = re.sub(r"^```(?:json)?\s*|\s*```$", "", text, flags=re.I)
+    start, end = text.find("["), text.rfind("]")
+    if start == -1 or end <= start:
+        return []
+    try:
+        data = json.loads(text[start : end + 1])
+    except json.JSONDecodeError:
+        return []
+    return data if isinstance(data, list) else []

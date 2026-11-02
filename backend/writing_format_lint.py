@@ -320,6 +320,22 @@ def _lint_transition_words(body: str, report: LintReport, *, lang: str) -> None:
 MAX_SAME_START_RUN = 2  # three sentences in a row with the same first word is a violation
 _LEADING_NOISE_RE = re.compile(r"^[\s\"'“”‘’«»(\[*_>•\-]+")
 _FIRST_WORD_RE = re.compile(r"[^\W\d_]+|\d+", re.UNICODE)
+_PARA_SPLIT_KEEP = re.compile(r"(\n\s*\n)")
+_SOFT_LEAD_WORDS = frozenset(
+    {
+        "the", "a", "an", "this", "that", "these", "those", "it", "its", "you",
+        "your", "we", "they", "he", "she", "teams", "team", "people",
+        "le", "la", "les", "un", "une", "des", "ce", "cet", "cette", "ces",
+        "il", "elle", "ils", "elles", "vous", "nous", "on", "leur",
+    }
+)
+_EN_CONNECTORS = (
+    "Meanwhile", "Then", "Also", "Next", "Still", "Instead", "For example",
+)
+_FR_CONNECTORS = (
+    "Ainsi", "Ensuite", "Par ailleurs", "En revanche", "Toutefois", "Donc",
+    "En outre",
+)
 
 
 def sentence_first_word(sentence: str) -> str:
@@ -380,6 +396,217 @@ def _lint_repeated_starts(body: str, report: LintReport, *, lang: str) -> None:
                     excerpt=" | ".join(s[:50] for s in run[:3]),
                 )
             )
+
+
+def _is_prose_paragraph(block: str) -> bool:
+    first = (block or "").strip().splitlines()[0].strip() if (block or "").strip() else ""
+    if not first:
+        return False
+    if _HEADING_MD_RE.match(first):
+        return False
+    if first.startswith("```"):
+        return False
+    if re.match(r"^[-*+]\s", first):
+        return False
+    if first.startswith("**") and first.endswith("**"):
+        return False
+    if first.startswith("![") or first.startswith("IMAGE:"):
+        return False
+    return True
+
+
+def _sentence_spans(text: str) -> list[tuple[int, int]]:
+    """Start/end offsets of sentences inside ``text`` (punctuation kept)."""
+    spans: list[tuple[int, int]] = []
+    start = 0
+    for m in _SENTENCE_SPLIT_RE.finditer(text):
+        end = m.start()
+        if end > start and text[start:end].strip():
+            spans.append((start, end))
+        start = m.end()
+    if start < len(text) and text[start:].strip():
+        spans.append((start, len(text)))
+    return spans
+
+
+def _soft_lowercase_lead(sentence: str) -> str:
+    raw = sentence or ""
+    prefix = ""
+    body = raw
+    m = _LEADING_NOISE_RE.match(body)
+    if m:
+        prefix = m.group(0)
+        body = body[m.end() :]
+    if not body:
+        return raw
+    word_m = _FIRST_WORD_RE.match(body)
+    if not word_m:
+        return raw
+    word = word_m.group(0)
+    if word.isupper() or word.lower() not in _SOFT_LEAD_WORDS:
+        return raw
+    lowered = word[0].lower() + word[1:] if len(word) > 1 else word.lower()
+    return prefix + lowered + body[word_m.end() :]
+
+
+def _with_connector(sentence: str, connector: str) -> str:
+    stripped = (sentence or "").lstrip()
+    lead = (sentence or "")[: len(sentence) - len(stripped)] if sentence else ""
+    if stripped.lower().startswith(connector.lower() + ",") or stripped.lower().startswith(
+        connector.lower() + " "
+    ):
+        return sentence
+    rest = _soft_lowercase_lead(stripped)
+    return f"{lead}{connector}, {rest}"
+
+
+def patch_repeated_starts(text: str, *, lang: str = "en") -> tuple[str, int]:
+    """Break runs of 3+ same-start sentences by prefixing a connector. No LLM."""
+    if not (text or "").strip():
+        return text, 0
+    connectors = _FR_CONNECTORS if (lang or "").lower() == "fr" else _EN_CONNECTORS
+    parts = _PARA_SPLIT_KEEP.split(text)
+    patched = 0
+    conn_i = 0
+    out: list[str] = []
+    for part in parts:
+        if not _is_prose_paragraph(part):
+            out.append(part)
+            continue
+        spans = _sentence_spans(part)
+        if len(spans) < 3:
+            out.append(part)
+            continue
+        sentences = [part[s:e] for s, e in spans]
+        replacements: dict[int, str] = {}
+        current_word = ""
+        run_idx: list[int] = []
+
+        def flush_run() -> None:
+            nonlocal conn_i, patched
+            if len(run_idx) <= MAX_SAME_START_RUN:
+                return
+            for idx in run_idx[MAX_SAME_START_RUN:]:
+                connector = connectors[conn_i % len(connectors)]
+                conn_i += 1
+                replacements[idx] = _with_connector(sentences[idx], connector)
+                patched += 1
+
+        for i, sent in enumerate(sentences):
+            word = sentence_first_word(sent)
+            if word and word == current_word:
+                run_idx.append(i)
+                continue
+            flush_run()
+            current_word = word
+            run_idx = [i] if word else []
+        flush_run()
+        if not replacements:
+            out.append(part)
+            continue
+        rebuilt = []
+        cursor = 0
+        for i, (s, e) in enumerate(spans):
+            rebuilt.append(part[cursor:s])
+            rebuilt.append(replacements.get(i, part[s:e]))
+            cursor = e
+        rebuilt.append(part[cursor:])
+        out.append("".join(rebuilt))
+    return "".join(out), patched
+
+
+def patch_transition_words(text: str, *, lang: str = "en") -> tuple[str, int]:
+    """Prefix Yoast connectors onto body sentences until the 30% threshold. No LLM."""
+    code = (lang or "en").lower()
+    if code not in ("en", "fr"):
+        return text, 0
+    sents = _collect_body_sentences(text)
+    if yoast_transitions.meets_threshold(sents, code):
+        return text, 0
+    need_hits = int(
+        (yoast_transitions.MIN_TRANSITION_RATIO * max(len(sents), 1)) + 0.999
+    )
+    have = sum(1 for s in sents if yoast_transitions.sentence_has_transition(s, code))
+    missing = max(0, need_hits - have)
+    if missing == 0:
+        return text, 0
+
+    connectors = _FR_CONNECTORS if code == "fr" else _EN_CONNECTORS
+    parts = _PARA_SPLIT_KEEP.split(text)
+    patched = 0
+    conn_i = 0
+    out: list[str] = []
+    for part in parts:
+        if missing <= 0 or not _is_prose_paragraph(part):
+            out.append(part)
+            continue
+        spans = _sentence_spans(part)
+        if not spans:
+            out.append(part)
+            continue
+        rebuilt = []
+        cursor = 0
+        for i, (s, e) in enumerate(spans):
+            chunk = part[s:e]
+            rebuilt.append(part[cursor:s])
+            # Keep the first sentence of a paragraph as-is so BLUF stays intact.
+            if (
+                missing > 0
+                and i > 0
+                and not yoast_transitions.sentence_has_transition(chunk, code)
+            ):
+                connector = connectors[conn_i % len(connectors)]
+                conn_i += 1
+                chunk = _with_connector(chunk, connector)
+                missing -= 1
+                patched += 1
+            rebuilt.append(chunk)
+            cursor = e
+        rebuilt.append(part[cursor:])
+        out.append("".join(rebuilt))
+    return "".join(out), patched
+
+
+def _sentence_case_heading(title: str) -> str:
+    words = title.split()
+    if len(words) < 2:
+        return title
+    out = [words[0]]
+    for w in words[1:]:
+        if _ACRONYM_RE.match(w) or (w[:1].isdigit()):
+            out.append(w)
+        elif len(w) > 1 and w[0].isupper() and not w.isupper():
+            out.append(w[0].lower() + w[1:])
+        else:
+            out.append(w)
+    return " ".join(out)
+
+
+def patch_title_case_headings(text: str) -> tuple[str, int]:
+    """Convert title-case markdown / outline headings to sentence case. No LLM."""
+    if not text:
+        return text, 0
+    count = 0
+    lines = text.splitlines(keepends=True)
+    out: list[str] = []
+    for line in lines:
+        stripped = line.strip()
+        hm = _HEADING_MD_RE.match(stripped)
+        om = _OUTLINE_HEADING_RE.match(stripped)
+        if hm and _looks_like_title_case(hm.group(2)):
+            title = hm.group(2)
+            fixed = _sentence_case_heading(title)
+            if fixed != title:
+                line = line.replace(title, fixed, 1)
+                count += 1
+        elif om and _looks_like_title_case(om.group(2)):
+            title = om.group(2)
+            fixed = _sentence_case_heading(title)
+            if fixed != title:
+                line = line.replace(title, fixed, 1)
+                count += 1
+        out.append(line)
+    return "".join(out), count
 
 
 def _article_body(text: str) -> str:
@@ -589,9 +816,9 @@ def _lint_cta_slugs(
 
 
 def apply_deterministic_fixes(
-    text: str, *, cta_href: str | None = None
+    text: str, *, cta_href: str | None = None, lang: str | None = None
 ) -> tuple[str, list[str]]:
-    """Safe mechanical fixes before LLM repair. Returns (text, log)."""
+    """Safe mechanical fixes. Never calls a model. Returns (text, log)."""
     log: list[str] = []
     if not (text or "").strip():
         return text, log
@@ -599,6 +826,11 @@ def apply_deterministic_fixes(
     current, em_fixed = strip_em_dashes(text)
     if em_fixed:
         log.append("Replaced em dashes with colons or commas")
+
+    cased, n_case = patch_title_case_headings(current)
+    if n_case:
+        current = cased
+        log.append(f"Converted {n_case} title-case heading(s) to sentence case")
 
     body = _article_body(current)
     if not body:
@@ -631,13 +863,31 @@ def apply_deterministic_fixes(
             fixed = demo_pat.sub(f"]({replacement})", fixed)
             log.append(f"Replaced {DEMO_CTA_SLUG} → {replacement}")
 
-    if fixed == body and not em_fixed:
+    article_lang = detect_article_lang(fixed, hint=lang)
+    styled, n_rep = patch_repeated_starts(fixed, lang=article_lang)
+    if n_rep:
+        fixed = styled
+        log.append(f"Broke {n_rep} repeated sentence start(s) with a connector")
+    styled, n_tr = patch_transition_words(fixed, lang=article_lang)
+    if n_tr:
+        fixed = styled
+        log.append(f"Added {n_tr} Yoast transition connector(s)")
+
+    if fixed == body and not log:
         return text, log
 
     from . import faq_schema
 
-    if faq_schema.FINAL_ARTICLE_START in current:
+    if faq_schema.FINAL_ARTICLE_START in current or faq_schema.FINAL_OUTPUT_START in current:
         return faq_schema.replace_final_article_body(current, fixed), log
+    if "---DRAFT START---" in current.upper() and fixed != body:
+        return re.sub(
+            r"(---DRAFT START---\s*).*?(\s*---DRAFT END---)",
+            r"\1" + fixed + r"\2",
+            current,
+            count=1,
+            flags=re.IGNORECASE | re.DOTALL,
+        ), log
     if fixed != body:
         return fixed, log
     return current, log

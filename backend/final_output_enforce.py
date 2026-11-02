@@ -607,45 +607,36 @@ def inject_faq_template(
     from . import paa_faq
 
     bank_prompt = paa_faq.format_faq_bank_for_prompt(paa_faq_research)
-    # No stock Q&A is ever inserted: the model writes the FAQ, and we retry until the
-    # result has real questions with answers (or fail the step).
-    attempts = config.QUALITY_RETRY_ATTEMPTS
-    for attempt in range(attempts):
-        result = _inject_faq_llm(
-            article,
-            topic=topic,
-            lang=lang,
-            heading=heading,
-            faq_bank_prompt=bank_prompt,
-        )
-        if len(faq_schema.extract_faq_pairs(result)) >= 2:
-            return result
-        logger.warning(
-            "FAQ injection returned fewer than 2 Q&As (attempt %s/%s)", attempt + 1, attempts
-        )
-    raise RuntimeError(
-        f"Final output: the model did not produce a usable FAQ after {attempts} attempts."
+    pairs = _generate_faq_pairs(
+        article,
+        topic=topic,
+        lang=lang,
+        heading=heading,
+        faq_bank_prompt=bank_prompt,
     )
+    if len(pairs) >= 2:
+        return faq_schema.insert_faq_block(article, pairs, heading=heading)
+    logger.warning("FAQ injection produced fewer than 2 Q&As; leaving article unchanged")
+    return article
 
 
-def _inject_faq_llm(
+def _generate_faq_pairs(
     article: str,
     *,
     topic: str,
     lang: str,
     heading: str,
     faq_bank_prompt: str = "",
-) -> str:
-    """Generate a topic-relevant FAQ block in the article language."""
+) -> list[tuple[str, str]]:
+    """Ask the model for a FAQ section only; splice pairs into the original article."""
     language_label = editorial_input.language_label_for_code(lang)
     french = (lang or "").lower() == "fr"
     system = (
-        f"Return ONLY the full article markdown. Write exactly ONE FAQ section in "
-        f"{language_label} using H2 `{heading}`. Prefer the provided FAQ bank questions. "
-        "Do not add FAQ blocks in any other language. Do not invent brands, products, or prices. "
+        f"Return ONLY a markdown FAQ section in {language_label} starting with H2 "
+        f"`{heading}`. Do not return the rest of the article. Prefer the provided "
+        "FAQ bank questions. Do not invent brands, products, or prices. "
         "Each FAQ answer must be one normal paragraph of 2-4 sentences (max ~70 words). "
-        "Do not use bullets, numbered lists, or one sentence per line. "
-        "Do not pad FAQ to hit article word count."
+        "Do not use bullets, numbered lists, or one sentence per line."
     )
     if french:
         system += (
@@ -657,19 +648,21 @@ def _inject_faq_llm(
         "No FAQ bank provided — write only as many specific questions as the topic supports "
         "(prefer 4–7; fewer if thin)."
     )
+    excerpt = faq_schema.strip_faq_section(article).strip()[:4000]
     user = (
         f"Topic: {topic or 'article'}\n\n"
         f"{bank}\n\n"
-        f"Add the FAQ section before the closing H2/CTA when possible.\n\n"
-        f"---ARTICLE---\n{article.strip()}\n"
+        "Write the FAQ from this article excerpt. Return only the FAQ markdown.\n\n"
+        f"---ARTICLE EXCERPT---\n{excerpt}\n"
     )
-    return claude.chat_complete(
+    raw = claude.chat_complete(
         system,
         user,
         step_label=f"Final output FAQ inject ({language_label})",
-        max_tokens=8192,
+        max_tokens=int(getattr(config, "FAQ_REPAIR_MAX_TOKENS", 1800) or 1800),
         temperature=0.35,
     ).strip()
+    return faq_schema.extract_faq_pairs(raw)
 
 
 def _trim_article_llm(article_md: str, target: int, topic: str) -> str:
@@ -692,57 +685,8 @@ def _trim_article_llm(article_md: str, target: int, topic: str) -> str:
         article_md,
         target,
         step_label="Final output section trim",
-        max_passes=3,
+        max_passes=1,
     )
-
-
-def _repair_article_with_llm(
-    article_md: str,
-    *,
-    add_faq: bool,
-    add_external: bool,
-    urls: list[str],
-    topic: str,
-    word_target: int | None,
-    manual: dict | None = None,
-) -> str:
-    current = editorial_input.count_article_words(article_md)
-    tasks: list[str] = []
-    lang = editorial_input.article_language_from_manual(manual)
-    faq_heading = editorial_input.faq_heading_for_language(lang)
-    language_label = editorial_input.language_label_for_code(lang)
-    if word_target:
-        low, high = editorial_input.word_count_bounds(word_target)
-        tasks.append(
-            f"Body prose (FAQ excluded) MUST be {low:,}–{high:,} words (form target "
-            f"{word_target:,}). Current body: {current:,}. Trim filler before adding FAQ/links."
-        )
-    if add_faq:
-        tasks.append(
-            f"Add ONE FAQ section with H2 `{faq_heading}` and 5–7 H3 Q&As in "
-            f"{language_label} before the conclusion. Do not add FAQ in another language."
-        )
-    if add_external:
-        url_block = "\n".join(f"- {u}" for u in urls[:10]) or "- (none)"
-        tasks.append(
-            f"Add 3–5 outbound `[anchor](url)` links using ONLY:\n{url_block}"
-        )
-    system = (
-        "Return ONLY the full article markdown. Keep H1, H2 structure, tone, and "
-        "inline internal/external links with 2–3 word anchors. Respect the word-count cap."
-    )
-    user = (
-        f"Topic: {topic or 'article'}\n\nTasks:\n"
-        + "\n".join(f"- {t}" for t in tasks)
-        + f"\n\n---ARTICLE---\n{article_md.strip()}\n"
-    )
-    return claude.chat_complete(
-        system,
-        user,
-        step_label="Final output repair (FAQ / links / length)",
-        max_tokens=8192,
-        temperature=0.35,
-    ).strip()
 
 
 def _update_metadata_counts(full_text: str, article_md: str, word_target: int | None) -> str:
@@ -831,7 +775,7 @@ def _preserve_faq_from_prior_steps(
     client_id: str,
     run_id: str,
     *,
-    heading: str = "## Frequently Asked Questions",
+    heading: str | None = None,
 ) -> str:
     reference = _load_faq_reference_markdown(client_id, run_id)
     if not reference:

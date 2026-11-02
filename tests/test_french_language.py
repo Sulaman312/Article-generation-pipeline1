@@ -94,6 +94,128 @@ class ScanFrenchTests(unittest.TestCase):
         self.assertEqual(french_language.scan_french(CLEAN, spelling=True), [])
 
 
+class EnglishHeadingTests(unittest.TestCase):
+    def _headings(self, text: str):
+        return [
+            i for i in french_language.scan_french(text, spelling=False, structural=True)
+            if i.code == "fr_english_heading"
+        ]
+
+    def test_frequently_asked_questions_is_flagged(self):
+        found = self._headings("# Titre\n\n## Frequently Asked Questions\n\n### Que choisir ?\n\nUn bol.\n")
+        self.assertEqual(len(found), 1)
+        self.assertEqual(found[0].term, "Frequently Asked Questions")
+        self.assertEqual(found[0].suggestion, "questions fréquentes")
+        self.assertIn("Titre en anglais", found[0].message())
+
+    def test_other_english_headings_are_flagged(self):
+        for heading in ("Our Story", "Related Articles", "How it works", "Next steps", "Key takeaways"):
+            self.assertTrue(self._headings(f"## {heading}\n\nTexte.\n"), msg=heading)
+
+    def test_french_headings_are_not_flagged(self):
+        for heading in (
+            "Questions fréquentes", "À retenir", "Comment préparer ses repas ?",
+            "Les avantages de la formule Énergie", "Conclusion", "FAQ", "Sommaire",
+        ):
+            self.assertEqual(self._headings(f"## {heading}\n\nTexte.\n"), [], msg=heading)
+
+    def test_heading_is_reported_once_not_word_by_word(self):
+        found = french_language.scan_french(
+            "## Frequently Asked Questions\n\nTexte.\n", spelling=False
+        )
+        self.assertEqual([i.code for i in found], ["fr_english_heading"])
+
+    def test_hard_gate_and_publish_check_both_block_it(self):
+        from backend import hard_gates
+
+        article = "# Titre\n\n## Frequently Asked Questions\n\n### Que choisir ?\n\nUn bol.\n"
+        self.assertTrue(
+            any(i.code == "fr_english_heading" for i in hard_gates.check_french_language(article, lang="fr"))
+        )
+        with mock.patch.object(french_language, "load_glossary", return_value=Glossary()):
+            report = publish_check.check_publishable(
+                client_id="c", run_id="r", article_md=article, title="Titre", lang="fr"
+            )
+        self.assertFalse(report.ok)
+
+    def test_step_templates_show_french_headings_to_the_model(self):
+        template = (
+            "FAQ SECTION:\nH2: Frequently Asked Questions\n"
+            "- First image after ## Key takeaways\n"
+            "- English `## Frequently Asked Questions` · French `## Questions fréquentes`\n"
+            "KEY TAKEAWAYS NOTE: [plan]\n"
+        )
+        out = french_language.localize_step_prompt(template)
+        self.assertIn("H2: Questions fréquentes", out)
+        self.assertIn("after ## À retenir", out)
+        self.assertIn("KEY TAKEAWAYS NOTE", out)  # parsed label untouched
+        self.assertIn("English `## Frequently Asked Questions`", out)  # comparison line kept
+
+    def test_prompt_builder_localizes_the_outline_template(self):
+        from backend import prompt_cache, prompts
+
+        self.assertIn("H2: Frequently Asked Questions", prompts.OUTLINE_PROMPT)
+        with mock.patch.object(french_language, "load_glossary", return_value=Glossary()):
+            cached = prompt_cache.build_cached_prompt(
+                client_id="nope", run_id="r", step_prompt=prompts.OUTLINE_PROMPT,
+                unique_suffix="", step_label="t", lang="fr", step_name="outline",
+            )
+        self.assertNotIn("H2: Frequently Asked Questions", cached.unique_text)
+        self.assertIn("H2: Questions fréquentes", cached.unique_text)
+
+
+class FaqHeadingDefaultTests(unittest.TestCase):
+    def test_default_heading_is_never_english_for_a_french_article(self):
+        from backend import faq_schema
+
+        french = "Les repas sont plus simples avec une bonne organisation dans votre cuisine. " * 4
+        pairs = [("Que choisir ?", "Un bol."), ("Pourquoi ?", "Pour vous.")]
+        out = faq_schema.insert_faq_block(f"# Titre\n\n{french}\n", pairs)
+        self.assertIn("## Questions fréquentes", out)
+        self.assertNotIn("Frequently Asked Questions", out)
+
+    def test_existing_heading_is_kept_and_english_default_stays_for_english(self):
+        from backend import faq_schema
+
+        pairs = [("Q one?", "A."), ("Q two?", "B.")]
+        kept = faq_schema.insert_faq_block(
+            "# T\n\n## Questions fréquentes\n\n### Vieux ?\n\nRéponse.\n", pairs
+        )
+        self.assertIn("## Questions fréquentes", kept)
+        english = faq_schema.insert_faq_block("# T\n\nPlan your week with a simple list.\n", pairs)
+        self.assertIn("## Frequently Asked Questions", english)
+
+
+class KeywordRuleTests(unittest.TestCase):
+    def test_rule_is_in_the_french_system_block_and_draft_directive(self):
+        self.assertIn("grammaticalement correcte", french_language.system_block(Glossary()))
+        self.assertIn("grammaticalement correcte", french_language.step_directive("draft", Glossary()))
+        self.assertIn("reformulez", french_language.KEYWORD_RULE)
+
+    def test_french_article_never_gets_an_english_keyword_frame(self):
+        from backend import hard_gates
+
+        article = (
+            "# Repas\n\n## À retenir\n\n- Préparez vos repas simplement chaque semaine.\n\n"
+            "![Un bol de céréales avec des fruits](IMAGE: bol)\n\n## Section\n\nTexte.\n"
+        )
+        out = hard_gates.ensure_primary_keyword_in_first_100(
+            article, "recette repas équilibré", lang="fr"
+        )
+        self.assertEqual(out, article)
+        self.assertNotIn("For ", out)
+        self.assertNotIn("belongs in the opening", out)
+        # The keyword gate fails instead, so the model rewrites the sentence.
+        self.assertIsNotNone(hard_gates.check_primary_keyword(out, "recette repas équilibré"))
+
+    def test_english_articles_keep_the_old_behaviour(self):
+        from backend import hard_gates
+
+        article = "# T\n\n## Key takeaways\n\n- Plan your week.\n\n![x y z](IMAGE: a)\n\n## S\n\nText.\n"
+        out = hard_gates.ensure_primary_keyword_in_first_100(article, "meal plan", lang="en")
+        self.assertIn("meal plan", out)
+
+
 class GlossaryTests(unittest.TestCase):
     def test_defaults_contain_brand_terms(self):
         g = Glossary()
@@ -133,21 +255,46 @@ class EnforceArtifactTests(unittest.TestCase):
         self.assertEqual(out, CLEAN)
         repair.assert_not_called()
 
-    def test_dirty_text_is_repaired(self):
-        repair = mock.Mock(return_value="Un bol et une collation.")
+    def test_banned_words_are_replaced_without_a_model_call(self):
+        repair = mock.Mock()
         out = french_language.enforce_french_artifact(
             "Un bowl et un snack.", step_label="t", structural=False, repair=repair
         )
-        self.assertEqual(out, "Un bol et une collation.")
+        self.assertIn("bol", out)
+        self.assertIn("collation", out)
+        self.assertNotIn("bowl", out.lower())
+        self.assertNotIn("snack", out.lower())
+        repair.assert_not_called()
+
+    def test_dirty_text_is_repaired(self):
+        repair = mock.Mock(return_value="Préparez un vrai menu pour la semaine.")
+        out = french_language.enforce_french_artifact(
+            "Texte. [INSERT STAT HERE]",
+            step_label="t",
+            structural=False,
+            spelling=False,
+            repair=repair,
+        )
+        self.assertEqual(out, "Préparez un vrai menu pour la semaine.")
         self.assertEqual(repair.call_count, 1)
 
     def test_still_dirty_raises_instead_of_inserting_default_text(self):
-        repair = mock.Mock(return_value="Toujours un bowl.")
+        repair = mock.Mock(return_value="Toujours [INSERT STAT HERE].")
         with self.assertRaises(FrenchQualityError):
             french_language.enforce_french_artifact(
-                "Un bowl.", step_label="t", structural=False, attempts=2, repair=repair
+                "[INSERT STAT HERE]",
+                step_label="t",
+                structural=False,
+                spelling=False,
+                attempts=2,
+                repair=repair,
             )
         self.assertEqual(repair.call_count, 2)
+
+    def test_apply_glossary_skips_link_targets(self):
+        src = "Lisez [le guide](https://example.com/healthy-snack-bowl) aujourd'hui."
+        out = french_language.apply_glossary_replacements(src)
+        self.assertIn("https://example.com/healthy-snack-bowl", out)
 
 
 class LanguageDetectionTests(unittest.TestCase):

@@ -538,6 +538,11 @@ def seo_readability_notice(lang: str | None = None) -> str:
             f"use `{takeaways_h2}` (not `## Key takeaways`) and `{faq_h2}` "
             "(not `## Frequently Asked Questions`). Body prose stays in French.\n"
         )
+    keyword_fr_line = ""
+    if code == "fr":
+        from . import french_language
+
+        keyword_fr_line = f"- **{french_language.KEYWORD_RULE}**\n"
     return (
         "\n\n=== SEO & READABILITY RULES (NON-NEGOTIABLE) ===\n"
         "- **H1 title:** maximum **60 characters**, **5-12 words**, with the primary keyword "
@@ -548,6 +553,7 @@ def seo_readability_notice(lang: str | None = None) -> str:
         "Headings do not count and a synonym does not count; "
         "do not repeat that exact phrase elsewhere in body prose. Use each secondary keyword "
         "at most once across headings and body prose. Metadata is counted separately.\n"
+        f"{keyword_fr_line}"
         "- **E-E-A-T (in-body):** proof points where planned, 3–5 credible external links, honest limits — "
         "never a standalone \"Why trust us\" section; **prices and numbers must be real and cited** "
         "(inline HTTPS in the same paragraph) or generalized without inventing figures.\n"
@@ -570,7 +576,8 @@ def writing_format_guidelines_notice() -> str:
     return (
         "\n\n=== WRITING FORMAT COMPLIANCE ===\n"
         "Full rules are in your system prompt (WRITING FORMAT GUIDELINES block). "
-        "The pipeline automatically lints and repairs violations after this step.\n"
+        "Meet them on the first write. The pipeline only applies mechanical fixes "
+        "(dashes, connectors, CTA hrefs) — it will not rewrite this whole artifact.\n"
     )
 
 

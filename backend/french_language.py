@@ -11,13 +11,14 @@ Three jobs live here so the rest of the pipeline stays small:
    variants, placeholders and French spelling errors. Hard gates, the brief/outline/
    meta checks and the pre-publish check all use it.
 
-Nothing here inserts default text. When the scanner finds problems the caller
-retries the generation (see `enforce_french_artifact`) or blocks.
+Nothing here inserts default text. Banned English words are replaced from the
+glossary in code; remaining issues get at most one targeted snippet repair.
 """
 
 from __future__ import annotations
 
 import html as _html
+import json
 import logging
 import re
 import unicodedata
@@ -89,6 +90,23 @@ DEFAULT_BANNED: dict[str, str] = {
     "key takeaways": "à retenir",
     "table of contents": "sommaire",
     "table of content": "sommaire",
+    # Headings and labels that come from English templates.
+    "frequently asked questions": "questions fréquentes",
+    "related articles": "articles associés",
+    "related posts": "articles associés",
+    "read more": "lire la suite",
+    "learn more": "en savoir plus",
+    "next steps": "prochaines étapes",
+    "final thoughts": "pour conclure",
+    "our story": "notre histoire",
+    "about us": "à propos de nous",
+    "contact us": "contactez-nous",
+    "how it works": "comment ça marche",
+    "why choose us": "pourquoi nous choisir",
+    "pro tips": "conseils d'expert",
+    "see also": "voir aussi",
+    "get started": "commencer",
+    "sign up": "s'inscrire",
 }
 
 # Brand terms the model must use exactly as written (and never rename).
@@ -153,7 +171,7 @@ dressing takeaway delivery subscription box boxes fitness workout workouts progr
 programs cluster clusters tag tags swap swaps feedback deadline meeting mindset boost
 goal goals team customer customers weight loss diet protein proteins carb carbs fiber
 benefits benefit results lifestyle journey website online offline contents takeaways
-key low high
+key low high frequently asked related our story stories next step steps thoughts thought
 january february march april june july august september october november december
 monday tuesday wednesday thursday friday saturday sunday
 """.split()
@@ -232,6 +250,11 @@ class FrenchIssue:
         if self.code == "fr_english_word":
             tip = f" Remplacez-le par un mot français{': « ' + self.suggestion + ' »' if self.suggestion else ''}."
             return f"Mot anglais « {self.term} »{n}.{tip}{where}"
+        if self.code == "fr_english_heading":
+            tip = f" Écrivez « {self.suggestion} »." if self.suggestion else (
+                " Réécrivez ce titre en français."
+            )
+            return f"Titre en anglais « {self.term} ».{tip}"
         if self.code == "fr_banned_word":
             return (
                 f"Mot interdit « {self.term} »{n} : écrivez « {self.suggestion} ».{where}"
@@ -382,6 +405,44 @@ def _brand_lines(glossary: Glossary) -> str:
     return "\n".join(f"- « {t} »" for t in glossary.brand_terms)
 
 
+_FIXED_HEADINGS = (
+    ("Frequently Asked Questions", "Questions fréquentes"),
+    ("Key takeaways", "À retenir"),
+    ("Key Takeaways", "À retenir"),
+    ("Table of Contents", "Sommaire"),
+    ("Table of contents", "Sommaire"),
+)
+
+
+def localize_step_prompt(text: str) -> str:
+    """Swap the English headings written into a step template for the French ones.
+
+    Lines that already show the French form next to the English one (« EN … / FR … »
+    comparisons) are left alone. Upper-case field labels (KEY TAKEAWAYS NOTE) are
+    never touched: the pipeline parses them.
+    """
+    out: list[str] = []
+    for line in (text or "").split("\n"):
+        if "Questions fréquentes" in line or "À retenir" in line:
+            out.append(line)
+            continue
+        for en, fr in _FIXED_HEADINGS:
+            line = line.replace(en, fr)
+        out.append(line)
+    return "\n".join(out)
+
+
+KEYWORD_RULE = (
+    "Mots-clés : insérez un mot-clé uniquement dans une phrase française "
+    "grammaticalement correcte. Si un mot-clé ne s'intègre pas naturellement, "
+    "reformulez-le (ou reformulez la phrase autour de lui : article, accord, "
+    "préposition, verbe conjugué) au lieu de le coller tel quel. Le mot-clé principal "
+    "garde sa forme exacte, une seule fois dans les 100 premiers mots : construisez "
+    "alors une vraie phrase française autour de lui. Un mot-clé secondaire peut être "
+    "décliné ou reformulé en français correct."
+)
+
+
 def system_block(glossary: Glossary | None = None) -> str:
     """Top-of-system French rule block (used for every step of a French run)."""
     g = glossary or Glossary()
@@ -412,6 +473,7 @@ def system_block(glossary: Glossary | None = None) -> str:
         "« regroupement thématique » (pas « cluster »), « étiquette » (pas « tag »), "
         "« remplacement » (pas « swap »), « à retenir » (pas « key takeaways »), "
         "« accroche » (pas « hook »), « page d'atterrissage » (pas « landing page »).\n\n"
+        f"{KEYWORD_RULE}\n\n"
         "Si vous n'avez pas assez d'informations pour écrire une partie, reprenez la "
         "recherche fournie ou précisez-le franchement : n'écrivez jamais de texte "
         "générique de remplissage ni de marqueur du type [À COMPLÉTER].\n"
@@ -425,7 +487,8 @@ STYLE_RULE = (
     "mais jamais « de plus », que Yoast ne reconnaît pas. Ne commencez jamais trois "
     "phrases de suite par le même mot. Texte alternatif de chaque image : une phrase "
     "descriptive de 8 à 15 mots, sans trait d'union ni tiret. Exactement deux appels à "
-    "l'action : un entre deux sections, un à la fin, aucun au début de l'article."
+    "l'action : un entre deux sections, un à la fin, aucun au début de l'article. "
+    + KEYWORD_RULE
 )
 
 _STEP_DIRECTIVES: dict[str, str] = {
@@ -579,6 +642,97 @@ def _phrase_pattern(phrase: str) -> re.Pattern[str]:
     return re.compile(rf"(?<![\w]){body}{plural}(?![\w])", re.I)
 
 
+_PROTECTED_SPAN = re.compile(
+    r"\]\([^)]+\)|`[^`]+`|https?://[^\s)\]>\"']+",
+    re.I,
+)
+
+
+def _protected_spans(text: str) -> list[tuple[int, int]]:
+    return [(m.start(), m.end()) for m in _PROTECTED_SPAN.finditer(text or "")]
+
+
+def _span_hit(pos: int, spans: list[tuple[int, int]]) -> bool:
+    return any(s <= pos < e for s, e in spans)
+
+
+def apply_glossary_replacements(text: str, glossary: Glossary | None = None) -> str:
+    """Replace banned English words/phrases and brand-term slips. No LLM."""
+    g = glossary or Glossary()
+    if not (text or "").strip():
+        return text
+    current = text
+
+    def _replace_match(pattern: re.Pattern[str], repl: str, src: str) -> str:
+        chunks: list[str] = []
+        cursor = 0
+        local_protected = _protected_spans(src)
+        for m in pattern.finditer(src):
+            if _span_hit(m.start(), local_protected):
+                continue
+            chunks.append(src[cursor : m.start()])
+            chunks.append(repl)
+            cursor = m.end()
+        if not chunks:
+            return src
+        chunks.append(src[cursor:])
+        return "".join(chunks)
+
+    for en in sorted(g.banned, key=len, reverse=True):
+        fr = (g.banned.get(en) or "").strip()
+        if not fr or en.lower() in g.allowed:
+            continue
+        current = _replace_match(_phrase_pattern(en), fr, current)
+
+    alt = "|".join(_BRAND_ALT_NOUNS)
+    for term in g.brand_terms:
+        parts = term.split(None, 1)
+        if len(parts) != 2:
+            continue
+        _prefix, name = parts
+        current = _replace_match(
+            re.compile(rf"(?<!\w)(?:{alt})s?\s+{re.escape(name)}(?!\w)", re.I),
+            term,
+            current,
+        )
+        canonical = term
+        src = current
+        chunks: list[str] = []
+        cursor = 0
+        for m in re.finditer(rf"(?<!\w){re.escape(canonical)}(?!\w)", src, re.I):
+            found = m.group(0)
+            if found == canonical:
+                continue
+            at_start = m.start() == 0 or src[: m.start()].rstrip()[-1:] in ".!?\n#*-|>:"
+            repl = (
+                canonical[0].upper() + canonical[1:]
+                if at_start and canonical
+                else canonical
+            )
+            chunks.append(src[cursor : m.start()])
+            chunks.append(repl)
+            cursor = m.end()
+        if chunks:
+            chunks.append(src[cursor:])
+            current = "".join(chunks)
+
+    def _heading_repl(m: re.Match[str]) -> str:
+        title = m.group(2).strip()
+        low = title.lower().replace("’", "'")
+        suggestion = ""
+        for en, fr in g.banned.items():
+            if " " in en and _phrase_pattern(en).fullmatch(low.strip(" ?!.:")):
+                suggestion = fr
+                break
+        if not suggestion:
+            return m.group(0)
+        hashes = m.group(1)
+        cap = suggestion[0].upper() + suggestion[1:] if suggestion else title
+        return f"{hashes} {cap}"
+
+    return re.sub(r"^(#{1,6})\s+(.+?)\s*$", _heading_repl, current, flags=re.M)
+
+
 def _scan_banned(text: str, glossary: Glossary) -> tuple[list[FrenchIssue], list[tuple[int, int]]]:
     issues: list[FrenchIssue] = []
     spans: list[tuple[int, int]] = []
@@ -676,6 +830,52 @@ def _scan_placeholders(raw_text: str, text: str) -> list[FrenchIssue]:
 _ELISION_STEMS = frozenset(
     {"jusqu", "lorsqu", "puisqu", "quelqu", "presqu", "quoiqu", "aujourd", "prud"}
 )
+
+
+_HEADING_LINE = re.compile(r"^[ \t]*#{1,6}[ \t]+(.+?)[ \t#]*$", re.M)
+
+
+def _scan_english_headings(text: str, glossary: Glossary) -> list[FrenchIssue]:
+    """Headings written in English (« Frequently Asked Questions », « Our Story »).
+
+    A heading is English when at least half of its words are English-only words or
+    belong to a banned English phrase. Headings usually come from a fixed template, so
+    this reports the whole heading, not just one word.
+    """
+    allowed = {w.lower() for w in glossary.allowed}
+    issues: list[FrenchIssue] = []
+    for m in _HEADING_LINE.finditer(text):
+        title = re.sub(r"[*_`]+", "", m.group(1)).strip()
+        if not title:
+            continue
+        low = title.lower().replace("’", "'")
+        tokens = [t.lower().replace("’", "'") for t in _TOKEN.findall(title)]
+        tokens = [t for t in tokens if len(t) > 1 and t not in allowed]
+        if not tokens:
+            continue
+        banned_words: set[str] = set()
+        suggestion = ""
+        for en, fr in glossary.banned.items():
+            if " " in en and _phrase_pattern(en).search(low):
+                banned_words.update(en.split())
+                if _phrase_pattern(en).fullmatch(low.strip(" ?!.:")):
+                    suggestion = fr
+        english = sum(
+            1
+            for t in tokens
+            if t in ENGLISH_ONLY or t in banned_words
+            or any(p in ENGLISH_ONLY for p in re.split(r"['\-]", t))
+        )
+        if english and english * 2 >= len(tokens):
+            issues.append(
+                FrenchIssue(
+                    "fr_english_heading",
+                    title,
+                    suggestion,
+                    _context(text, m.start(1), m.end(1), radius=0),
+                )
+            )
+    return issues
 
 
 def _is_name_position(text: str, start: int, token: str) -> bool:
@@ -799,6 +999,22 @@ def scan_french(
                         len(positions),
                     )
                 )
+    if english:
+        heading_issues = _scan_english_headings(prose, g)
+        if heading_issues:
+            titles = " ".join(h.term.lower() for h in heading_issues)
+            # The heading report already names the words of the heading: don't repeat
+            # them one by one (unless they also occur elsewhere in the text).
+            issues = [
+                i
+                for i in issues
+                if not (
+                    i.code in ("fr_english_word", "fr_banned_word")
+                    and i.count == 1
+                    and i.term.lower() in titles
+                )
+            ]
+            issues = heading_issues + issues
     return issues
 
 
@@ -829,25 +1045,23 @@ def _spelling_suggestion(fr_spell, word: str) -> str:
 
 
 # ---------------------------------------------------------------------------
-# Retry loop (no default text: regenerate, then fail loudly)
+# Mechanical glossary replace, then at most one snippet repair (never a full rewrite)
 # ---------------------------------------------------------------------------
 
 
 def repair_system_prompt(glossary: Glossary) -> str:
     return (
         "Vous êtes un correcteur éditorial francophone. Corrigez UNIQUEMENT les "
-        "problèmes listés par l'utilisateur.\n"
+        "extraits listés. Renvoyez un tableau JSON "
+        '[{"old": "...", "new": "..."}] et rien d\'autre.\n'
         f"{FRENCH_RULE}\n"
-        "Conservez la structure, les titres, les liens (adresses et ancres), les "
-        "balises techniques (---…---, IMAGE:, INTERNAL:), les chiffres et le sens. "
-        "N'ajoutez aucun texte générique de remplissage.\n"
-        "Ne traduisez pas les noms propres ni les noms de marque.\n"
+        "Ne réécrivez pas le reste du document. Conservez les liens, les chiffres "
+        "et le sens. N'ajoutez aucun texte générique.\n"
         "Termes de marque exacts : "
         + (" / ".join(glossary.brand_terms) or "(aucun)")
         + ".\n"
         "Mots interdits et remplacements :\n"
         + _banned_lines(glossary)
-        + "\nRenvoyez uniquement le document complet corrigé, sans préambule."
     )
 
 
@@ -857,24 +1071,62 @@ def repair_french_llm(
     *,
     step_label: str,
     glossary: Glossary,
-    max_tokens: int = 8192,
+    max_tokens: int | None = None,
 ) -> str:
+    from . import config as _config
     from .integrations import anthropic as claude
 
+    if max_tokens is None:
+        max_tokens = int(getattr(_config, "REPAIR_MAX_TOKENS", 1500) or 1500)
+
+    excerpts: list[str] = []
+    seen: set[str] = set()
+    for issue in issues:
+        snippet = (issue.context or issue.term or "").strip()
+        if len(snippet) < 3 or snippet in seen:
+            continue
+        seen.add(snippet)
+        excerpts.append(snippet[:240])
+        if len(excerpts) >= 8:
+            break
+    if not excerpts:
+        return text
     user = (
-        "Corrigez ces problèmes de langue :\n"
-        f"{format_issues(issues, limit=60)}\n\n"
-        "---DOCUMENT---\n"
-        f"{text.strip()}\n"
-        "---FIN DU DOCUMENT---"
+        "Corrigez ces extraits (anglais, mot interdit, orthographe) :\n"
+        f"{format_issues(issues, limit=20)}\n\n"
+        "Extraits :\n"
+        + json.dumps(excerpts, ensure_ascii=False, indent=2)
     )
-    return claude.chat_complete(
+    raw = claude.chat_complete(
         repair_system_prompt(glossary),
         user,
         step_label=f"{step_label} (correction du français)",
         max_tokens=max_tokens,
         temperature=0.2,
     ).strip()
+    payload = _parse_json_array(raw)
+    current = text
+    for item in payload:
+        if not isinstance(item, dict):
+            continue
+        old = str(item.get("old") or "").strip()
+        new = str(item.get("new") or "").strip()
+        if old and new and old in current:
+            current = current.replace(old, new, 1)
+    return current
+
+
+def _parse_json_array(raw: str) -> list:
+    text = (raw or "").strip()
+    text = re.sub(r"^```(?:json)?\s*|\s*```$", "", text, flags=re.I)
+    start, end = text.find("["), text.rfind("]")
+    if start == -1 or end <= start:
+        return []
+    try:
+        data = json.loads(text[start : end + 1])
+    except json.JSONDecodeError:
+        return []
+    return data if isinstance(data, list) else []
 
 
 def enforce_french_artifact(
@@ -884,27 +1136,30 @@ def enforce_french_artifact(
     glossary: Glossary | None = None,
     spelling: bool = False,
     structural: bool = True,
-    attempts: int = 3,
+    attempts: int | None = None,
     repair: Callable[[str, list[FrenchIssue]], str] | None = None,
 ) -> str:
-    """Scan; on problems ask the model to fix them and re-scan. Raise if still dirty."""
+    """Glossary replace in code; at most one snippet repair. Raise if still dirty."""
+    from . import config as _config
+
     g = glossary or Glossary()
-    current = text
+    tries = _config.QUALITY_RETRY_ATTEMPTS if attempts is None else max(0, int(attempts))
+    current = apply_glossary_replacements(text, g)
     issues: list[FrenchIssue] = []
-    for attempt in range(attempts + 1):
+    for attempt in range(tries + 1):
         issues = scan_french(current, glossary=g, spelling=spelling, structural=structural)
         if not issues:
             if attempt:
                 logger.info("%s: French check passed after %s repair(s)", step_label, attempt)
             return current
-        if attempt == attempts:
+        if attempt == tries:
             break
         logger.warning(
             "%s: French check found %s issue(s) (attempt %s/%s): %s",
             step_label,
             len(issues),
             attempt + 1,
-            attempts,
+            tries,
             "; ".join(i.message() for i in issues[:5]),
         )
         fixer = repair or (
@@ -914,7 +1169,7 @@ def enforce_french_artifact(
         )
         repaired = fixer(current, issues)
         if repaired and repaired.strip():
-            current = repaired
+            current = apply_glossary_replacements(repaired, g)
     raise FrenchQualityError(step_label, issues)
 
 
@@ -926,6 +1181,7 @@ __all__ = [
     "Glossary",
     "FrenchIssue",
     "FrenchQualityError",
+    "apply_glossary_replacements",
     "enforce_french_artifact",
     "format_issues",
     "load_glossary",

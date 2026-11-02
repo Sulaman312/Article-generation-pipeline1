@@ -43,6 +43,25 @@ CLAUDE_MODEL = (os.getenv("CLAUDE_MODEL") or "claude-sonnet-4-6").strip()
 MAX_TOKENS = 4000
 TEMPERATURE = 0.7
 
+# Output ceilings per Claude step. These are caps, not targets — the model
+# still stops at EOS. Only draft (and supporting posts) need a long-form budget.
+# Brief / outline / audit / meta must not share the draft's 6–8K ceiling.
+STEP_MAX_TOKENS: dict[str, int] = {
+    "topic_card": 1800,
+    "research": 2800,
+    "research_audit": 2500,
+    "assignment_brief": 2800,
+    "outline": 2500,
+    "draft": 6000,
+    "fact_check": 2200,
+    "meta_seo": 1600,
+    "supporting_posts": 6000,
+}
+# Targeted repairs return a section, FAQ block, or find/replace list — never the article.
+REPAIR_MAX_TOKENS = 1500
+SECTION_REPAIR_MAX_TOKENS = 2200
+FAQ_REPAIR_MAX_TOKENS = 1800
+
 # Prompt caching (Anthropic via OpenRouter or direct). Phase 2: stable system +
 # shared-docs user block with cache_control; session_id pins OpenRouter routing.
 PROMPT_CACHE_ENABLED = (os.getenv("PROMPT_CACHE_ENABLED") or "1").strip().lower() not in (
@@ -106,14 +125,17 @@ try:
 except ValueError:
     PERPLEXITY_TEMPERATURE = 0.15
 
-# Hard quality gates on draft / final (lede, WC, keyword, audit, FAQ).
+# Hard quality gates run once on final_output (lede, WC, keyword, audit, FAQ).
+# Checks still run; repairs are mechanical or one targeted pass, never a full rewrite.
 HARD_GATES_ENABLED = (os.getenv("HARD_GATES_ENABLED") or "1").strip().lower() not in (
     "0",
     "false",
     "no",
     "off",
 )
-HARD_GATES_STRICT = (os.getenv("HARD_GATES_STRICT") or "1").strip().lower() not in (
+# 1 = fail the step after one targeted repair. 0 = keep the article and flag
+# remaining issues for human review (no rewrite-until-pass).
+HARD_GATES_STRICT = (os.getenv("HARD_GATES_STRICT") or "0").strip().lower() not in (
     "0",
     "false",
     "no",
@@ -138,15 +160,19 @@ DEFAULT_ARTICLE_LANGUAGE = (os.getenv("DEFAULT_ARTICLE_LANGUAGE") or "en").strip
 # French quality layer (only runs for French articles).
 #   FRENCH_QA_ENABLED       English words / banned words / placeholders / brand terms
 #   FRENCH_SPELLCHECK       French spelling check (needs `pyspellchecker`)
-#   FRENCH_FAQ_LLM_CHECK    ask the model whether each FAQ answer is French AND answers its question
+#   FRENCH_FAQ_LLM_CHECK    LLM FAQ judge only when cheap langdetect / overlap checks fail
 FRENCH_QA_ENABLED = _env_flag("FRENCH_QA_ENABLED")
 FRENCH_SPELLCHECK_ENABLED = _env_flag("FRENCH_SPELLCHECK")
 FRENCH_FAQ_LLM_CHECK = _env_flag("FRENCH_FAQ_LLM_CHECK")
 
 # Retries instead of fallback text: how many times a failed quality check regenerates.
-QUALITY_RETRY_ATTEMPTS = _env_int("QUALITY_RETRY_ATTEMPTS", 3)
+QUALITY_RETRY_ATTEMPTS = _env_int("QUALITY_RETRY_ATTEMPTS", 1)
 # Claude API call attempts (network / provider errors).
 CLAUDE_MAX_ATTEMPTS = _env_int("CLAUDE_MAX_ATTEMPTS", 3, minimum=1)
+
+# Supporting cluster posts are not on the main-article path. Batch API is ~50%
+# cheaper than sync and stacks with prompt caching. 0 = always call sync.
+SUPPORTING_POSTS_USE_BATCH = _env_flag("SUPPORTING_POSTS_USE_BATCH")
 
 STEP_CONTEXT_FILES = {
     "topic_card": ["context.md"],

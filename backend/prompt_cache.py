@@ -2,21 +2,28 @@
 
 Message layout for every Claude pipeline step:
 
-1. **System** — client context only (identical across all steps for a client):
-   company context, personas, brand voice, banned words, writing guidelines,
-   format guidelines, CTA guidelines, clusters.
-2. **User block A** — shared run documents in a fixed order, with a
-   ``cache_control`` breakpoint after it.
-3. **User block B** — step prompt (01_…08_ / audit / supporting) plus anything
-   unique to that call (IDs, notices, outlines, drafts, word-count overrides).
+1. **System block 0** — workspace files marked ``cache_control``. Lean steps
+   (topic card, SERP analysis, research audit, meta) get company context,
+   personas, and glossary only. Writing steps also get brand voice, guidelines,
+   CTA, and clusters.
+2. **System block 1** — writing steps: derived brand-voice / CTA / format rules
+   (plus the French language block when the run is French). Lean steps skip
+   brand-voice and CTA rules; French still gets the language block.
+3. **User block A** — only the run documents that step needs, with a
+   ``cache_control`` breakpoint after it. Later steps get a short research
+   summary instead of the raw SERP / ATP / PAA dumps. The outline gets the
+   brief, not the raw SERP analysis.
+4. **User block B** — step prompt plus anything unique to that call.
 
 Varying content (timestamps, run IDs, step numbers, form notices) must never
-appear before the breakpoint.
+appear before the breakpoint. Cached input tokens are billed at a small fraction
+of uncached input on Anthropic models via OpenRouter.
 """
 
 from __future__ import annotations
 
 import logging
+import re
 from dataclasses import dataclass, replace
 from typing import Any
 
@@ -28,7 +35,7 @@ from .context_extractor import extract_for_step_5, extract_for_step_7
 
 logger = logging.getLogger(__name__)
 
-# Fixed shared-document order (user block A). Stable headers — no step numbers.
+# Catalog of run artifacts (stable header names). Per-step subsets live in STEP_SHARED_DOCS.
 SHARED_DOC_SPECS: tuple[tuple[str, str], ...] = (
     ("TOPIC CARD", "topic_card"),
     ("SERP ANALYSIS", "research"),
@@ -38,17 +45,83 @@ SHARED_DOC_SPECS: tuple[tuple[str, str], ...] = (
     ("ASSIGNMENT BRIEF", "assignment_brief"),
 )
 
-_MISSING = "[not available yet]"
+# Virtual artifact: condensed SERP analysis + audit highlights + source URLs.
+RESEARCH_SUMMARY_KEY = "research_summary"
 
-# Client context files in a stable declaration order (system prefix).
-_CLIENT_CONTEXT_FILES: tuple[str, ...] = (
+# Only the documents each Claude step actually needs. Missing artifacts are omitted.
+STEP_SHARED_DOCS: dict[str, tuple[tuple[str, str], ...]] = {
+    "topic_card": (),
+    "research": (("TOPIC CARD", "topic_card"),),
+    "research_audit": (
+        ("TOPIC CARD", "topic_card"),
+        ("SERP ANALYSIS", "research"),
+        ("ATP TOPIC RESEARCH", "atp_topic_research"),
+        ("PAA FAQ RESEARCH", "paa_faq_research"),
+    ),
+    "assignment_brief": (
+        ("TOPIC CARD", "topic_card"),
+        ("RESEARCH SUMMARY", RESEARCH_SUMMARY_KEY),
+        ("RESEARCH AUDIT", "research_audit"),
+    ),
+    "outline": (
+        ("ASSIGNMENT BRIEF", "assignment_brief"),
+        ("RESEARCH SUMMARY", RESEARCH_SUMMARY_KEY),
+    ),
+    "draft": (
+        ("ASSIGNMENT BRIEF", "assignment_brief"),
+        ("RESEARCH SUMMARY", RESEARCH_SUMMARY_KEY),
+        ("RESEARCH AUDIT", "research_audit"),
+    ),
+    "fact_check": (("TOPIC CARD", "topic_card"),),
+    "meta_seo": (),
+    "supporting_posts": (
+        ("RESEARCH AUDIT", "research_audit"),
+        ("ATP TOPIC RESEARCH", "atp_topic_research"),
+    ),
+}
+
+# Topic card, SERP analysis, audit, and meta do not need brand-voice / CTA / format rules.
+LEAN_STEPS: frozenset[str] = frozenset(
+    {"topic_card", "research", "research_audit", "meta_seo", "fact_check"}
+)
+
+# First cached system block — identical on every step so lean and writing calls share it.
+LEAN_CONTEXT_FILES: tuple[str, ...] = (
     "context.md",
     "personas.md",
+    "french_glossary.md",
+)
+
+# Extra workspace files for writing steps (second cached system block, with brand/CTA rules).
+WRITING_CONTEXT_FILES: tuple[str, ...] = (
     "brand_voice.md",
     "writing_guidelines.md",
     "cta_guidelines.md",
     "internal_links.md",
 )
+
+_CLIENT_CONTEXT_FILES: tuple[str, ...] = LEAN_CONTEXT_FILES + WRITING_CONTEXT_FILES
+
+_HEADING_RE = re.compile(r"(?m)^#{1,3}\s+(.+?)\s*$")
+_URL_RE = re.compile(r"https?://[^\s\)\]>\"']+")
+_SERP_SUMMARY_HEADINGS = (
+    "snapshot",
+    "competitor benchmarks",
+    "content gaps",
+    "briefing hooks",
+    "external sources",
+)
+_AUDIT_SUMMARY_HEADINGS = (
+    "audit summary",
+    "approved case study",
+    "approved keywords",
+    "approved faq",
+    "approved supporting",
+    "stats & figures",
+    "flagged",
+)
+RESEARCH_SUMMARY_MAX_CHARS = 6000
+_SECTION_MAX_CHARS = 1600
 
 # Approximate chars/token for prefix-size warnings (Anthropic Sonnet min ~1024).
 _CHARS_PER_TOKEN_EST = 4
@@ -67,6 +140,7 @@ class CachedPrompt:
     session_id: str
     step_label: str = "pipeline step"
     enable_cache: bool = True
+    workspace_text: str = ""
 
     def with_unique(self, unique_text: str, *, step_label: str | None = None) -> CachedPrompt:
         return replace(
@@ -77,7 +151,7 @@ class CachedPrompt:
 
     @property
     def prefix_char_count(self) -> int:
-        return len(self.system_text) + len(self.shared_docs_text)
+        return len(self.workspace_text) + len(self.system_text) + len(self.shared_docs_text)
 
     @property
     def prefix_token_estimate(self) -> int:
@@ -93,18 +167,30 @@ class CachedPrompt:
         return ctrl
 
     def system_blocks(self) -> list[dict[str, Any]]:
-        block: dict[str, Any] = {"type": "text", "text": self.system_text}
         ctrl = self.cache_control()
-        if ctrl is not None:
-            block["cache_control"] = ctrl
-        return [block]
+        blocks: list[dict[str, Any]] = []
+        if (self.workspace_text or "").strip():
+            workspace: dict[str, Any] = {"type": "text", "text": self.workspace_text}
+            if ctrl is not None:
+                workspace["cache_control"] = ctrl
+            blocks.append(workspace)
+        if (self.system_text or "").strip():
+            block: dict[str, Any] = {"type": "text", "text": self.system_text}
+            if ctrl is not None:
+                block["cache_control"] = ctrl
+            blocks.append(block)
+        if not blocks:
+            blocks.append({"type": "text", "text": "You are an editorial assistant."})
+        return blocks
 
     def user_content_blocks(self) -> list[dict[str, Any]]:
+        unique = {"type": "text", "text": self.unique_text}
+        if not (self.shared_docs_text or "").strip():
+            return [unique]
         shared: dict[str, Any] = {"type": "text", "text": self.shared_docs_text}
         ctrl = self.cache_control()
         if ctrl is not None:
             shared["cache_control"] = ctrl
-        unique = {"type": "text", "text": self.unique_text}
         return [shared, unique]
 
     def messages(self) -> list[dict[str, Any]]:
@@ -125,19 +211,40 @@ def _load_artifact_body(client_id: str, run_id: str, step_name: str) -> str:
     return (text or "").strip()
 
 
-def build_client_system_prompt(client_id: str) -> str:
-    """Client-only system prompt — identical for every step of a client."""
+def context_files_for_step(step_name: str) -> tuple[str, ...]:
+    """First system block is always the lean file set (shared cache across steps)."""
+    return LEAN_CONTEXT_FILES
+
+
+def uses_writing_rules(step_name: str) -> bool:
+    return step_name not in LEAN_STEPS
+
+
+def build_workspace_files_block(
+    client_id: str, filenames: tuple[str, ...] | None = None
+) -> str:
+    """Lean workspace files — first cached system block, identical every step."""
+    files = filenames if filenames is not None else LEAN_CONTEXT_FILES
     parts: list[str] = [
         "You are an editorial assistant for a client content pipeline. "
         "Follow the client context and writing rules below for every task. "
         "The step-specific instructions appear in the final user message block.",
         "",
-        "=== CLIENT CONTEXT (identical for all pipeline steps) ===",
+        "=== CLIENT CONTEXT FILES ===",
     ]
-
-    file_block = artifacts.load_context_files(client_id, _CLIENT_CONTEXT_FILES)
+    file_block = artifacts.load_context_files(client_id, files)
     if file_block.strip():
         parts.append(file_block)
+    parts.append("=== END CLIENT CONTEXT FILES ===")
+    return "\n".join(parts).strip() + "\n"
+
+
+def build_client_rules_prompt(client_id: str) -> str:
+    """Brand-voice / CTA / format rules — second cached system block (writing steps)."""
+    parts: list[str] = ["=== CLIENT WRITING RULES ==="]
+    writing_files = artifacts.load_context_files(client_id, WRITING_CONTEXT_FILES)
+    if writing_files.strip():
+        parts.append(writing_files)
 
     extracted5 = extract_for_step_5(client_id)
     va_lines: list[str] = []
@@ -227,18 +334,111 @@ def build_client_system_prompt(client_id: str) -> str:
     )
 
     parts.append(prompts.WRITING_FORMAT_BLOCK.strip())
-    parts.append("=== END CLIENT CONTEXT ===")
+    parts.append("=== END CLIENT WRITING RULES ===")
     return "\n\n".join(parts).strip() + "\n"
 
 
-def build_shared_documents_block(client_id: str, run_id: str) -> str:
-    """Fixed-order shared run docs (user block A). Empty slots use a stable placeholder."""
-    sections: list[str] = [
-        "=== SHARED RUN DOCUMENTS (fixed order — cache breakpoint follows) ===",
+def build_client_system_prompt(client_id: str) -> str:
+    """Full system prefix (workspace files + rules) — identical for every step."""
+    return (
+        build_workspace_files_block(client_id).rstrip()
+        + "\n\n"
+        + build_client_rules_prompt(client_id).lstrip()
+    )
+
+
+def _split_markdown_sections(text: str) -> list[tuple[str, str]]:
+    raw = (text or "").strip()
+    if not raw:
+        return []
+    matches = list(_HEADING_RE.finditer(raw))
+    if not matches:
+        return []
+    sections: list[tuple[str, str]] = []
+    for index, match in enumerate(matches):
+        start = match.end()
+        end = matches[index + 1].start() if index + 1 < len(matches) else len(raw)
+        sections.append((match.group(1).strip(), raw[start:end].strip()))
+    return sections
+
+
+def _wanted_sections(
+    text: str, wanted: tuple[str, ...], *, max_chars: int = _SECTION_MAX_CHARS
+) -> list[str]:
+    out: list[str] = []
+    for heading, body in _split_markdown_sections(text):
+        key = heading.lower()
+        if not any(token in key for token in wanted):
+            continue
+        clipped = body.strip()
+        if len(clipped) > max_chars:
+            clipped = clipped[:max_chars].rsplit("\n", 1)[0] + "\n[… truncated …]"
+        out.append(f"## {heading}\n{clipped}")
+    return out
+
+
+def _source_urls(*texts: str, limit: int = 12) -> list[str]:
+    seen: set[str] = set()
+    urls: list[str] = []
+    for raw in texts:
+        for match in _URL_RE.finditer(raw or ""):
+            url = match.group(0).rstrip(".,;:")
+            if url not in seen:
+                seen.add(url)
+                urls.append(url)
+            if len(urls) >= limit:
+                return urls
+    return urls
+
+
+def build_research_summary(client_id: str, run_id: str) -> str:
+    """Condensed SERP analysis + audit highlights for later steps (not the raw research)."""
+    analysis = _load_artifact_body(client_id, run_id, "research")
+    audit = _load_artifact_body(client_id, run_id, "research_audit")
+    serp = _load_artifact_body(client_id, run_id, "serp_research")
+    parts: list[str] = [
+        "=== RESEARCH SUMMARY (condensed — not the raw SERP / ATP / PAA documents) ===",
     ]
-    for label, step_name in SHARED_DOC_SPECS:
-        body = _load_artifact_body(client_id, run_id, step_name) or _MISSING
-        sections.append(f"---{label}---\n{body}\n")
+    serp_bits = _wanted_sections(analysis, _SERP_SUMMARY_HEADINGS)
+    if serp_bits:
+        parts.append("---FROM SERP ANALYSIS---")
+        parts.extend(serp_bits)
+    audit_bits = _wanted_sections(audit, _AUDIT_SUMMARY_HEADINGS, max_chars=2000)
+    if audit_bits:
+        parts.append("---FROM RESEARCH AUDIT---")
+        parts.extend(audit_bits)
+    urls = _source_urls(analysis, audit, serp)
+    if urls:
+        parts.append("---SOURCE URLS---")
+        parts.extend(f"- {url}" for url in urls)
+    if len(parts) == 1:
+        return ""
+    text = "\n\n".join(parts).strip()
+    if len(text) > RESEARCH_SUMMARY_MAX_CHARS:
+        text = text[:RESEARCH_SUMMARY_MAX_CHARS].rsplit("\n", 1)[0] + "\n[… truncated …]"
+    return text + "\n"
+
+
+def build_shared_documents_block(
+    client_id: str, run_id: str, step_name: str = ""
+) -> str:
+    """Run documents this step needs (user block A). Missing artifacts are skipped."""
+    specs = STEP_SHARED_DOCS.get(step_name, ())
+    if not specs:
+        return ""
+    sections: list[str] = [
+        "=== SHARED RUN DOCUMENTS (only what this step needs) ===",
+    ]
+    for label, artifact_name in specs:
+        if artifact_name == RESEARCH_SUMMARY_KEY:
+            body = build_research_summary(client_id, run_id)
+        else:
+            body = _load_artifact_body(client_id, run_id, artifact_name)
+        if not (body or "").strip():
+            continue
+        sections.append(f"---{label}---\n{body.strip()}\n")
+    if len(sections) == 1:
+        return ""
     sections.append("=== END SHARED RUN DOCUMENTS ===")
     return "\n\n".join(sections).strip() + "\n"
 
@@ -257,19 +457,32 @@ def build_cached_prompt(
     """Assemble system + shared docs + step prompt / unique suffix.
 
     French runs (``lang="fr"``) get the French language rule, banned-word list and
-    brand glossary at the top of the system prompt, and a short French reminder after
-    the step prompt (the last instruction the model reads).
+    brand glossary in the second cached system block (workspace files stay first so
+    the file prefix still cache-hits), and a short French reminder after the step
+    prompt (the last instruction the model reads).
     """
     if enable_cache is None:
         enable_cache = bool(getattr(config, "PROMPT_CACHE_ENABLED", True))
 
-    system_text = build_client_system_prompt(client_id)
+    workspace_text = build_workspace_files_block(
+        client_id, context_files_for_step(step_name)
+    )
+    system_text = ""
+    if uses_writing_rules(step_name):
+        system_text = build_client_rules_prompt(client_id)
     glossary = None
     if (lang or "").lower() == "fr":
         glossary = french_language.load_glossary(client_id)
-        system_text = french_language.system_block(glossary) + "\n" + system_text
-    shared = build_shared_documents_block(client_id, run_id)
+        french_block = french_language.system_block(glossary)
+        system_text = (
+            french_block + "\n" + system_text if system_text else french_block
+        )
+    shared = build_shared_documents_block(client_id, run_id, step_name)
     unique = (step_prompt or "").rstrip()
+    if glossary is not None:
+        # Fixed English headings in the step templates (H2: Frequently Asked Questions)
+        # are copied by the model: show the French headings instead.
+        unique = french_language.localize_step_prompt(unique)
     suffix = (unique_suffix or "").strip()
     if suffix:
         unique = f"{unique}\n\n---STEP-SPECIFIC INPUT---\n{suffix}\n" if unique else suffix
@@ -285,6 +498,7 @@ def build_cached_prompt(
         session_id=session_id_for_run(client_id, run_id),
         step_label=step_label,
         enable_cache=enable_cache,
+        workspace_text=workspace_text,
     )
     min_tokens = int(getattr(config, "PROMPT_CACHE_MIN_TOKENS", _DEFAULT_MIN_CACHE_TOKENS) or _DEFAULT_MIN_CACHE_TOKENS)
     if prompt.enable_cache and prompt.prefix_token_estimate < min_tokens:
@@ -301,7 +515,7 @@ def build_cached_prompt(
             "%s: cache prefix ~%s tokens (system=%s shared=%s unique=%s session=%s)",
             step_label,
             prompt.prefix_token_estimate,
-            len(system_text),
+            len(workspace_text) + len(system_text),
             len(shared),
             len(prompt.unique_text),
             prompt.session_id,
@@ -329,11 +543,18 @@ def clear_warmed_sessions() -> None:
 
 __all__ = [
     "CACHE_CONTROL_EPHEMERAL",
+    "LEAN_STEPS",
+    "RESEARCH_SUMMARY_KEY",
     "SHARED_DOC_SPECS",
+    "STEP_SHARED_DOCS",
     "CachedPrompt",
     "build_cached_prompt",
+    "build_client_rules_prompt",
     "build_client_system_prompt",
+    "build_research_summary",
     "build_shared_documents_block",
+    "build_workspace_files_block",
+    "context_files_for_step",
     "clear_warmed_sessions",
     "is_session_warmed",
     "mark_session_warmed",

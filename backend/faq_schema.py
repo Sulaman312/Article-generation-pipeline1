@@ -3,7 +3,10 @@
 from __future__ import annotations
 
 import json
+import logging
 import re
+
+logger = logging.getLogger(__name__)
 
 FAQ_SCHEMA_START = "---FAQ SCHEMA (JSON-LD) START---"
 FAQ_SCHEMA_END = "---FAQ SCHEMA (JSON-LD) END---"
@@ -13,6 +16,10 @@ FINAL_ARTICLE_START = FINAL_OUTPUT_START
 FINAL_ARTICLE_END = FINAL_OUTPUT_END
 PUBLISHING_METADATA_START = "---PUBLISHING METADATA START---"
 PUBLISHING_METADATA_END = "---PUBLISHING METADATA END---"
+FACT_CHECK_START = "---FACT CHECK START---"
+FACT_CHECK_END = "---FACT CHECK END---"
+CORRECTIONS_START = "---CORRECTIONS START---"
+CORRECTIONS_END = "---CORRECTIONS END---"
 CORRECTED_ARTICLE_START = "---CORRECTED ARTICLE START---"
 CORRECTED_ARTICLE_END = "---CORRECTED ARTICLE END---"
 MIN_FAQ_QUESTIONS = 5
@@ -46,6 +53,189 @@ def extract_corrected_article_body(text: str) -> str:
     if start == -1 or end == -1 or end <= start:
         return ""
     return text[start + len(CORRECTED_ARTICLE_START) : end].strip()
+
+
+def wrap_corrected_article(article: str) -> str:
+    return f"{CORRECTED_ARTICLE_START}\n{(article or '').strip()}\n{CORRECTED_ARTICLE_END}"
+
+
+def wrap_corrections(corrections: list) -> str:
+    payload = json.dumps(list(corrections or []), ensure_ascii=False, indent=2)
+    return f"{CORRECTIONS_START}\n{payload}\n{CORRECTIONS_END}"
+
+
+def corrections_block_present(text: str) -> bool:
+    raw = text or ""
+    start = raw.find(CORRECTIONS_START)
+    end = raw.find(CORRECTIONS_END)
+    return start != -1 and end != -1 and end > start
+
+
+def _strip_json_fence(blob: str) -> str:
+    text = (blob or "").strip()
+    if text.startswith("```"):
+        text = re.sub(r"^```(?:json)?\s*", "", text, count=1, flags=re.I)
+        text = re.sub(r"\s*```$", "", text)
+    return text.strip()
+
+
+def parse_fact_corrections(text: str) -> list[dict]:
+    """Parse the fact-check correction list (claim / issue / fix)."""
+    if not text:
+        return []
+    blob = ""
+    start = text.find(CORRECTIONS_START)
+    end = text.find(CORRECTIONS_END)
+    if start != -1 and end != -1 and end > start:
+        blob = text[start + len(CORRECTIONS_START) : end]
+    else:
+        fenced = re.search(r"```(?:json)?\s*(\[[\s\S]*?\])\s*```", text, re.I)
+        if fenced:
+            blob = fenced.group(1)
+        else:
+            bare = re.search(r"\[\s*\{[\s\S]*?\}\s*\]", text)
+            if bare:
+                blob = bare.group(0)
+    blob = _strip_json_fence(blob)
+    if not blob:
+        return []
+    try:
+        data = json.loads(blob)
+    except json.JSONDecodeError:
+        logger.warning("fact-check corrections JSON could not be parsed")
+        return []
+    if not isinstance(data, list):
+        return []
+    return [item for item in data if isinstance(item, dict)]
+
+
+def _correction_field(item: dict, *keys: str) -> str:
+    norm = {
+        str(key).strip().lower().replace(" ", "_"): value for key, value in item.items()
+    }
+    for key in keys:
+        value = norm.get(key)
+        if value is None:
+            continue
+        text = str(value).strip()
+        if text:
+            return text
+    return ""
+
+
+def _claim_span(article: str, claim: str) -> tuple[int, int] | None:
+    raw = (claim or "").strip().strip('"“”«»')
+    if not raw:
+        return None
+    idx = article.find(raw)
+    if idx != -1:
+        return idx, idx + len(raw)
+    words = re.findall(r"\S+", raw)
+    if len(words) < 3:
+        return None
+    pattern = r"\s+".join(re.escape(word) for word in words)
+    match = re.search(pattern, article)
+    if match:
+        return match.start(), match.end()
+    return None
+
+
+def apply_fact_corrections(article: str, corrections: list[dict]) -> str:
+    """Apply targeted claim replacements to the draft. Never rewrite the article."""
+    text = article or ""
+    ops: list[tuple[tuple[int, int], str]] = []
+    for item in corrections or []:
+        if not isinstance(item, dict):
+            continue
+        claim = _correction_field(item, "claim", "location")
+        fix = _correction_field(item, "fix", "correction")
+        action = _correction_field(item, "action").lower()
+        if not claim or len(claim) < 12:
+            continue
+        if "flag" in action:
+            continue
+        if fix.count("\n## ") >= 3:
+            logger.warning("skipping fact-check fix that looks like a full article")
+            continue
+        span = _claim_span(text, claim)
+        if not span:
+            logger.warning("fact-check claim not found in draft: %s", claim[:80])
+            continue
+        if "remov" in action:
+            ops.append((span, ""))
+        elif fix:
+            ops.append((span, fix))
+    ops.sort(key=lambda item: item[0][0])
+    kept: list[tuple[tuple[int, int], str]] = []
+    last_end = -1
+    for span, replacement in ops:
+        if span[0] < last_end:
+            continue
+        kept.append((span, replacement))
+        last_end = span[1]
+    for span, replacement in reversed(kept):
+        text = text[: span[0]] + replacement + text[span[1] :]
+    return re.sub(r"\n{3,}", "\n\n", text).strip()
+
+
+def resolve_fact_checked_article(draft: str, model_output: str) -> tuple[str, list[dict]]:
+    """Patch the draft from a correction list. Fall back to a model rewrite only if present."""
+    source = (draft or "").strip()
+    corrections = parse_fact_corrections(model_output)
+    if corrections_block_present(model_output) or corrections:
+        return apply_fact_corrections(source, corrections) or source, corrections
+    rewritten = extract_corrected_article_body(model_output)
+    if rewritten:
+        return rewritten, []
+    return source, []
+
+
+def _strip_marked_block(text: str, start_mark: str, end_mark: str) -> str:
+    start = text.find(start_mark)
+    end = text.find(end_mark)
+    if start == -1 or end == -1 or end <= start:
+        return text
+    return (text[:start] + text[end + len(end_mark) :]).strip()
+
+
+def embed_corrected_article(
+    editor_output: str,
+    article: str,
+    corrections: list[dict] | None = None,
+) -> str:
+    """Keep the fact-check report and attach the patched draft for later steps."""
+    text = (editor_output or "").strip()
+    text = _strip_marked_block(text, CORRECTED_ARTICLE_START, CORRECTED_ARTICLE_END)
+    text = _strip_marked_block(text, CORRECTIONS_START, CORRECTIONS_END)
+    block_parts: list[str] = []
+    if corrections is not None:
+        block_parts.append(wrap_corrections(corrections))
+    block_parts.append(wrap_corrected_article(article))
+    block = "\n\n".join(block_parts)
+    end_at = text.find(FACT_CHECK_END)
+    if end_at != -1:
+        return text[:end_at].rstrip() + "\n\n" + block + "\n" + text[end_at:]
+    if not text:
+        return f"{FACT_CHECK_START}\n{block}\n{FACT_CHECK_END}\n"
+    return text + "\n\n" + block + "\n"
+
+
+_FR_HINT_RE = re.compile(
+    r"\b(?:les|des|une|est|pour|avec|dans|vous|votre|sont|cette|plus)\b", re.I
+)
+
+
+def default_faq_heading(article: str = "") -> str:
+    """FAQ heading when the caller gave none: reuse the article's own, else its language.
+
+    Never falls back to the English heading for a French article.
+    """
+    sections = extract_faq_sections(article or "")
+    if sections and sections[0][0].strip():
+        return sections[0][0].strip()
+    if len(_FR_HINT_RE.findall(article or "")) >= 12:
+        return "## Questions fréquentes"
+    return "## Frequently Asked Questions"
 
 
 def format_faq_block(
@@ -134,10 +324,7 @@ def enforce_faq_answer_length(
         (paa_faq.clean_faq_question(q) or q, trim_faq_answer(a)) for q, a in pairs
     ]
     if heading is None:
-        sections = extract_faq_sections(article)
-        heading = (
-            sections[0][0] if sections else "## Frequently Asked Questions"
-        )
+        heading = default_faq_heading(article)
     return insert_faq_block(article, trimmed, heading=heading)
 
 
@@ -145,11 +332,13 @@ def insert_faq_block(
     article: str,
     pairs: list[tuple[str, str]],
     *,
-    heading: str = "## Frequently Asked Questions",
+    heading: str | None = None,
 ) -> str:
     """Insert or replace the FAQ section with the given Q&A pairs."""
     if not pairs:
         return article
+    if heading is None:
+        heading = default_faq_heading(article)
     block = format_faq_block(pairs, heading=heading)
     base = strip_faq_section(article).strip()
     for pat in _CLOSING_H2_PATTERNS:
@@ -169,9 +358,11 @@ def ensure_faq_from_reference(
     article: str,
     reference: str,
     *,
-    heading: str = "## Frequently Asked Questions",
+    heading: str | None = None,
 ) -> str:
     """Restore FAQ Q&As when a later step dropped items from the draft/fact-check."""
+    if heading is None:
+        heading = default_faq_heading(reference)
     ref_pairs = extract_faq_pairs(reference)
     if len(ref_pairs) < 2:
         return article
@@ -299,13 +490,19 @@ def _faq_section_lang_score(
 def consolidate_faq_sections(
     article: str,
     *,
-    heading: str = "## Frequently Asked Questions",
+    heading: str | None = None,
     lang: str = "en",
 ) -> str:
     """Collapse duplicate FAQ blocks into one localized section."""
     sections = extract_faq_sections(article)
     if not sections:
         return article
+    if heading is None:
+        heading = (
+            "## Questions fréquentes"
+            if (lang or "").lower() == "fr"
+            else default_faq_heading(article)
+        )
 
     target_heading = heading.strip()
     best_heading, best_pairs = max(

@@ -1,4 +1,5 @@
 import logging
+import threading
 import time
 
 from . import artifacts
@@ -6,12 +7,11 @@ from . import config
 from . import editorial_input
 from . import prompt_cache
 from . import prompts
-from .context_extractor import extract_for_step_7
 from . import faq_schema
 from . import final_output_enforce
 from . import french_language
 from . import job_control
-from .step_markers import wrap_step_artifact
+from .step_markers import extract_step_body, wrap_step_artifact
 from . import writing_format_enforce
 from .integrations import anthropic as claude
 from .pipeline_steps import ARTICLE_STEP_ORDER
@@ -41,12 +41,12 @@ def _debug_log_cached_prompt(prompt: CachedPrompt) -> None:
         "has_context_md=%s session=%s preview=%s",
         prompt.step_label,
         prompt.prefix_token_estimate,
-        len(prompt.system_text),
+        len(prompt.workspace_text) + len(prompt.system_text),
         len(prompt.shared_docs_text),
         len(prompt.unique_text),
-        "context.md" in prompt.system_text,
+        "context.md" in prompt.workspace_text or "context.md" in prompt.system_text,
         prompt.session_id,
-        prompt.system_text[:300].replace("\n", " "),
+        (prompt.workspace_text or prompt.system_text)[:300].replace("\n", " "),
     )
 
 
@@ -235,11 +235,27 @@ def _with_word_count_user(user_msg: str, target: int | None) -> str:
     return block + user_msg
 
 
-def _draft_max_tokens(target: int | None) -> int | None:
+def max_tokens_for_step(step_name: str, *, word_count_target: int | None = None) -> int:
+    """Output cap for this step. Draft is the only 6–8K write."""
+    table = getattr(config, "STEP_MAX_TOKENS", {}) or {}
+    if step_name == "draft":
+        return _draft_max_tokens(word_count_target)
+    try:
+        return int(table.get(step_name, config.MAX_TOKENS))
+    except (TypeError, ValueError):
+        return config.MAX_TOKENS
+
+
+def _draft_max_tokens(target: int | None) -> int:
+    default = 6000
+    try:
+        default = int((getattr(config, "STEP_MAX_TOKENS", {}) or {}).get("draft", default))
+    except (TypeError, ValueError):
+        default = 6000
     if not target:
-        return None
+        return default
     # Long articles need a large output budget (~2 tokens/word + structure).
-    return min(8192, max(6000, int(target * 2.2) + 1200))
+    return min(8192, max(default, int(target * 2.2) + 1200))
 
 
 def _trim_article_by_sections(
@@ -249,7 +265,7 @@ def _trim_article_by_sections(
     system_msg: str | CachedPrompt,
     outline: str = "",
     step_label: str = "section trim",
-    max_passes: int = 3,
+    max_passes: int = 1,
 ) -> str:
     from . import word_count_enforce
 
@@ -269,90 +285,64 @@ def _ensure_draft_word_count(
     *,
     cached: CachedPrompt,
     outline: str,
-    max_rounds: int = 3,
+    max_rounds: int | None = None,
 ) -> str:
-    """Expand or section-trim draft until it sits within the form word-count window."""
+    """Trim the longest section or expand the shortest. Never rewrite the article."""
+    from . import word_count_enforce
+
     low, high = editorial_input.word_count_bounds(target)
     text = (draft or "").strip()
     current = editorial_input.count_article_words(text)
     if low <= current <= high:
         return text
+    rounds = config.QUALITY_RETRY_ATTEMPTS if max_rounds is None else max(1, int(max_rounds))
     if current > high:
         text = _trim_article_by_sections(
             text,
             target,
             system_msg=cached,
             outline=outline,
-            step_label=f"Step {_step_num('draft') or '?'} (section trim)",
-        )
-        current = editorial_input.count_article_words(text)
-        if low <= current <= high:
-            return text
-
-    outline_excerpt = (outline or "").strip()[:12000]
-    for round_i in range(max_rounds):
-        if current >= low:
-            break
-        shortage = max(50, target - current)
-        expand_unique = (
-            f"{prompts.DRAFT_PROMPT.strip()}\n\n"
-            f"---STEP-SPECIFIC INPUT---\n"
-            f"The draft below is TOO SHORT and must be expanded.\n"
-            f"- Current BODY word count: {current:,} (FAQ is excluded from this count)\n"
-            f"- Editor form target: {target:,} words\n"
-            f"- Acceptable minimum: {low:,} words (maximum ~{high:,})\n"
-            f"- Add approximately {shortage:,} more words of substantive BODY prose.\n\n"
-            f"Rules:\n"
-            f"- Keep the same H1/H2 structure and markdown format.\n"
-            f"- Expand every major BODY H2 with examples, steps, and detail.\n"
-            f"- Do NOT add words to the FAQ section. FAQ answers stay 2-4 sentence paragraphs.\n"
-            f"- Hit the word count in the article content only. FAQ does not count.\n"
-            f"- Stay under {high:,} body words after expansion.\n"
-            f"- Do not add filler, repetition, or meta-commentary.\n"
-            f"- Output ONLY the full expanded article in markdown.\n\n"
-            f"---OUTLINE (structure reference)---\n{outline_excerpt}\n\n"
-            f"---DRAFT TO EXPAND---\n{text}\n"
-        )
-        logger.info(
-            "draft expansion round %s: %s words -> target %s (min %s)",
-            round_i + 1,
-            current,
-            target,
-            low,
-        )
-        text = _chat_complete(
-            cached.with_unique(
-                expand_unique,
-                step_label=f"Step {_step_num('draft') or '?'} (draft expansion {round_i + 1})",
-            ),
-            max_tokens=_draft_max_tokens(target),
-            temperature=0.5,
+            step_label=f"Step {_step_num('draft') or '?'} (longest section trim)",
+            max_passes=rounds,
         )
         current = editorial_input.count_article_words(text)
         if current > high:
-            text = _trim_article_by_sections(
-                text,
+            logger.warning(
+                "draft still long after section trim: %s words (target %s, max %s)",
+                current,
                 target,
-                system_msg=cached,
-                outline=outline,
-                step_label=f"Step {_step_num('draft') or '?'} (post-expand trim)",
+                high,
             )
-            current = editorial_input.count_article_words(text)
+        return text
 
+    logger.info(
+        "draft expansion: shortest section only (%s words -> min %s)",
+        current,
+        low,
+    )
+    text = word_count_enforce.expand_shortest_section(
+        text,
+        target,
+        system_msg=cached,
+        outline=outline,
+        step_label=f"Step {_step_num('draft') or '?'} (shortest section expand)",
+    )
+    current = editorial_input.count_article_words(text)
+    if current > high:
+        text = _trim_article_by_sections(
+            text,
+            target,
+            system_msg=cached,
+            outline=outline,
+            step_label=f"Step {_step_num('draft') or '?'} (post-expand trim)",
+        )
+        current = editorial_input.count_article_words(text)
     if current < low:
         logger.warning(
-            "draft still short after %s expansions: %s words (target %s, min %s)",
-            max_rounds,
+            "draft still short after section expand: %s words (target %s, min %s)",
             current,
             target,
             low,
-        )
-    elif current > high:
-        logger.warning(
-            "draft still long after section trim: %s words (target %s, max %s)",
-            current,
-            target,
-            high,
         )
     return text
 
@@ -391,7 +381,11 @@ def run_step_1(client_id: str, run_id: str, previous_artifact: str = "") -> str:
         wc_target=wc_target,
         step_name=step_name,
     )
-    output = _chat_complete(cached, debug_system_message=True)
+    output = _chat_complete(
+        cached,
+        debug_system_message=True,
+        max_tokens=max_tokens_for_step(step_name, word_count_target=wc_target),
+    )
     if wc_target:
         output = editorial_input.enforce_word_count_in_topic_card(output, wc_target)
     if isinstance(manual, dict):
@@ -614,12 +608,88 @@ def run_research_audit(client_id: str, run_id: str, previous_artifact: str = "")
     output = _chat_complete(
         cached,
         temperature=0.2,
-        max_tokens=3500,
+        max_tokens=max_tokens_for_step(step_name),
     )
     output = wrap_step_artifact(step_name, output)
     artifacts.save_artifact(client_id, run_id, step_name, output)
     logger.info("step complete %s", step_name)
     return output
+
+
+def _finish_supporting_posts_text(
+    output: str,
+    *,
+    client_id: str,
+    run_id: str,
+    step_label: str,
+) -> str:
+    output = _enforce_french(
+        output,
+        client_id=client_id,
+        run_id=run_id,
+        step_label=step_label,
+        spelling=True,
+    )
+    wrapped = wrap_step_artifact("supporting_posts", output)
+    artifacts.save_artifact(client_id, run_id, "supporting_posts", wrapped)
+    logger.info("step complete supporting_posts")
+    return wrapped
+
+
+def _poll_supporting_posts_batch(
+    client_id: str,
+    run_id: str,
+    batch_id: str,
+    custom_id: str,
+    cached: CachedPrompt,
+    step_label: str,
+) -> None:
+    """Background: wait for the Batch API, then write the supporting-posts artifact."""
+    try:
+        text = claude.wait_for_batch(batch_id, custom_id=custom_id)
+    except claude.BatchFailed:
+        logger.exception(
+            "supporting posts batch %s failed; falling back to a sync Claude call",
+            batch_id,
+        )
+        try:
+            text = _chat_complete(
+                cached,
+                temperature=0.55,
+                max_tokens=max_tokens_for_step("supporting_posts"),
+            )
+        except Exception:
+            logger.exception("supporting posts sync fallback also failed")
+            return
+    except Exception:
+        logger.exception(
+            "supporting posts batch %s did not complete; leaving queued artifact",
+            batch_id,
+        )
+        return
+    try:
+        _finish_supporting_posts_text(
+            text, client_id=client_id, run_id=run_id, step_label=step_label
+        )
+    except Exception:
+        logger.exception("supporting posts batch %s finished but save failed", batch_id)
+
+
+def _spawn_supporting_posts_poller(
+    client_id: str,
+    run_id: str,
+    batch_id: str,
+    custom_id: str,
+    cached: CachedPrompt,
+    step_label: str,
+) -> None:
+    thread = threading.Thread(
+        target=_poll_supporting_posts_batch,
+        args=(client_id, run_id, batch_id, custom_id, cached, step_label),
+        daemon=True,
+        name=f"supporting-posts-{run_id}",
+    )
+    thread.start()
 
 
 def run_supporting_posts(client_id: str, run_id: str, previous_artifact: str = "") -> str:
@@ -655,22 +725,45 @@ def run_supporting_posts(client_id: str, run_id: str, previous_artifact: str = "
         step_label=step_label,
         step_name=step_name,
     )
+    max_tok = max_tokens_for_step(step_name)
+    use_batch = bool(getattr(config, "SUPPORTING_POSTS_USE_BATCH", True))
+    if use_batch:
+        custom_id = f"supporting-{run_id}"
+        try:
+            info = claude.submit_cached_batch(
+                cached,
+                max_tokens=max_tok,
+                temperature=0.55,
+                custom_id=custom_id,
+            )
+            batch_id = info.get("id") or ""
+            queued = (
+                "Supporting posts queued on the Batch API "
+                f"(id={batch_id}). About 50% cheaper than a live call; "
+                "not needed for the main article. Results replace this note when ready.\n"
+            )
+            output = wrap_step_artifact(step_name, queued)
+            artifacts.save_artifact(client_id, run_id, step_name, output)
+            _spawn_supporting_posts_poller(
+                client_id, run_id, batch_id, custom_id, cached, step_label
+            )
+            logger.info(
+                "supporting posts submitted to batch id=%s (non-blocking)",
+                batch_id,
+            )
+            return output
+        except Exception:
+            logger.exception(
+                "supporting posts batch submit failed; falling back to a sync Claude call"
+            )
     output = _chat_complete(
         cached,
         temperature=0.55,
-        max_tokens=8000,
+        max_tokens=max_tok,
     )
-    output = _enforce_french(
-        output,
-        client_id=client_id,
-        run_id=run_id,
-        step_label=step_label,
-        spelling=True,
+    return _finish_supporting_posts_text(
+        output, client_id=client_id, run_id=run_id, step_label=step_label
     )
-    output = wrap_step_artifact(step_name, output)
-    artifacts.save_artifact(client_id, run_id, step_name, output)
-    logger.info("step complete %s", step_name)
-    return output
 
 
 def run_paa_faq_research(client_id: str, run_id: str, previous_artifact: str = "") -> str:
@@ -730,17 +823,16 @@ def run_step_2(client_id: str, run_id: str, previous_artifact: str = "") -> str:
     lang = _run_language(client_id, run_id)
     unique = _t(
         lang,
-        "Use the shared TOPIC CARD, SERP ANALYSIS, ATP, PAA, and RESEARCH AUDIT documents "
-        "above. Prefer **Research Audit → Approved FAQ questions** when present; otherwise "
-        "use the Source Research FAQ bank. Do not invent a parallel FAQ set. "
+        "Use the shared TOPIC CARD, RESEARCH SUMMARY, and RESEARCH AUDIT documents above. "
+        "The summary replaces the raw SERP / ATP / PAA dumps. Prefer **Research Audit → "
+        "Approved FAQ questions** when present. Do not invent a parallel FAQ set. "
         "Respect LOW SIGNAL / low-demand flags.\n"
         "Prefer **Research Audit → Approved case study** for E-E-A-T proof — never invent one.\n",
-        "Utilisez la fiche sujet, l'analyse des résultats de recherche, la recherche "
-        "thématique, la banque de questions et l'audit de recherche partagés ci-dessus. "
-        "Privilégiez les questions de FAQ approuvées par l'audit (Approved FAQ questions) "
-        "quand elles existent, sinon la banque de questions de la recherche. N'inventez "
-        "pas une seconde série de questions. Respectez les signaux LOW SIGNAL (demande "
-        "faible).\n"
+        "Utilisez la fiche sujet, le résumé de recherche et l'audit de recherche partagés "
+        "ci-dessus. Le résumé remplace les dumps SERP / ATP / PAA bruts. Privilégiez les "
+        "questions de FAQ approuvées par l'audit (Approved FAQ questions) quand elles "
+        "existent. N'inventez pas une seconde série de questions. Respectez les signaux "
+        "LOW SIGNAL (demande faible).\n"
         "Pour la preuve d'expérience (E-E-A-T), privilégiez l'étude de cas approuvée par "
         "l'audit (Approved case study) : n'en inventez jamais.\n"
         "Rédigez tout le brief en français, sans jargon anglais : les consignes "
@@ -762,6 +854,7 @@ def run_step_2(client_id: str, run_id: str, previous_artifact: str = "") -> str:
     output = _chat_complete(
         cached,
         debug_system_message=True,
+        max_tokens=max_tokens_for_step(step_name, word_count_target=wc_target),
     )
     if wc_target:
         output = editorial_input.enforce_word_count_in_brief(output, wc_target)
@@ -805,7 +898,7 @@ def run_step_3(client_id: str, run_id: str, previous_artifact: str = "") -> str:
         step_label=step_label,
         step_name=step_name,
     )
-    output = _chat_complete(cached)
+    output = _chat_complete(cached, max_tokens=max_tokens_for_step(step_name))
     output = wrap_step_artifact(step_name, output)
     artifacts.save_artifact(client_id, run_id, step_name, output)
     logger.info("step complete %s", step_name)
@@ -819,12 +912,12 @@ def run_step_4(client_id: str, run_id: str, previous_artifact: str = "") -> str:
     lang = _run_language(client_id, run_id)
     unique = _t(
         lang,
-        "Build the outline from the shared ASSIGNMENT BRIEF, SERP ANALYSIS, "
-        "RESEARCH AUDIT, ATP, and PAA documents above.\n",
-        "Construisez le plan à partir du brief, de l'analyse des résultats de recherche, "
-        "de l'audit de recherche, de la recherche thématique et de la banque de questions "
-        "partagés ci-dessus. Intertitres, notes de section et plan de la FAQ sont "
-        "rédigés en français, sans jargon anglais.\n",
+        "Build the outline from the shared ASSIGNMENT BRIEF. Use RESEARCH SUMMARY for "
+        "gaps, approved FAQ, and cite slots. Do not expect the raw SERP analysis.\n",
+        "Construisez le plan à partir du brief partagé. Utilisez le RÉSUMÉ DE RECHERCHE "
+        "pour les écarts, la FAQ approuvée et les citations. N'attendez pas l'analyse "
+        "SERP brute. Intertitres, notes de section et plan de la FAQ sont rédigés en "
+        "français, sans jargon anglais.\n",
     )
     unique += _editorial_notices_for_run(client_id, run_id)
     unique += editorial_input.outline_format_guidelines_notice()
@@ -840,7 +933,10 @@ def run_step_4(client_id: str, run_id: str, previous_artifact: str = "") -> str:
         wc_target=wc_target,
         step_name=step_name,
     )
-    output = _chat_complete(cached)
+    output = _chat_complete(
+        cached,
+        max_tokens=max_tokens_for_step(step_name, word_count_target=wc_target),
+    )
     if wc_target:
         output = editorial_input.enforce_outline_section_word_counts(output, wc_target)
     output = writing_format_enforce.enforce_outline(output, allow_llm_repair=True)
@@ -860,7 +956,6 @@ def run_step_5(client_id: str, run_id: str, previous_artifact: str = "") -> str:
     outline = (previous_artifact or "").strip() or _load_prior_artifact(
         client_id, run_id, "outline"
     )
-    serp_digest = _load_prior_artifact(client_id, run_id, "serp_research")
     if not outline.strip():
         # Never draft from a stand-in: generating from "[OUTLINE MISSING]" invents structure.
         raise RuntimeError("Outline is missing: run the outline step before the draft.")
@@ -868,17 +963,14 @@ def run_step_5(client_id: str, run_id: str, previous_artifact: str = "") -> str:
     unique = (
         _t(
             lang,
-            "Write the draft from the shared BRIEF / SERP ANALYSIS / ATP / PAA / AUDIT "
-            "documents and this outline.\n\n",
-            "Rédigez le brouillon à partir du brief, de l'analyse des résultats de "
-            "recherche, de la recherche thématique, de la banque de questions et de "
-            "l'audit partagés ci-dessus, ainsi que de ce plan. Tout le texte est en "
-            "français, sans mot anglais.\n\n",
+            "Write the draft from the shared ASSIGNMENT BRIEF, RESEARCH SUMMARY, and "
+            "RESEARCH AUDIT, plus this outline. Cite only SOURCE URLS from the summary.\n\n",
+            "Rédigez le brouillon à partir du brief, du résumé de recherche et de l'audit "
+            "partagés ci-dessus, ainsi que de ce plan. Ne citez que les URL du résumé. "
+            "Tout le texte est en français, sans mot anglais.\n\n",
         )
         + "---ARTICLE OUTLINE---\n"
-        f"{outline.strip()}\n\n"
-        "---SERP RESEARCH DIGEST (use for external source URLs)---\n"
-        f"{serp_digest.strip() or '[No SERP digest — cite only URLs you can justify from research]'}\n"
+        f"{outline.strip()}\n"
     )
     unique += _editorial_notices_for_run(client_id, run_id)
     if wc_target:
@@ -898,7 +990,7 @@ def run_step_5(client_id: str, run_id: str, previous_artifact: str = "") -> str:
     output = _chat_complete(
         cached,
         debug_system_message=True,
-        max_tokens=_draft_max_tokens(wc_target),
+        max_tokens=max_tokens_for_step(step_name, word_count_target=wc_target),
         temperature=0.55,
     )
     if wc_target:
@@ -933,8 +1025,6 @@ def run_step_5(client_id: str, run_id: str, previous_artifact: str = "") -> str:
             )
             words = editorial_input.count_article_words(output)
         logger.info("draft final word count %s (target %s)", words, wc_target)
-    from . import final_output_enforce
-    from . import hard_gates
 
     form_links = editorial_input.parse_form_internal_links(
         (artifacts.read_run_manifest(client_id, run_id) or {}).get("manual_inputs")
@@ -943,15 +1033,6 @@ def run_step_5(client_id: str, run_id: str, previous_artifact: str = "") -> str:
         output = final_output_enforce.inject_form_internal_links(output, form_links)
 
     output = faq_schema.enforce_faq_answer_length(output)
-
-    output = hard_gates.enforce_article_gates(
-        output,
-        client_id=client_id,
-        run_id=run_id,
-        stage="draft",
-        allow_llm_repair=True,
-        raise_on_fail=True,
-    )
     output = wrap_step_artifact(step_name, output)
     artifacts.save_artifact(client_id, run_id, step_name, output)
     logger.info("step complete %s", step_name)
@@ -998,18 +1079,8 @@ def run_step_6(client_id: str, run_id: str, previous_artifact: str = "") -> str:
         f"{draft}\n\n"
         "---PERPLEXITY WEB FACT-CHECK (raw signals — verify independently)---\n"
         f"{ppx_block}\n"
+        "\nDo not rewrite the article. Return the report and a JSON correction list only.\n"
     )
-    if wc_target:
-        low, high = editorial_input.word_count_bounds(wc_target)
-        draft_words = editorial_input.count_article_words(draft)
-        unique += (
-            f"\n\n=== LENGTH PRESERVATION (NON-NEGOTIABLE) ===\n"
-            f"The draft body is already written to length "
-            f"({draft_words:,} words; form target {wc_target:,}, band {low:,}–{high:,}).\n"
-            f"In ---CORRECTED ARTICLE--- keep nearly the same body length. "
-            f"Fix facts/clarity; do NOT expand into a longer rewrite. "
-            f"FAQ answers stay 2-4 sentence paragraphs and do not count toward the band.\n"
-        )
     cached = _cached_prompt(
         client_id,
         run_id,
@@ -1019,46 +1090,11 @@ def run_step_6(client_id: str, run_id: str, previous_artifact: str = "") -> str:
         wc_target=wc_target,
         step_name=step_name,
     )
-    claude_out = _chat_complete(cached)
-    # Keep corrected article inside the generation band when possible.
-    if wc_target:
-        corrected = faq_schema.extract_corrected_article_body(claude_out)
-        if corrected:
-            low, high = editorial_input.word_count_bounds(wc_target)
-            words = editorial_input.count_article_words(corrected)
-            if words > high:
-                outline = _load_prior_artifact(client_id, run_id, "outline")
-                trimmed = _trim_article_by_sections(
-                    corrected,
-                    wc_target,
-                    system_msg=cached,
-                    outline=outline,
-                    step_label=f"Step {_step_num('fact_check') or '?'} (section trim)",
-                )
-                start = claude_out.find(faq_schema.CORRECTED_ARTICLE_START)
-                end = claude_out.find(faq_schema.CORRECTED_ARTICLE_END)
-                if start != -1 and end != -1 and end > start:
-                    claude_out = (
-                        claude_out[: start + len(faq_schema.CORRECTED_ARTICLE_START)]
-                        + "\n"
-                        + trimmed.strip()
-                        + "\n"
-                        + claude_out[end:]
-                    )
-    corrected = faq_schema.extract_corrected_article_body(claude_out)
-    if corrected:
-        tightened = faq_schema.enforce_faq_answer_length(corrected)
-        if tightened != corrected:
-            start = claude_out.find(faq_schema.CORRECTED_ARTICLE_START)
-            end = claude_out.find(faq_schema.CORRECTED_ARTICLE_END)
-            if start != -1 and end != -1 and end > start:
-                claude_out = (
-                    claude_out[: start + len(faq_schema.CORRECTED_ARTICLE_START)]
-                    + "\n"
-                    + tightened.strip()
-                    + "\n"
-                    + claude_out[end:]
-                )
+    claude_out = _chat_complete(cached, max_tokens=max_tokens_for_step(step_name))
+    draft_body = extract_step_body("draft", draft) or draft
+    patched, corrections = faq_schema.resolve_fact_checked_article(draft_body, claude_out)
+    patched = faq_schema.enforce_faq_answer_length(patched)
+    claude_out = faq_schema.embed_corrected_article(claude_out, patched, corrections)
     claude_out = wrap_step_artifact(step_name, claude_out)
     combined = (
         "---PERPLEXITY WEB FACT-CHECK (raw audit trail)---\n"
@@ -1074,75 +1110,23 @@ def run_step_6(client_id: str, run_id: str, previous_artifact: str = "") -> str:
 
 def run_step_7(client_id: str, run_id: str, previous_artifact: str = "") -> str:
     step_name = "final_output"
-    extracted = extract_for_step_7(client_id)
-
-    form_links = editorial_input.parse_form_internal_links(
-        (artifacts.read_run_manifest(client_id, run_id) or {}).get("manual_inputs")
-    )
-    form_link_lines = (
-        "\n".join(
-            f"- {item.get('title') or 'page'} → {editorial_input.form_internal_link_href(item)}"
-            for item in form_links
-        )
-        if form_links
-        else "None listed on the article form."
-    )
-    cta_href = (extracted.get("cta_href") or "").strip() or "/contact"
-    has_html_cta = bool(extracted.get("has_cta_html_template"))
-    wc_target = _word_count_target_for_run(client_id, run_id)
-    step_label = _step_label(step_name)
-    serp_digest = _load_prior_artifact(client_id, run_id, "serp_research")
     fact_check = (previous_artifact or "").strip() or _load_prior_artifact(
         client_id, run_id, "fact_check"
     )
     if not fact_check.strip():
         raise RuntimeError("Fact-check output is missing: run the fact-check step first.")
-    lang = _run_language(client_id, run_id)
-    # Client clusters/CTA live in the cached system prompt; form links vary per article.
-    unique = (
-        _t(
-            lang,
-            "",
-            "Finalisez l'article en français : tout le texte publié (titres, tableaux, "
-            "FAQ, appels à l'action, légendes d'images) est en français, sans mot "
-            "anglais. Chaque réponse de FAQ répond à sa question.\n\n",
-        )
-        + "---ARTICLE-FORM INTERNAL LINKS (place these first, exact hrefs)---\n"
-        f"{form_link_lines}\n\n"
-        f"{fact_check.strip()}\n\n"
-        "---SOURCES FOR EXTERNAL LINKS (URLs must appear here — do not invent)---\n"
-        f"---SERP RESEARCH DIGEST---\n{serp_digest.strip()}\n\n"
-        "Shared SERP ANALYSIS is in the documents above — cite only URLs that appear "
-        "in these sources.\n"
-        "---END SOURCES---\n"
+    draft = _load_prior_artifact(client_id, run_id, "draft")
+    article = (
+        faq_schema.extract_corrected_article_body(fact_check)
+        or extract_step_body("draft", draft)
+        or draft.strip()
     )
-    unique += _editorial_notices_for_run(client_id, run_id)
-    unique += editorial_input.cta_format_guidelines_notice(
-        cta_href, has_html_template=has_html_cta
+    if not article.strip():
+        raise RuntimeError("No article body to publish: run draft and fact-check first.")
+    logger.info(
+        "final_output: applying mechanical polish + hard gates (no second article write)"
     )
-    if wc_target:
-        unique += editorial_input.mandatory_word_count_notice(wc_target)
-        unique += editorial_input.draft_word_count_requirement(wc_target)
-        unique += (
-            "\n=== FINAL OUTPUT LENGTH ===\n"
-            "The corrected article was written to the form word band. "
-            "Publish with nearly the same body length — do not expand. "
-            "Use section budgets from the outline; FAQ stays extra (not counted).\n"
-        )
-    unique = _with_word_count_user(unique, wc_target)
-    cached = _cached_prompt(
-        client_id,
-        run_id,
-        step_prompt=prompts.FINAL_OUTPUT_PROMPT,
-        unique_suffix=unique,
-        step_label=step_label,
-        wc_target=wc_target,
-        step_name=step_name,
-    )
-    output = _chat_complete(
-        cached,
-        max_tokens=_draft_max_tokens(wc_target),
-    )
+    output = faq_schema.wrap_final_article(article)
     output = final_output_enforce.enforce_final_output(
         output, client_id, run_id, allow_llm_repair=True
     )
@@ -1193,10 +1177,12 @@ def run_meta_seo(client_id: str, run_id: str, previous_artifact: str = "") -> st
         _t(
             lang,
             "Generate meta title and meta description options using these exact prompts. "
-            "Shared TOPIC CARD and ASSIGNMENT BRIEF are in the documents above.\n\n",
+            "Use the topic card / brief fields below and the article excerpt. "
+            "Do not expect brand-voice or CTA rules for this step.\n\n",
             "Générez les options de titre méta et de description méta avec ces consignes "
-            "exactes. La fiche sujet et le brief partagés sont ci-dessus. Tous les titres "
-            "et toutes les descriptions sont rédigés en français, sans mot anglais.\n\n",
+            "exactes. Utilisez les champs fiche sujet / brief ci-dessous et l'extrait. "
+            "Tous les titres et toutes les descriptions sont rédigés en français, sans "
+            "mot anglais.\n\n",
         )
         + "META TITLE PROMPT:\n"
         f"{seo_ctx['meta_title_prompt']}\n\n"
@@ -1216,7 +1202,11 @@ def run_meta_seo(client_id: str, run_id: str, previous_artifact: str = "") -> st
         step_label=step_label,
         step_name=step_name,
     )
-    output = _chat_complete(cached, temperature=0.65)
+    output = _chat_complete(
+        cached,
+        temperature=0.65,
+        max_tokens=max_tokens_for_step(step_name),
+    )
     # Strip echoed prompt text first so only the real options are checked.
     output = editorial_input.finalize_meta_seo_output(output)
     output = _enforce_french(

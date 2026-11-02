@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import unittest
+from unittest import mock
 
 from backend import final_output_enforce as fo
 from backend.context_extractor import _cluster_titles
@@ -80,6 +81,35 @@ class ClusterTitleTests(unittest.TestCase):
     def test_title_on_following_line(self):
         text = "## Cluster 1\n\n### Nutrition - Pillar\n"
         self.assertEqual(_cluster_titles(text), ["Nutrition"])
+
+
+class FaqInjectTests(unittest.TestCase):
+    def test_injects_faq_block_without_replacing_the_article(self):
+        faq_md = (
+            "## Frequently Asked Questions\n\n"
+            "### How do I start?\n\n"
+            "Open the portal and pick a slot. Join a few minutes early.\n\n"
+            "### What does it cost?\n\n"
+            "Fees vary by provider. Check the clinic page before you book.\n"
+        )
+        with mock.patch.object(
+            fo.claude, "chat_complete", return_value=faq_md
+        ) as mocked:
+            out = fo.inject_faq_template(
+                ARTICLE.replace("## Questions fréquentes\n\n### Q?\n\nAnswer.\n\n", ""),
+                topic="batch cooking",
+                manual={"Language": "en"},
+            )
+        mocked.assert_called_once()
+        self.assertIn("## Frequently Asked Questions", out)
+        self.assertIn("How do I start?", out)
+        self.assertIn("Paragraph one is long enough", out)
+        # The model was not asked to return the full article.
+        user = mocked.call_args.args[1] if mocked.call_args.args else mocked.call_args.kwargs.get("user")
+        if user is None:
+            user = mocked.call_args[0][1]
+        self.assertIn("ARTICLE EXCERPT", user)
+        self.assertNotIn("Return ONLY the full article", mocked.call_args[0][0])
 
 
 if __name__ == "__main__":

@@ -151,7 +151,7 @@ class EditorialNoticeTests(unittest.TestCase):
     def test_writing_format_guidelines_notice(self):
         notice = editorial_input.writing_format_guidelines_notice()
         self.assertIn("system prompt", notice.lower())
-        self.assertIn("automatically lints", notice.lower())
+        self.assertIn("mechanical fixes", notice.lower())
 
     def test_outline_format_notice_emphasizes_headings(self):
         notice = editorial_input.outline_format_guidelines_notice()

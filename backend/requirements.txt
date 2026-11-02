@@ -7,3 +7,4 @@ gunicorn==26.0.0
 pymongo==4.17.0
 markdown==3.7
 pyspellchecker==0.9.1
+langdetect==1.0.9

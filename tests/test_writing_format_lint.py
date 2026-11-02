@@ -103,6 +103,38 @@ class WritingFormatLintTests(unittest.TestCase):
         self.assertIn("Scope :", fixed)
         self.assertIn("Next: then book.", fixed)
 
+    def test_repeated_starts_are_patched_without_llm(self):
+        text = (
+            "## Section\n\n"
+            "Teams deploy tools without a review. "
+            "Teams skip the checklist every time. "
+            "Teams ship the change anyway."
+        )
+        report = lint.lint(text, stage="draft", lang="en")
+        self.assertTrue(any(v.code == "REPEATED_SENTENCE_START" for v in report.violations))
+        fixed, n = lint.patch_repeated_starts(text, lang="en")
+        self.assertGreaterEqual(n, 1)
+        after = lint.lint(fixed, stage="draft", lang="en")
+        self.assertFalse(any(v.code == "REPEATED_SENTENCE_START" for v in after.violations))
+
+    def test_transition_words_are_patched_without_llm(self):
+        body = (
+            "## The rituel\n\n"
+            "The duration varies by household size. "
+            "The oven runs. You prep the cold items. "
+            "The sauces wait on the counter. "
+            "Each person finds a rhythm. The kitchen stays clean.\n\n"
+            "A short session lasts two hours. "
+            "The boxes go in the fridge. "
+            "The week feels lighter after that."
+        )
+        report = lint.lint(body, stage="draft", lang="en")
+        self.assertTrue(any(v.code == "TRANSITION_WORDS" for v in report.violations))
+        fixed, log = lint.apply_deterministic_fixes(body, lang="en")
+        self.assertTrue(log)
+        after = lint.lint(fixed, stage="draft", lang="en")
+        self.assertFalse(any(v.code == "TRANSITION_WORDS" for v in after.violations), after.summary())
+
 
 if __name__ == "__main__":
     unittest.main()

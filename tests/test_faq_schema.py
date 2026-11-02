@@ -139,5 +139,103 @@ class FaqSchemaTests(unittest.TestCase):
         self.assertTrue(block.startswith("## Questions fréquentes"))
 
 
+class FactCorrectionTests(unittest.TestCase):
+    def test_parse_and_apply_targeted_edit(self):
+        draft = (
+            "# Title\n\n"
+            "Many clinics report faster intake after switching tools.\n"
+            "73% of marketers say automation doubles revenue overnight.\n"
+            "Training still matters for the front desk.\n"
+        )
+        model_out = (
+            "---FACT CHECK START---\n"
+            "---FACT CHECK REPORT START---\n"
+            "OVERALL ASSESSMENT: MINOR ISSUES\n"
+            "---FACT CHECK REPORT END---\n"
+            "---CORRECTIONS START---\n"
+            "[\n"
+            "  {\n"
+            '    "claim": "73% of marketers say automation doubles revenue overnight.",\n'
+            '    "issue": "fabricated statistic",\n'
+            '    "fix": "Some teams report faster follow-up after they automate intake.",\n'
+            '    "action": "corrected"\n'
+            "  }\n"
+            "]\n"
+            "---CORRECTIONS END---\n"
+            "---FACT CHECK END---\n"
+        )
+        patched, corrections = faq_schema.resolve_fact_checked_article(draft, model_out)
+        self.assertEqual(len(corrections), 1)
+        self.assertIn("Some teams report faster follow-up", patched)
+        self.assertNotIn("73%", patched)
+        self.assertIn("Training still matters", patched)
+
+    def test_flagged_items_are_not_applied(self):
+        draft = "Clinics in Lyon processed 12,000 files last year without extra staff.\n"
+        model_out = (
+            "---CORRECTIONS START---\n"
+            '[{"claim": "Clinics in Lyon processed 12,000 files last year without extra staff.",'
+            ' "issue": "unverifiable claim", "fix": "", "action": "flagged"}]\n'
+            "---CORRECTIONS END---\n"
+        )
+        patched, corrections = faq_schema.resolve_fact_checked_article(draft, model_out)
+        self.assertEqual(len(corrections), 1)
+        self.assertEqual(patched.strip(), draft.strip())
+
+    def test_removed_claim_is_deleted(self):
+        draft = (
+            "Opening sentence stays in the article for readers.\n"
+            "73% of marketers say automation doubles revenue overnight.\n"
+            "Closing sentence also stays.\n"
+        )
+        corrections = [
+            {
+                "claim": "73% of marketers say automation doubles revenue overnight.",
+                "issue": "fabricated statistic",
+                "fix": "",
+                "action": "removed",
+            }
+        ]
+        patched = faq_schema.apply_fact_corrections(draft, corrections)
+        self.assertNotIn("73%", patched)
+        self.assertIn("Opening sentence stays", patched)
+        self.assertIn("Closing sentence also stays", patched)
+
+    def test_empty_corrections_keep_draft(self):
+        draft = "# Title\n\nBody sentence remains untouched here.\n"
+        model_out = (
+            "---CORRECTIONS START---\n[]\n---CORRECTIONS END---\n"
+        )
+        patched, corrections = faq_schema.resolve_fact_checked_article(draft, model_out)
+        self.assertEqual(corrections, [])
+        self.assertEqual(patched, draft.strip())
+
+    def test_legacy_corrected_article_fallback(self):
+        draft = "# Old\n\nOriginal sentence in the draft body.\n"
+        rewritten = "# New\n\nReplacement sentence from an older fact-check rewrite.\n"
+        model_out = (
+            f"{faq_schema.CORRECTED_ARTICLE_START}\n{rewritten}"
+            f"{faq_schema.CORRECTED_ARTICLE_END}\n"
+        )
+        patched, corrections = faq_schema.resolve_fact_checked_article(draft, model_out)
+        self.assertEqual(corrections, [])
+        self.assertIn("Replacement sentence", patched)
+
+    def test_embed_keeps_report_and_patched_draft(self):
+        report = (
+            "---FACT CHECK START---\n"
+            "OVERALL ASSESSMENT: CLEAN\n"
+            "---FACT CHECK END---\n"
+        )
+        article = "# Title\n\nPatched body sentence for later steps.\n"
+        out = faq_schema.embed_corrected_article(report, article, [])
+        self.assertIn("OVERALL ASSESSMENT: CLEAN", out)
+        self.assertIn(faq_schema.CORRECTIONS_START, out)
+        self.assertEqual(
+            faq_schema.extract_corrected_article_body(out),
+            article.strip(),
+        )
+
+
 if __name__ == "__main__":
     unittest.main()

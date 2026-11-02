@@ -264,6 +264,13 @@ class HardGateUnitTests(unittest.TestCase):
             hard_gates.french_language.Glossary(),
         )
         self.assertEqual(problem, "")
+        self.assertTrue(
+            hard_gates._faq_answers_question(
+                "Que contient la formule Énergie ?",
+                "La formule Énergie contient un bol de céréales et une collation. "
+                "Elle se prépare en dix minutes.",
+            )
+        )
 
     def test_two_sentence_faq_answer_passes(self):
         art = (
@@ -314,6 +321,25 @@ class HardGateUnitTests(unittest.TestCase):
             "Visits usually cost [$49](https://example.com/fees) per consult when booked online.\n"
         )
         self.assertEqual(hard_gates.check_cited_numbers(cited), [])
+
+    def test_uncited_number_is_generalized_in_that_paragraph(self):
+        art = (
+            _opening("T", GOOD_LEDE)
+            + "\n## Pricing\n\nVisits usually cost $49 per consult with no source.\n"
+        )
+        fixed = hard_gates.generalize_uncited_numbers(art, lang="en")
+        self.assertNotIn("$49", fixed)
+        self.assertIn("listed fee", fixed)
+        self.assertEqual(hard_gates.check_cited_numbers(fixed), [])
+
+    def test_fail_url_is_stripped_to_anchor_text(self):
+        art = (
+            _opening("T", GOOD_LEDE)
+            + "\n## S\n\nSee the [pilot](https://example.com/dead) for detail.\n"
+        )
+        fixed = hard_gates.strip_urls_to_anchor(art, ["https://example.com/dead"])
+        self.assertNotIn("https://example.com/dead", fixed)
+        self.assertIn("pilot", fixed)
 
     def test_faq_answer_length(self):
         short = "One short line only."
@@ -474,8 +500,38 @@ class FaqRegenerationTests(unittest.TestCase):
             self._article(self.GOOD), allowed=[self.QUESTION], lang="fr"
         )
         self.assertEqual(issues, [])
-        self.assertNotIn("Régénération des réponses de FAQ", calls)
+        self.assertEqual(calls, [])
         self.assertIn("bol de céréales", fixed)
+
+    def test_off_topic_fails_keyword_overlap_without_llm(self):
+        off_topic = (
+            "La météo change souvent en automne. Pensez à vous couvrir avant de sortir."
+        )
+        problem = hard_gates._faq_answer_problem(
+            self.QUESTION,
+            off_topic,
+            "fr",
+            hard_gates.french_language.Glossary(),
+        )
+        self.assertIn("hors sujet", problem)
+
+    def test_llm_judge_runs_only_when_cheap_checks_fail(self):
+        paraphrase = (
+            "Le petit-déjeuner propose des céréales, des fruits et une collation sucrée. "
+            "Comptez environ dix minutes pour le préparer."
+        )
+
+        def judge(user):
+            return [{"n": 1, "en_francais": True, "repond": True, "raison": "paraphrase"}]
+
+        calls = self._patch([], judge=judge)
+        fixed, issues, _ = hard_gates.ensure_faq_quality(
+            self._article(paraphrase), allowed=[self.QUESTION], lang="fr"
+        )
+        self.assertEqual(issues, [])
+        self.assertEqual(calls.count("Contrôle des réponses de FAQ"), 1)
+        self.assertNotIn("Régénération des réponses de FAQ", calls)
+        self.assertIn("petit-déjeuner", fixed)
 
 
 class FrenchGateTests(unittest.TestCase):

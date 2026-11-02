@@ -5,10 +5,8 @@ Your briefs are specific, structured, and opinionated — not generic templates.
 
 You will receive in the user message:
 - **TOPIC CARD (Step 1)** — keyword, intent, angles, Semrush-verbatim fields when present
-- **SERP ANALYSIS & GAPS** — cluster read, gaps to own, risks, briefing hooks
-- **ATP TOPIC RESEARCH** — AnswerThePublic-style questions, high-intent phrases, long-tails,
-  supporting blog cluster + interlink plan
-- **PAA / FAQ RESEARCH** — Recommended FAQ bank for the on-page FAQ
+- **RESEARCH SUMMARY** — condensed SERP gaps, briefing hooks, and source URLs (not the raw SERP / ATP / PAA dumps)
+- **RESEARCH AUDIT** — approved FAQ, case study, supporting cluster, flagged claims
 - Audience Persona and Company Context [from the system context blocks — may be placeholders;
   note gaps in EDITOR NOTES but still produce the full brief]
 

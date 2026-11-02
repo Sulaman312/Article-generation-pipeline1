@@ -8,6 +8,7 @@ from __future__ import annotations
 import json
 import logging
 import re
+import unicodedata
 from dataclasses import dataclass, field
 
 from . import editorial_input
@@ -420,6 +421,72 @@ def check_cited_numbers(article: str) -> list[GateIssue]:
     return issues
 
 
+def generalize_uncited_numbers(article: str, *, lang: str | None = None) -> str:
+    """Replace uncited prices/stats in that paragraph only. No LLM."""
+    text = (article or "").replace("\r\n", "\n")
+    if not text.strip():
+        return article
+    french = (lang or "").lower() == "fr"
+    fee = "des frais affichés" if french else "a listed fee"
+    share = "une part importante" if french else "a substantial share"
+
+    def _generic(match: re.Match[str]) -> str:
+        return share if "%" in match.group(0) else fee
+
+    out: list[str] = []
+    for para in re.split(r"(\n\s*\n)", text):
+        if not para.strip() or para.strip().startswith("#") or _HTTPS_LINK.search(para):
+            out.append(para)
+            continue
+        if not _MONEY_OR_STAT.search(para):
+            out.append(para)
+            continue
+        out.append(_MONEY_OR_STAT.sub(_generic, para))
+    return "".join(out)
+
+
+def strip_urls_to_anchor(article: str, urls: list[str] | set[str]) -> str:
+    """Turn `[anchor](fail-url)` into `anchor` for the listed URLs. No LLM."""
+    text = article or ""
+    for url in urls:
+        raw = (url or "").rstrip("/")
+        if not raw:
+            continue
+        text = re.sub(
+            rf"\[([^\]]+)\]\({re.escape(raw)}/?\)",
+            r"\1",
+            text,
+            flags=re.I,
+        )
+    return text
+
+
+def strip_flagged_claim_sentences(article: str, claims: list[str]) -> str:
+    """Drop the sentence that contains a flagged claim. No LLM."""
+    text = article or ""
+    for claim in claims:
+        needle = _normalize_phrase(claim)
+        probe = needle[:48] if len(needle) > 48 else needle
+        if len(probe) < 12:
+            continue
+        parts = re.split(r"(\n\s*\n)", text)
+        rebuilt: list[str] = []
+        for part in parts:
+            if not part.strip() or part.startswith("#"):
+                rebuilt.append(part)
+                continue
+            if probe not in _normalize_phrase(part):
+                rebuilt.append(part)
+                continue
+            sentences = re.split(r"(?<=[.!?])\s+", part)
+            kept = [
+                s for s in sentences if probe not in _normalize_phrase(s)
+            ]
+            rebuilt.append(" ".join(kept).strip() or part)
+        text = "".join(rebuilt)
+    return text
+
+
 def check_no_late_takeaways(article: str) -> GateIssue | None:
     """Fail if takeaways/summary headings appear again after the opening Key takeaways block."""
     text = (article or "").replace("\r\n", "\n").strip()
@@ -598,13 +665,22 @@ def _keyword_sentence(phrase: str) -> str:
     return lead
 
 
-def ensure_primary_keyword_in_first_100(article: str, primary: str) -> str:
+def ensure_primary_keyword_in_first_100(
+    article: str, primary: str, *, lang: str | None = None
+) -> str:
     """Put the exact primary keyword in the first 100 body words.
 
     Headings do not count. When the phrase is missing from that window, it is
     woven into the first Key takeaways sentence (or the first paragraph) and
     later exact repeats in body prose are removed.
+
+    The weaving uses English sentence frames ("For a …"), so it only runs for
+    English articles. In any other language the article is left untouched: the
+    keyword gate then fails and the model rewrites the sentence so the keyword sits
+    inside a grammatically correct sentence (never a pasted-in fragment).
     """
+    if (lang or "en").strip().lower() != "en":
+        return article
     kw = _plain_keyword(primary)
     if not kw or kw.lower() in ("your target keyword", "not provided"):
         return article
@@ -959,6 +1035,102 @@ def _looks_wrong_faq_lang(answer: str, lang: str) -> bool:
     return False
 
 
+_FAQ_TOKEN_RE = re.compile(r"[a-zà-ÿ']{3,}", re.I)
+_FAQ_STOPWORDS = frozenset(
+    """
+    a ai aie aient aies ait alors au aucun aussi autre aux avec avoir beaucoup
+    c ceci cela celle celles celui ce ces cet cette ceux ci comme comment dans
+    de des du elle elles en encore est et eux faire font etre ici il ils je la
+    le les leur leurs lui ma mais me meme mes moi mon ne ni notre nous on ou
+    par pas peu pour qu que quel quelle lesquelles lesquels qui sa sans se ses
+    soi son sont sous suis sur ta te tes toi ton tu un une vos votre vous y
+    dit doit peuvent peut plus tres bien tout tous toute toutes donc car si
+    lorsque quand pourquoi dont lequel plusieur plusieurs
+    the a an and or to of in for on with is are was were be this that it you
+    your not but from they their have has had can will
+    """.split()
+)
+
+
+def _fold_faq_text(text: str) -> str:
+    nfkd = unicodedata.normalize("NFKD", text or "")
+    return "".join(ch for ch in nfkd if not unicodedata.combining(ch)).lower()
+
+
+def _faq_content_tokens(text: str) -> set[str]:
+    folded = _fold_faq_text(text)
+    return {
+        word
+        for word in _FAQ_TOKEN_RE.findall(folded)
+        if word not in _FAQ_STOPWORDS and len(word) >= 3
+    }
+
+
+def _faq_answers_question(question: str, answer: str) -> bool:
+    """True when the answer shares enough content words with the question."""
+    q_tokens = _faq_content_tokens(question)
+    a_tokens = _faq_content_tokens(answer)
+    if not q_tokens:
+        return True
+    overlap = q_tokens & a_tokens
+    if len(overlap) >= 2:
+        return True
+    if len(overlap) == 1 and (len(q_tokens) <= 4 or len(overlap) / len(q_tokens) >= 0.2):
+        return True
+    for qword in q_tokens:
+        stem = qword[:4] if len(qword) >= 4 else qword
+        if any(
+            aword.startswith(stem) or qword.startswith(aword[:4])
+            for aword in a_tokens
+            if len(aword) >= 4
+        ):
+            return True
+    return False
+
+
+def _detect_answer_lang(text: str) -> dict[str, float]:
+    """ISO language probabilities from langdetect, or {} if unavailable."""
+    sample = (text or "").strip()
+    if len(sample) < 20:
+        return {}
+    try:
+        from langdetect import DetectorFactory, detect_langs
+
+        DetectorFactory.seed = 0
+        return {item.lang: float(item.prob) for item in detect_langs(sample)}
+    except Exception:
+        return {}
+
+
+def _faq_answer_not_french(answer: str) -> bool:
+    """Cheap language check: langdetect first, regex fallback."""
+    scores = _detect_answer_lang(answer)
+    if scores:
+        fr = scores.get("fr", 0.0)
+        top = max(scores.values())
+        if fr >= 0.65:
+            return False
+        if fr < 0.35 or top > fr + 0.15:
+            return True
+        return fr < 0.5
+    return _looks_wrong_faq_lang(answer, "fr")
+
+
+def _faq_fail_needs_llm(reason: str) -> bool:
+    """Language / on-topic cheap fails can be confirmed by the model; structural fails cannot."""
+    low = (reason or "").lower()
+    return any(
+        token in low
+        for token in (
+            "pas en français",
+            "not french",
+            "ne répond pas",
+            "hors sujet",
+            "off-topic",
+        )
+    )
+
+
 def _expected_faq_questions(article: str, allowed: list[str]) -> list[str]:
     """Questions the FAQ must contain: the approved/PAA bank, else what the article has."""
     questions: list[str] = []
@@ -1042,7 +1214,11 @@ def align_faq_to_allowed(
 
 
 def _faq_answer_problem(question: str, answer: str, faq_lang: str, glossary) -> str:
-    """Deterministic reason an FAQ answer is unusable ('' when it passes)."""
+    """Cheap reason an FAQ answer is unusable ('' when it passes).
+
+    French answers are checked with glossary scan, langdetect, and keyword overlap.
+    The LLM judge is only used later to confirm language / on-topic failures.
+    """
     if not (answer or "").strip():
         return "réponse manquante" if faq_lang == "fr" else "missing answer"
     sentences = _answer_sentence_count(answer)
@@ -1059,8 +1235,10 @@ def _faq_answer_problem(question: str, answer: str, faq_lang: str, glossary) -> 
     )
     if found:
         return "; ".join(i.message() for i in found[:3])
-    if _looks_wrong_faq_lang(answer, "fr"):
+    if _faq_answer_not_french(answer):
         return "réponse pas en français"
+    if not _faq_answers_question(question, answer):
+        return "ne répond pas à la question (hors sujet)"
     return ""
 
 
@@ -1108,9 +1286,9 @@ def _judge_faq_answers(
     faq_lang: str,
     glossary,
 ) -> dict[int, str]:
-    """Ask the model whether each answer is in French AND answers its question.
+    """LLM confirmation for answers that already failed a cheap language/on-topic check.
 
-    Returns ``{index: reason}`` for the answers that fail.
+    Returns ``{index: reason}`` for the answers the model still rejects.
     """
     if not indexes:
         return {}
@@ -1167,6 +1345,8 @@ def _regenerate_faq_answers(
     glossary,
 ) -> dict[int, tuple[str, str]]:
     """Regenerate the failing answers. Returns ``{index: (question, answer)}``."""
+    from . import config
+
     context = faq_schema.strip_faq_section(article).strip()[:9000]
     language_label = editorial_input.language_label_for_code(faq_lang)
     items = [
@@ -1223,7 +1403,7 @@ def _regenerate_faq_answers(
         system,
         user,
         label="Régénération des réponses de FAQ",
-        max_tokens=3500,
+        max_tokens=int(getattr(config, "FAQ_REPAIR_MAX_TOKENS", 1800) or 1800),
         temperature=0.3,
     )
     if not isinstance(payload, dict):
@@ -1253,7 +1433,8 @@ def ensure_faq_quality(
 ) -> tuple[str, list[GateIssue], list[str]]:
     """Make every FAQ answer present, in the article language, and on-topic.
 
-    Failing answers are regenerated up to ``QUALITY_RETRY_ATTEMPTS`` times. Returns
+    Failing answers are regenerated up to ``QUALITY_RETRY_ATTEMPTS`` times
+    (answers only — never the article). Returns
     ``(article, blocking issues still open, final question list)``. No default text
     is ever inserted.
     """
@@ -1275,6 +1456,14 @@ def ensure_faq_quality(
         sections[0][0] if sections else editorial_input.faq_heading_for_language(faq_lang)
     )
     answers = _existing_answers(article, questions, faq_lang)
+    if faq_lang == "fr":
+        answers = [
+            french_language.apply_glossary_replacements(a, glossary) if a else a
+            for a in answers
+        ]
+        pairs = [(q, a) for q, a in zip(questions, answers) if a]
+        if pairs:
+            article = faq_schema.insert_faq_block(article, pairs, heading=heading)
     attempts = config.QUALITY_RETRY_ATTEMPTS
     bad: dict[int, str] = {}
 
@@ -1284,13 +1473,21 @@ def ensure_faq_quality(
             problem = _faq_answer_problem(q, a, faq_lang, glossary)
             if problem:
                 bad[i] = problem
-        if judge:
-            ok_idx = [i for i in range(len(questions)) if i not in bad]
-            bad.update(
-                _judge_faq_answers(
-                    questions, answers, ok_idx, faq_lang=faq_lang, glossary=glossary
+        if judge and bad:
+            confirm_idx = [i for i, reason in bad.items() if _faq_fail_needs_llm(reason)]
+            if confirm_idx:
+                confirmed = _judge_faq_answers(
+                    questions,
+                    answers,
+                    confirm_idx,
+                    faq_lang=faq_lang,
+                    glossary=glossary,
                 )
-            )
+                for i in confirm_idx:
+                    if i in confirmed:
+                        bad[i] = confirmed[i]
+                    else:
+                        bad.pop(i, None)
         if not bad or not allow_llm or attempt == attempts:
             break
         logger.warning(
@@ -1478,117 +1675,44 @@ def evaluate_article_gates(
     return report
 
 
-def _repair_article_llm(
+def _repair_failing_parts(
     article: str,
     report: GateReport,
     *,
-    step_label: str,
     lang: str = "en",
     glossary=None,
+    flagged: list[str] | None = None,
+    fail_urls: list[str] | None = None,
+    word_target: int | None = None,
+    allow_llm: bool = True,
 ) -> str:
-    from .integrations import anthropic as claude
+    """Fix only the failing parts. Never regenerates the full article."""
+    from . import writing_format_lint as lint
+    from . import word_count_enforce
 
-    if (lang or "").lower() == "fr":
-        g = glossary or french_language.Glossary()
-        system = (
-            "Vous êtes un éditeur francophone. Corrigez UNIQUEMENT les échecs de contrôle "
-            "listés. Ne réécrivez pas tout l'article : conservez le sens, la voix de la "
-            "marque et la structure.\n"
-            f"{french_language.FRENCH_RULE}\n"
-            "Mots interdits et remplacements :\n"
-            f"{french_language._banned_lines(g)}\n"
-            "Termes de marque exacts : "
-            + (" / ".join(g.brand_terms) or "(aucun)")
-            + ".\nN'ajoutez jamais de texte générique de remplissage.\n"
-            "Renvoyez uniquement l'article complet corrigé en markdown, sans préambule."
-        )
-        user = (
-            f"{report.as_prompt_block()}\n\n"
-            "Règles :\n"
-            f"- Ouverture : `# H1` → `## À retenir` ({LEDE_MIN_WORDS} à {LEDE_MAX_WORDS} mots, "
-            "3 à 5 puces d'actions concrètes, pas un résumé) → image d'en-tête "
-            "`![texte alternatif](IMAGE: …)` → premier H2 de contenu. Pas de `## Résumé`.\n"
-            f"- Le mot-clé principal apparaît tel quel une seule fois dans les "
-            f"{FIRST_N_BODY_WORDS} premiers mots du corps, dans la première puce de « À retenir ». "
-            "Les titres ne comptent pas, un synonyme non plus. Pas d'autre répétition exacte.\n"
-            "- Tout prix, pourcentage ou frais précis exige un lien HTTPS dans le même "
-            "paragraphe, sinon retirez ou généralisez le chiffre.\n"
-            "- Retirez les affirmations marquées FLAGGED et les adresses FAIL.\n"
-            "- Si [late_takeaways] a échoué : supprimez les titres « À retenir », « Résumé » "
-            "ou équivalents du corps et gardez un seul `## À retenir` en haut.\n"
-            "- Les questions de FAQ reprennent exactement la banque approuvée ou PAA. "
-            "N'inventez pas de questions.\n"
-            f"- Chaque réponse de FAQ est un seul paragraphe de {FAQ_ANSWER_MIN_SENTENCES} à "
-            f"{FAQ_ANSWER_MAX_SENTENCES} phrases ({faq_schema.FAQ_ANSWER_MAX_WORDS} mots "
-            "au maximum), sans puces, et répond réellement à sa question.\n"
-            "- Si [form_internal_link] a échoué : insérez chaque adresse ou chemin listé "
-            "sous la forme `[ancre de 2 à 3 mots](href exact)` au milieu d'une phrase.\n"
-            "- Si un mot anglais, un mot interdit, un terme de marque ou une faute est "
-            "signalé : remplacez-le par l'équivalent français indiqué, partout dans le texte "
-            "(titres, tableaux, FAQ, textes alternatifs compris).\n"
-            "- Si [image_alt] a échoué : chaque `![texte alternatif](IMAGE: …)` a un texte "
-            "alternatif descriptif de 8 à 15 mots, sans trait d'union ni tiret.\n"
-            "- Si [transition_words] a échoué : au moins 30 % des phrases contiennent un "
-            "connecteur (ainsi, en effet, par ailleurs, en revanche, donc, toutefois, "
-            "cependant, ensuite, enfin, par exemple, car…). N'utilisez pas « de plus ».\n"
-            "- Si [repeated_sentence_start] a échoué : ne commencez jamais trois phrases "
-            "de suite par le même mot ; réorganisez la phrase ou ouvrez avec un connecteur.\n"
-            "- Respectez la fourchette de mots si word_count a échoué.\n\n"
-            "---ARTICLE---\n"
-            f"{article.strip()}\n"
-            "---FIN DE L'ARTICLE---"
-        )
-        return claude.chat_complete(
-            system,
-            user,
-            step_label=step_label,
-            max_tokens=8000,
-            temperature=0.2,
-        ).strip()
-
-    system = (
-        "You are a publishing editor. Fix ONLY the hard-gate failures listed. "
-        "Do not rewrite the whole article. Preserve meaning, brand voice, and structure. "
-        "Return the full corrected article markdown only — no preamble."
-    )
-    user = (
-        f"{report.as_prompt_block()}\n\n"
-        "Rules:\n"
-        f"- Opening order: `# H1` → `## Key takeaways` ({LEDE_MIN_WORDS}–{LEDE_MAX_WORDS} words) "
-        "→ hero `![alt](IMAGE: …)` → first content H2. "
-        "Write actionable takeaways — not an article summary/recap. Do not use ## Summary.\n"
-        f"- Primary keyword must appear verbatim once in the first {FIRST_N_BODY_WORDS} "
-        "body words, in the first Key takeaways sentence. Headings and the H1 do not "
-        "count. A synonym does not count. No further exact body repeats.\n"
-        "- Every concrete price / % / fee needs an inline HTTPS citation in the same "
-        "paragraph, or remove/generalize the number.\n"
-        "- Remove any FLAGGED claims and FAIL URLs.\n"
-        "- If [late_takeaways] failed: remove duplicate 'Key takeaways' / 'Summary' / "
-        "'What you'll learn' headings from the body and keep a single ## Key takeaways at the top.\n"
-        "- FAQ questions must use the approved/PAA bank wording exactly. "
-        "Do not invent new FAQ questions.\n"
-        f"- Each FAQ answer must be one normal paragraph of "
-        f"{FAQ_ANSWER_MIN_SENTENCES}-{FAQ_ANSWER_MAX_SENTENCES} sentences "
-        f"(max {faq_schema.FAQ_ANSWER_MAX_WORDS} words). "
-        "Do not use bullets, numbered lists, or one sentence per line. "
-        "Do not pad FAQ; keep article word count in the body.\n"
-        "- If [image_alt] failed: every `![alt](IMAGE: …)` needs a descriptive alt text of "
-        "8-15 words with no hyphen or dash.\n"
-        "- If [form_internal_link] failed: weave each listed URL/path as "
-        "`[2–3 word anchor](exact-href)` mid-sentence. Do not invent different URLs "
-        "or dump a footer list.\n"
-        "- Keep body word count inside the stated band if word_count failed.\n\n"
-        "---ARTICLE---\n"
-        f"{article.strip()}\n"
-        "---END ARTICLE---"
-    )
-    return claude.chat_complete(
-        system,
-        user,
-        step_label=step_label,
-        max_tokens=8000,
-        temperature=0.2,
-    ).strip()
+    text = article or ""
+    codes = {i.code for i in report.blocking_issues()}
+    if "uncited_number" in codes:
+        text = generalize_uncited_numbers(text, lang=lang)
+    if fail_urls and codes & {"fail_url", "case_study_url_fail", "case_study_wrong_url"}:
+        text = strip_urls_to_anchor(text, fail_urls)
+    if flagged and "flagged_claim" in codes:
+        text = strip_flagged_claim_sentences(text, flagged)
+    if (lang or "").lower() == "fr" and glossary is not None:
+        text = french_language.apply_glossary_replacements(text, glossary)
+    if codes & {"transition_words", "repeated_sentence_start"}:
+        text, _ = lint.apply_deterministic_fixes(text, lang=lang)
+    if word_target and "word_count" in codes:
+        current = editorial_input.count_article_words(text)
+        _low, high = editorial_input.word_count_bounds(word_target)
+        if allow_llm and current > high:
+            text = word_count_enforce.trim_article_by_sections(
+                text,
+                word_target,
+                step_label="Hard gate longest-section trim",
+                max_passes=1,
+            )
+    return text
 
 
 def _replace_stage_body(current: str, new_body: str, *, stage: str) -> str:
@@ -1621,10 +1745,11 @@ def enforce_article_gates(
     allow_llm_repair: bool = True,
     raise_on_fail: bool = True,
 ) -> str:
-    """Evaluate hard gates and repair failures; raise HardGateError if still failing.
+    """Evaluate hard gates and apply local repairs; flag leftovers for review.
 
-    Failures are retried (``QUALITY_RETRY_ATTEMPTS`` repair rounds, and FAQ answers
-    are regenerated one by one). No default text is ever inserted to make a gate pass.
+    Mechanical fixes (glossary, numbers, URLs, transitions) run in code. FAQ
+    answers and one overweight section may get one targeted LLM pass. The full
+    article is never rewritten. Remaining issues are flagged unless STRICT is on.
     """
     from . import artifacts
     from . import config
@@ -1671,13 +1796,27 @@ def enforce_article_gates(
 
     faq_issues: list[GateIssue] = []
 
+    flagged_claims = parse_audit_flagged_claims(research_audit)
+    fail_urls = parse_pipeline_fail_urls(research_audit, case_study)
+
     def _correct(body: str) -> str:
         text = image_alt.normalize_image_alts(body)
         text = localize_structural_headings(text, lang=faq_lang)
         text = ensure_takeaways_as_bullets(text)
         if require_faq and allowed_faq:
             text = align_faq_to_allowed(text, allowed_faq, lang=faq_lang)
-        return ensure_primary_keyword_in_first_100(text, primary)
+        text = ensure_primary_keyword_in_first_100(text, primary, lang=faq_lang)
+        if faq_lang == "fr" and glossary is not None:
+            text = french_language.apply_glossary_replacements(text, glossary)
+        text = generalize_uncited_numbers(text, lang=faq_lang)
+        if fail_urls:
+            text = strip_urls_to_anchor(text, fail_urls)
+        if flagged_claims:
+            text = strip_flagged_claim_sentences(text, flagged_claims)
+        from . import writing_format_lint as lint
+
+        text, _ = lint.apply_deterministic_fixes(text, lang=faq_lang)
+        return text
 
     def _faq_quality(body: str) -> str:
         """Regenerate FAQ answers that are missing, off-language or off-topic."""
@@ -1735,46 +1874,35 @@ def enforce_article_gates(
 
     logger.warning("hard gates failed (%s): %s", stage, report.failure_message())
 
-    rounds = config.QUALITY_RETRY_ATTEMPTS if allow_llm_repair else 0
-    for round_i in range(rounds):
-        if report.ok or not report.blocking_issues():
-            break
+    if allow_llm_repair and report.blocking_issues():
         try:
-            repaired = _repair_article_llm(
+            repaired = _repair_failing_parts(
                 _article_body(current, stage=stage),
                 report,
-                step_label=f"Hard gate repair ({stage}, {round_i + 1}/{rounds})",
                 lang=faq_lang,
                 glossary=glossary,
+                flagged=flagged_claims,
+                fail_urls=fail_urls,
+                word_target=word_target,
+                allow_llm=True,
             )
-            if not repaired:
-                continue
             repaired = _faq_quality(_correct(repaired))
             current = _replace_stage_body(current, repaired, stage=stage)
             report = _evaluate(current)
-            if not report.ok:
-                logger.warning(
-                    "hard gates still failing after repair %s/%s (%s): %s",
-                    round_i + 1,
-                    rounds,
-                    stage,
-                    report.failure_message(),
-                )
         except Exception:
-            logger.exception("hard gate LLM repair failed (%s, round %s)", stage, round_i + 1)
+            logger.exception("hard gate local repair failed (%s)", stage)
 
     if report.ok:
-        logger.info("hard gates passed after repair (%s)", stage)
+        logger.info("hard gates passed after local repair (%s)", stage)
         return current
 
-    if raise_on_fail and getattr(config, "HARD_GATES_STRICT", True):
+    if raise_on_fail and getattr(config, "HARD_GATES_STRICT", False):
         raise HardGateError(report)
 
-    # Non-strict: append a visible report and return
     body = _article_body(current, stage=stage)
     annotated = (
         body.rstrip()
-        + "\n\n## Hard gate report (non-strict)\n"
+        + "\n\n## Hard gate report (needs review)\n"
         + report.failure_message()
         + "\n"
     )
