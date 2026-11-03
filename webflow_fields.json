@@ -1,0 +1,47 @@
+[
+    {
+        "slug":  "featured",
+        "displayName":  "Featured",
+        "type":  "Switch"
+    },
+    {
+        "slug":  "description",
+        "displayName":  "Description",
+        "type":  "PlainText"
+    },
+    {
+        "slug":  "published-date",
+        "displayName":  "Published Date",
+        "type":  "DateTime"
+    },
+    {
+        "slug":  "cover-image",
+        "displayName":  "Cover Image",
+        "type":  "Image"
+    },
+    {
+        "slug":  "content---1",
+        "displayName":  "Content - 1",
+        "type":  "RichText"
+    },
+    {
+        "slug":  "image---1",
+        "displayName":  "Image - 1",
+        "type":  "Image"
+    },
+    {
+        "slug":  "authour",
+        "displayName":  "Authour",
+        "type":  "PlainText"
+    },
+    {
+        "slug":  "name",
+        "displayName":  "Title",
+        "type":  "PlainText"
+    },
+    {
+        "slug":  "slug",
+        "displayName":  "Slug",
+        "type":  "PlainText"
+    }
+]

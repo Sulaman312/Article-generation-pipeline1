@@ -3,7 +3,7 @@ import * as api from "../../services/api";
 import MarkdownArtifactPanel from "../shared/MarkdownArtifactPanel";
 
 /** Fallback when API is unavailable (dev offline). */
-export const WORKSPACE_ARTIFACT_SPECS = [
+const WORKSPACE_ARTIFACT_SPECS = [
   {
     filename: "personas.md",
     title: "Audience personas",
@@ -33,7 +33,7 @@ export const WORKSPACE_ARTIFACT_SPECS = [
   },
 ];
 
-function ContextArtifactEditor({ client, spec, toast, variant = "card" }) {
+function ContextArtifactEditor({ client, spec, toast }) {
   const [draft, setDraft] = useState("");
   const [baseline, setBaseline] = useState("");
   const [loading, setLoading] = useState(true);
@@ -44,7 +44,6 @@ function ContextArtifactEditor({ client, spec, toast, variant = "card" }) {
 
   const dirty = draft !== baseline;
   const { filename, title, description, placeholder } = spec;
-  const isPage = variant === "page";
   const isCustom = Boolean(spec.custom);
 
   const load = useCallback(async () => {
@@ -95,12 +94,8 @@ function ContextArtifactEditor({ client, spec, toast, variant = "card" }) {
 
   const taId = `ctx-${filename.replace(/\W/g, "")}`;
 
-  const wrapClass = isPage
-    ? "client-context-card client-context-card--page"
-    : "client-context-card";
-
   return (
-    <div className={wrapClass}>
+    <div className="client-context-card client-context-card--page">
       <div className="client-context-card-head">
         <div>
           <h3 className="client-context-card-title">{title}</h3>
@@ -168,7 +163,7 @@ function ContextArtifactEditor({ client, spec, toast, variant = "card" }) {
               onDraftChange={setDraft}
               onEditingChange={setEditing}
               showEditInToolbar={false}
-              textareaRows={isPage ? 22 : 14}
+              textareaRows={22}
               textareaPlaceholder={
                 placeholder ||
                 "Write Markdown here — headings, lists, and links are supported."
@@ -507,7 +502,6 @@ export function WorkspaceArtifactEditorPage({
         client={client}
         spec={spec}
         toast={toast}
-        variant="page"
       />
     </div>
   );

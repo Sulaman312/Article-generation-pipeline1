@@ -1,0 +1,249 @@
+.fact-check-structured {
+  display: flex;
+  flex-direction: column;
+  gap: 28px;
+  padding: 4px 2px 8px;
+}
+
+.fact-check-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 4px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: #fafafa;
+}
+
+.fact-check-tab {
+  appearance: none;
+  border: 1px solid transparent;
+  background: transparent;
+  border-radius: 6px;
+  padding: 7px 12px;
+  font-size: 13px;
+  font-weight: 700;
+  color: #475569;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.fact-check-tab:hover {
+  background: #fff;
+  color: #0f172a;
+}
+
+.fact-check-tab.is-active {
+  background: #fff;
+  border-color: #e2e8f0;
+  color: #0f172a;
+}
+
+.fact-check-tab-count {
+  font-size: 11px;
+  font-weight: 800;
+  min-width: 1.4em;
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: #f1f5f9;
+  color: #334155;
+}
+
+.fact-check-summary {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px 16px;
+  padding: 14px 16px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: #fafafa;
+}
+
+.fact-check-badge {
+  display: inline-flex;
+  align-items: center;
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  padding: 6px 10px;
+  border-radius: 6px;
+  border: 1px solid #d1d5db;
+  background: #fff;
+  color: #1e293b;
+}
+
+.fact-check-badge--clean {
+  border-color: #a7f3d0;
+  background: #ecfdf5;
+  color: #065f46;
+}
+
+.fact-check-badge--minor {
+  border-color: #fde68a;
+  background: #fffbeb;
+  color: #92400e;
+}
+
+.fact-check-badge--significant {
+  border-color: #fecaca;
+  background: #fef2f2;
+  color: #991b1b;
+}
+
+.fact-check-summary-meta {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.fact-check-summary-count {
+  font-size: 14px;
+  font-weight: 600;
+  color: #334155;
+}
+
+.fact-check-section-title {
+  margin: 0 0 12px;
+  font-size: 1.05rem;
+  font-weight: 800;
+  letter-spacing: -0.015em;
+  color: #0f172a;
+}
+
+.fact-check-empty {
+  margin: 0;
+  padding: 14px 16px;
+  border: 1px dashed #cbd5e1;
+  border-radius: var(--radius-sm);
+  color: #475569;
+  font-size: 14px;
+  background: #f8fafc;
+}
+
+.fact-check-issue-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.fact-check-issue {
+  margin: 0;
+  padding: 14px 16px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: #fff;
+}
+
+.fact-check-issue-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 10px;
+  margin-bottom: 10px;
+}
+
+.fact-check-issue-num {
+  font-size: 13px;
+  font-weight: 800;
+  color: #0f172a;
+}
+
+.fact-check-issue-type {
+  font-size: 12px;
+  font-weight: 600;
+  color: #475569;
+  padding: 3px 8px;
+  border-radius: 999px;
+  background: #f1f5f9;
+}
+
+.fact-check-issue-action {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  text-transform: lowercase;
+  padding: 3px 8px;
+  border-radius: 999px;
+  border: 1px solid #e2e8f0;
+  color: #334155;
+  background: #fff;
+}
+
+.fact-check-issue-action--corrected {
+  border-color: #a7f3d0;
+  background: #ecfdf5;
+  color: #065f46;
+}
+
+.fact-check-issue-action--removed {
+  border-color: #fdba74;
+  background: #fff7ed;
+  color: #9a3412;
+}
+
+.fact-check-issue-action--flagged {
+  border-color: #fde68a;
+  background: #fffbeb;
+  color: #92400e;
+}
+
+.fact-check-quote {
+  margin: 0 0 12px;
+  padding: 10px 12px;
+  border-left: 3px solid #cbd5e1;
+  background: #f8fafc;
+  color: #1e293b;
+  font-size: 14px;
+  line-height: 1.55;
+  font-style: italic;
+}
+
+.fact-check-issue-note-label {
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: #64748b;
+  margin-bottom: 4px;
+}
+
+.fact-check-issue-note-body {
+  margin: 0;
+  font-size: 14px;
+  line-height: 1.6;
+  color: #334155;
+  white-space: pre-wrap;
+}
+
+.fact-check-aside {
+  padding: 14px 16px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: #fafafa;
+}
+
+.fact-check-aside .fact-check-section-title {
+  margin-bottom: 8px;
+}
+
+.fact-check-aside-body {
+  margin: 0;
+  font-family: inherit;
+  font-size: 14px;
+  line-height: 1.55;
+  color: #334155;
+  white-space: pre-wrap;
+}
+
+.fact-check-article {
+  padding-top: 4px;
+  border-top: 1px solid var(--border);
+}
+
+.fact-check-article .fact-check-section-title {
+  margin-bottom: 14px;
+}

@@ -1,33 +1,60 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import * as api from "../../services/api";
 import { useToast } from "../../context/ToastContext";
 import { stepsForPipeline } from "../../constants/pipelines";
-import { inputSourceForStep } from "../../utils/pipelineFlow";
+import { inputSourceForStep, canRunStep } from "../../utils/pipelineFlow";
 import { parseTopicCard } from "../../utils/parseTopicCard";
 import { executeRunStep } from "../../utils/runStepAction";
-import Markdown from "../shared/Markdown";
-import MarkdownArtifactPanel from "../shared/MarkdownArtifactPanel";
-import ArtifactFormattedPreview from "./ArtifactFormattedPreview";
-import TopicCardStructured from "./TopicCardStructured";
-import FinalOutputDocEditor from "./FinalOutputDocEditor";
+import {
+  invalidateArtifactCache,
+  useLazyArtifact,
+} from "../../hooks/useLazyArtifact";
+import { isMetaSeoFormat } from "../../utils/parseMetaSeo";
+import { isFactCheckFormat } from "../../utils/parseFactCheck";
+import { isBriefFormat } from "../../utils/parseBrief";
+import { isOutlineFormat } from "../../utils/parseOutlineStructured";
+import {
+  isResearchFormat,
+  isSerpResearchFormat,
+} from "../../utils/parseResearch";
 import { copyFormattedMarkdown } from "../../utils/markdownExport";
+import {
+  formatStepStatusWithDuration,
+  resolveStepTiming,
+} from "../../utils/formatStepDuration";
+import { preloadRunChunks } from "../../utils/preloadRunChunks";
+import { ArtifactSkeleton } from "../shared/Skeletons";
 import { PIPELINE_MARKDOWN_CLASS } from "../../constants/markdownPreview";
 import { splitFinalOutput } from "../../utils/parseFinalOutput";
+import { manualInputsToDisplayFields } from "../../utils/editorialFields";
+import KeyValueStructured from "./KeyValueStructured";
+
+const FinalOutputDocEditor = lazy(() => import("./FinalOutputDocEditor"));
+const CmsPublishPanel = lazy(() => import("./CmsPublishPanel"));
+const MarkdownArtifactPanel = lazy(() =>
+  import("../shared/MarkdownArtifactPanel")
+);
+const ArtifactFormattedPreview = lazy(() => import("./ArtifactFormattedPreview"));
+const TopicCardStructured = lazy(() => import("./TopicCardStructured"));
+const MetaSeoStructured = lazy(() => import("./MetaSeoStructured"));
+const FactCheckStructured = lazy(() => import("./FactCheckStructured"));
+const BriefStructured = lazy(() => import("./BriefStructured"));
+const ResearchStructured = lazy(() => import("./ResearchStructured"));
+const SerpResearchStructured = lazy(() => import("./SerpResearchStructured"));
+const OutlineStructured = lazy(() => import("./OutlineStructured"));
+const DraftStructured = lazy(() => import("./DraftStructured"));
+const Markdown = lazy(() => import("../shared/Markdown"));
 
 const AUTOSAVE_MS = 1000;
 
 function statusClass(s) {
   if (s === "done" || s === "running" || s === "error" || s === "skipped")
     return s;
-  return "";
+  return "pending";
 }
 
-function statusLabel(s) {
-  if (s === "done") return "Done";
-  if (s === "running") return "Running";
-  if (s === "error") return "Error";
-  if (s === "skipped") return "Skipped";
-  return "Pending";
+function ArtifactChunkFallback() {
+  return <ArtifactSkeleton />;
 }
 
 export default function RunView({
@@ -37,33 +64,85 @@ export default function RunView({
   statusOverrides = {},
   onSelectStep,
   onBack,
+  run: sharedRun = null,
+  refreshRun: sharedRefreshRun,
 }) {
   const { toast } = useToast();
-  const [run, setRun] = useState(null);
+  const [localRun, setLocalRun] = useState(null);
   const [tab, setTab] = useState("output");
   const [error, setError] = useState(null);
   const [outputEditKey, setOutputEditKey] = useState(0);
+  const [clockTick, setClockTick] = useState(0);
+  const usesSharedRun = sharedRefreshRun != null;
 
-  const refreshRun = useCallback(async () => {
+  useEffect(() => {
+    preloadRunChunks();
+  }, []);
+
+  const refreshRunLocal = useCallback(async () => {
     try {
       const r = await api.getRun(client, runId);
-      setRun(r);
+      setLocalRun(r);
       setError(null);
+      return r;
     } catch (e) {
       setError(e?.message || String(e));
+      return null;
     }
   }, [client, runId]);
 
+  const refreshRun = sharedRefreshRun ?? refreshRunLocal;
+
   useEffect(() => {
-    refreshRun();
-    const id = setInterval(refreshRun, 2000);
-    return () => clearInterval(id);
-  }, [refreshRun]);
+    if (usesSharedRun) return undefined;
+    let cancelled = false;
+    let timerId = null;
+
+    async function tick() {
+      if (cancelled || document.visibilityState === "hidden") return;
+      await refreshRunLocal();
+    }
+
+    function schedule() {
+      if (timerId != null) {
+        window.clearInterval(timerId);
+        timerId = null;
+      }
+      if (document.visibilityState === "hidden") return;
+      const running = Object.values(localRun?.statuses || {}).some(
+        (s) => s === "running"
+      );
+      timerId = window.setInterval(tick, running ? 2500 : 30000);
+    }
+
+    tick().then(() => {
+      if (!cancelled) schedule();
+    });
+
+    function onVisibilityChange() {
+      if (document.visibilityState === "visible") {
+        tick().then(() => {
+          if (!cancelled) schedule();
+        });
+      } else if (timerId != null) {
+        window.clearInterval(timerId);
+        timerId = null;
+      }
+    }
+
+    document.addEventListener("visibilitychange", onVisibilityChange);
+    return () => {
+      cancelled = true;
+      if (timerId != null) window.clearInterval(timerId);
+      document.removeEventListener("visibilitychange", onVisibilityChange);
+    };
+  }, [usesSharedRun, refreshRunLocal, localRun?.statuses]);
 
   useEffect(() => {
     function onStepComplete(e) {
       const d = e.detail;
       if (d?.clientId !== client || d?.runId !== runId) return;
+      invalidateArtifactCache(client, runId, d.stepKey);
       refreshRun();
       setTab("output");
     }
@@ -75,16 +154,13 @@ export default function RunView({
     setOutputEditKey(0);
   }, [activeStepKey]);
 
-  useEffect(() => {
-    refreshRun();
-  }, [activeStepKey, refreshRun]);
+  const run = usesSharedRun ? sharedRun : localRun;
 
   const serverStatuses = run?.statuses || {};
   const statuses = { ...serverStatuses, ...statusOverrides };
   const topic = run?.topic || "";
   const pipelineId = run?.pipeline_id || "article";
   const manualInputs = run?.manual_inputs;
-  const isSocial = false;
   const runChromeLabel = topic?.trim() || "";
   const STEPS = useMemo(() => stepsForPipeline(pipelineId), [pipelineId]);
 
@@ -107,6 +183,39 @@ export default function RunView({
   const [stepError, setStepError] = useState(null);
   const [inlineRunning, setInlineRunning] = useState(false);
 
+  const activeTiming = useMemo(
+    () =>
+      resolveStepTiming(
+        activeStep.key,
+        run?.step_timings || {},
+        {},
+        status
+      ),
+    // clockTick keeps running elapsed fresh
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [activeStep.key, run?.step_timings, status, clockTick]
+  );
+
+  const statusText = useMemo(
+    () => formatStepStatusWithDuration(status, activeTiming, Date.now()),
+    [status, activeTiming, clockTick]
+  );
+
+  const inputSrc = useMemo(
+    () => inputSourceForStep(activeStep.key, statuses, pipelineId),
+    [activeStep.key, statuses, pipelineId]
+  );
+  const inputStep = useMemo(() => {
+    if (inputSrc.kind !== "artifact") return null;
+    return STEPS.find((s) => s.key === inputSrc.stepKey) || null;
+  }, [inputSrc, STEPS]);
+
+  useEffect(() => {
+    if (!running) return undefined;
+    const id = window.setInterval(() => setClockTick((t) => t + 1), 1000);
+    return () => window.clearInterval(id);
+  }, [running]);
+
   const prevStatusRef = useRef(null);
   useEffect(() => {
     const prev = prevStatusRef.current;
@@ -116,9 +225,15 @@ export default function RunView({
     prevStatusRef.current = status;
   }, [status]);
 
-  const inputTabTitle = previousStep
-    ? `Input: ${previousStep.label}`
-    : "Input: topic";
+  // Prefer the resolved article input (skips publishing sidecars like meta_seo).
+  const inputTabTitle =
+    inputSrc.kind === "topic"
+      ? "Input: topic"
+      : inputStep
+        ? `Input: ${inputStep.label}`
+        : previousStep
+          ? `Input: ${previousStep.label}`
+          : "Input: topic";
   const outputTabTitle = `Output: ${activeStep.label}`;
 
   return (
@@ -129,9 +244,12 @@ export default function RunView({
             <h1 className="run-page-title run-page-title--inline">
               {activeStep.label}
             </h1>
-            <span className={`status-pill status-pill--sm ${statusClass(status)}`}>
+            <span
+              className={`status-pill status-pill--sm status-pill--fixed ${statusClass(status)}`}
+              title={statusText}
+            >
               <span className={`status-pip ${statusClass(status)}`} />
-              {statusLabel(status)}
+              {statusText}
             </span>
             <span className="run-chrome-step-tag">
               {activeStep.index}/{STEPS.length}
@@ -186,15 +304,13 @@ export default function RunView({
             runId={runId}
             isFirstStep={isFirstStep}
             topic={topic}
-            isSocial={isSocial}
-            manualInputs={manualInputs}
-            onRefreshRun={refreshRun}
             previousStep={previousStep}
             previousStatus={previousStep ? statuses[previousStep.key] : "done"}
             activeStepKey={activeStep.key}
             statuses={statuses}
             toast={toast}
             pipelineId={pipelineId}
+            manualInputs={manualInputs}
           />
         ) : (
           <OutputPanel
@@ -215,11 +331,12 @@ export default function RunView({
             onStepError={setStepError}
             onRunComplete={refreshRun}
             onShowOutput={() => setTab("output")}
-            onGoToNextStep={() => {
+            onGoToNextStep={(() => {
               const i = STEPS.findIndex((s) => s.key === activeStepKey);
               const next = STEPS[i + 1];
-              if (next) onSelectStep(next.key);
-            }}
+              if (!next) return undefined;
+              return () => onSelectStep(next.key);
+            })()}
           />
         )}
       </div>
@@ -230,7 +347,7 @@ export default function RunView({
 function copyMarkdownForStep(markdown, stepName) {
   if (stepName === "final_output") {
     const split = splitFinalOutput(markdown);
-    return split.displayMarkdown || markdown;
+    return (split.displayMarkdown || markdown || "").trim();
   }
   return markdown;
 }
@@ -244,10 +361,15 @@ function CopyOutputButton({ text, stepName, toast }) {
     try {
       const ok = await copyFormattedMarkdown(source);
       if (ok) {
-        toast?.("Copied formatted article — paste into Word or your CMS", {
-          variant: "success",
-          duration: 3500,
-        });
+        toast?.(
+          stepName === "final_output"
+            ? "Copied with formatting — paste into Word, Docs, or your CMS"
+            : "Copied formatted article — paste into Word or your CMS",
+          {
+            variant: "success",
+            duration: 3500,
+          }
+        );
       } else {
         toast?.("Could not copy", { variant: "error", duration: 4000 });
       }
@@ -261,10 +383,51 @@ function CopyOutputButton({ text, stepName, toast }) {
       className="btn btn-sm btn-edit-artifact"
       onClick={handleCopy}
       disabled={copying}
-      title="Copy formatted article (not markdown source)"
+      title="Copy with formatting (headings, bold, lists, links)"
     >
       {copying ? "Copying…" : "Copy"}
     </button>
+  );
+}
+
+function RunManualInputsPanel({ topic, manualInputs }) {
+  const fields = useMemo(
+    () => manualInputsToDisplayFields(manualInputs),
+    [manualInputs]
+  );
+  const topicLead =
+    String(topic || "").trim() ||
+    String(
+      manualInputs?.Topic ||
+        manualInputs?.topic ||
+        ""
+    ).trim();
+
+  return (
+    <div className="run-artifact-shell">
+      <div className="run-artifact-card">
+        <div className="run-artifact-body run-input-topic-body">
+          <div className="run-input-topic-eyebrow">Topic · this run</div>
+          {topicLead ? (
+            <p className="run-input-topic-lead">{topicLead}</p>
+          ) : (
+            <p className="run-input-topic-lead muted">(no topic)</p>
+          )}
+          {fields.length ? (
+            <div className="run-manual-inputs">
+              <div className="run-input-topic-eyebrow run-manual-inputs-eyebrow">
+                Your inputs
+              </div>
+              <KeyValueStructured fields={fields} />
+            </div>
+          ) : (
+            <p className="run-manual-inputs-empty muted">
+              No additional form fields were saved for this run.
+            </p>
+          )}
+        </div>
+      </div>
+    </div>
   );
 }
 
@@ -273,36 +436,19 @@ function InputPanel({
   runId,
   isFirstStep,
   topic,
-  isSocial,
-  manualInputs,
-  onRefreshRun,
   previousStep,
   previousStatus,
   activeStepKey,
   statuses,
   toast,
   pipelineId,
+  manualInputs,
 }) {
   const src = inputSourceForStep(activeStepKey, statuses, pipelineId);
 
   if (isFirstStep || src.kind === "topic") {
-    /* article-only service */
-  }
-
-  if (isFirstStep) {
     return (
-      <div className="run-artifact-shell">
-        <div className="run-artifact-card">
-          <div className="run-artifact-body run-input-topic-body">
-            <div className="run-input-topic-eyebrow">Topic · this run</div>
-            {topic?.trim() ? (
-              <Markdown text={topic} className={`${PIPELINE_MARKDOWN_CLASS} md--topic-input`} />
-            ) : (
-              <p className="run-input-topic-lead muted">(no topic)</p>
-            )}
-          </div>
-        </div>
-      </div>
+      <RunManualInputsPanel topic={topic} manualInputs={manualInputs} />
     );
   }
   if (src.kind === "blocked") {
@@ -314,22 +460,6 @@ function InputPanel({
               Complete earlier steps first — then this step can use their output
               as input.
             </div>
-          </div>
-        </div>
-      </div>
-    );
-  }
-  if (src.kind === "topic") {
-    return (
-      <div className="run-artifact-shell">
-        <div className="run-artifact-card">
-          <div className="run-artifact-body run-input-topic-body">
-            <div className="run-input-topic-eyebrow">Topic · this run</div>
-            {topic?.trim() ? (
-              <Markdown text={topic} className={`${PIPELINE_MARKDOWN_CLASS} md--topic-input`} />
-            ) : (
-              <p className="run-input-topic-lead muted">(no topic)</p>
-            )}
           </div>
         </div>
       </div>
@@ -369,7 +499,11 @@ function OutputPanel({
   onShowOutput,
   onGoToNextStep,
 }) {
-  const showInlineRun = false;
+  const showInlineRun =
+    status !== "done" &&
+    status !== "running" &&
+    !inlineRunning &&
+    canRunStep(step.key, statuses, topic, pipelineId);
 
   async function handleInlineRun() {
     if (!showInlineRun) return;
@@ -450,7 +584,7 @@ function OutputPanel({
       toast={toast}
       headerEditKey={headerEditKey}
       useHeaderEdit
-      onSaveAndContinue={onGoToNextStep}
+      onSaveAndContinue={onGoToNextStep || undefined}
     />
   );
 }
@@ -467,19 +601,33 @@ function ArtifactView({
   useHeaderEdit = false,
   allowStructuredTopicCard = false,
   onSaveAndContinue,
+  enabled = true,
 }) {
-  const [content, setContent] = useState("");
+  const { content, loading, setContent } = useLazyArtifact(
+    client,
+    runId,
+    stepName,
+    { enabled }
+  );
+  const isFinalDoc = stepName === "final_output";
+  const { content: metaSeoText } = useLazyArtifact(
+    client,
+    runId,
+    "meta_seo",
+    { enabled: enabled && isFinalDoc }
+  );
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState("");
-  const [loading, setLoading] = useState(false);
   const [savedAt, setSavedAt] = useState(0);
-  const lastKey = useRef("");
   const autosaveTimer = useRef(null);
   const lastHeaderEditKey = useRef(-1);
-  const isFinalDoc = stepName === "final_output";
   const showCopyOutput = ["draft", "fact_check", "final_output", "captions"].includes(
     stepName
   );
+
+  useEffect(() => {
+    setDraft(content);
+  }, [content, stepName]);
 
   function clearAutosaveTimer() {
     if (autosaveTimer.current !== null) {
@@ -492,6 +640,7 @@ function ArtifactView({
     lastHeaderEditKey.current = -1;
     if (stepName === "final_output" && !readOnly) setEditing(true);
     else setEditing(false);
+    return clearAutosaveTimer;
   }, [stepName, readOnly]);
 
   useEffect(() => {
@@ -501,28 +650,6 @@ function ArtifactView({
     lastHeaderEditKey.current = headerEditKey;
     setEditing(true);
   }, [headerEditKey, readOnly, useHeaderEdit]);
-
-  useEffect(() => {
-    const key = `${client}|${runId}|${stepName}`;
-    lastKey.current = key;
-    let cancelled = false;
-    setLoading(true);
-    api
-      .getArtifact(client, runId, stepName)
-      .then((c) => {
-        if (cancelled || lastKey.current !== key) return;
-        setContent(c);
-        setDraft(c);
-        setLoading(false);
-      })
-      .catch(() => {
-        if (!cancelled) setLoading(false);
-      });
-    return () => {
-      cancelled = true;
-      clearAutosaveTimer();
-    };
-  }, [client, runId, stepName]);
 
   useEffect(() => {
     if (!editing || readOnly || loading) return;
@@ -571,24 +698,82 @@ function ArtifactView({
     }
   }
 
-  const showEditorDock =
-    !readOnly && editing && typeof onSaveAndContinue === "function";
+  const canContinue = typeof onSaveAndContinue === "function";
+  const isDirty = !readOnly && draft !== content;
+  // Save only after real edits; continue stays available on earlier steps while editing.
+  const showEditorDock = !readOnly && editing && (isDirty || canContinue);
 
   const topicCardPreview =
     stepName === "topic_card" &&
     Boolean(parseTopicCard(content)) &&
     (!readOnly || allowStructuredTopicCard) ? (
-      <TopicCardStructured text={content} manualInputs={manualInputs} />
+      <Suspense fallback={null}>
+        <TopicCardStructured text={content} manualInputs={manualInputs} />
+      </Suspense>
     ) : null;
 
-  const structuredOnly = topicCardPreview || null;
+  const metaSeoPreview =
+    stepName === "meta_seo" && isMetaSeoFormat(content) ? (
+      <Suspense fallback={null}>
+        <MetaSeoStructured text={content} toast={toast} />
+      </Suspense>
+    ) : null;
+  const factCheckPreview =
+    stepName === "fact_check" && isFactCheckFormat(content) ? (
+      <Suspense fallback={null}>
+        <FactCheckStructured text={content} />
+      </Suspense>
+    ) : null;
+  const briefPreview =
+    stepName === "assignment_brief" && isBriefFormat(content) ? (
+      <Suspense fallback={null}>
+        <BriefStructured text={content} />
+      </Suspense>
+    ) : null;
+  const researchPreview =
+    stepName === "research" && isResearchFormat(content) ? (
+      <Suspense fallback={null}>
+        <ResearchStructured text={content} />
+      </Suspense>
+    ) : null;
+  const serpPreview =
+    stepName === "serp_research" && isSerpResearchFormat(content) ? (
+      <Suspense fallback={null}>
+        <SerpResearchStructured text={content} />
+      </Suspense>
+    ) : null;
+  const outlinePreview =
+    stepName === "outline" && isOutlineFormat(content) ? (
+      <Suspense fallback={null}>
+        <OutlineStructured text={content} />
+      </Suspense>
+    ) : null;
+  const draftPreview =
+    stepName === "draft" && String(content || "").trim() ? (
+      <Suspense fallback={null}>
+        <DraftStructured text={content} />
+      </Suspense>
+    ) : null;
+  const structuredOnly =
+    topicCardPreview ||
+    metaSeoPreview ||
+    factCheckPreview ||
+    briefPreview ||
+    researchPreview ||
+    serpPreview ||
+    outlinePreview ||
+    draftPreview ||
+    null;
 
   const formattedPreview = structuredOnly ? (
-    <ArtifactFormattedPreview
-      structured={structuredOnly}
-      content={content}
-      showFullSource={false}
-    />
+    <Suspense fallback={null}>
+      <ArtifactFormattedPreview
+        structured={structuredOnly}
+        content={content}
+        showFullSource={false}
+        stepKey={stepName}
+      />
+    </Suspense>
   ) : null;
 
   const artifactShellClass = "run-artifact-shell";
@@ -596,9 +781,7 @@ function ArtifactView({
   if (loading) {
     return (
       <div className="run-artifact-shell">
-        <div className="empty-state">
-          <span className="spinner" /> loading…
-        </div>
+        <ArtifactSkeleton />
       </div>
     );
   }
@@ -621,92 +804,109 @@ function ArtifactView({
 
   const editorDock = showEditorDock ? (
     <div className="run-editor-dock">
-      <button
-        type="button"
-        className="btn btn-dock-secondary"
-        onClick={handleSave}
-      >
-        Save
-      </button>
-      <button
-        type="button"
-        className="btn btn-primary btn-dock-primary"
-        onClick={handleSaveAndContinue}
-      >
-        Save &amp; continue
-        <span className="btn-play-ico" aria-hidden>
-          ▶
-        </span>
-      </button>
+      {isDirty ? (
+        <button
+          type="button"
+          className={
+            canContinue
+              ? "btn btn-dock-secondary"
+              : "btn btn-primary btn-dock-primary"
+          }
+          onClick={handleSave}
+        >
+          Save
+        </button>
+      ) : null}
+      {canContinue ? (
+        <button
+          type="button"
+          className="btn btn-primary btn-dock-primary"
+          onClick={handleSaveAndContinue}
+        >
+          {isDirty ? "Save & continue" : "Continue"}
+          <span className="btn-play-ico" aria-hidden>
+            ▶
+          </span>
+        </button>
+      ) : null}
     </div>
   ) : null;
 
   return (
     <div className={artifactShellClass}>
       <div className="run-artifact-card">
-        {isFinalDoc ? (
-          <>
-            <div
-              className={`run-artifact-body run-artifact-body--flush`}
-            >
-              <FinalOutputDocEditor
-                value={editing ? draft : content}
-                onChange={setDraft}
-                readOnly={!editing || readOnly}
-                targetWordCount={targetWordCount}
-                onRequestEdit={() => setEditing(true)}
-                toolbarExtra={
-                  !readOnly ? (
-                    <>
-                      {savedHint}
-                      {showCopyOutput ? (
-                        <CopyOutputButton
-                          text={editing ? draft : content}
-                          stepName={stepName}
-                          toast={toast}
-                        />
-                      ) : null}
-                    </>
-                  ) : null
-                }
-              />
-            </div>
-            {editorDock}
-          </>
-        ) : (
-          <MarkdownArtifactPanel
-            content={content}
-            draft={draft}
-            editing={editing && !readOnly}
-            onDraftChange={setDraft}
-            onEditingChange={(v) => {
-              if (!v) clearAutosaveTimer();
-              setEditing(v);
-            }}
-            readOnly={readOnly}
-            canEdit={!readOnly && !formattedPreview}
-            bodyClassName={formattedPreview ? "run-artifact-body--flush" : ""}
-            previewNode={formattedPreview}
-            savedHint={formattedPreview ? null : savedHint}
-            footer={editorDock}
-            textareaRows={22}
-            showCopy={Boolean(content) && !formattedPreview}
-            copySource={
-              stepName === "final_output"
-                ? copyMarkdownForStep(content, stepName)
-                : content
-            }
-            onCopySuccess={() =>
-              toast?.("Copied formatted article — paste into Word or your CMS", {
-                variant: "success",
-                duration: 3500,
-              })
-            }
-            onCopyError={() =>
-              toast?.("Could not copy", { variant: "error", duration: 4000 })
-            }
-          />
-        )}
+        <Suspense fallback={<ArtifactChunkFallback />}>
+          {isFinalDoc ? (
+            <>
+              <div className="run-artifact-body run-artifact-body--flush">
+                <FinalOutputDocEditor
+                  value={editing ? draft : content}
+                  onChange={setDraft}
+                  readOnly={!editing || readOnly}
+                  targetWordCount={targetWordCount}
+                  metaSeoText={metaSeoText}
+                  onRequestEdit={() => setEditing(true)}
+                  toolbarExtra={
+                    !readOnly ? (
+                      <>
+                        {savedHint}
+                        {showCopyOutput ? (
+                          <CopyOutputButton
+                            text={editing ? draft : content}
+                            stepName={stepName}
+                            toast={toast}
+                          />
+                        ) : null}
+                      </>
+                    ) : null
+                  }
+                />
+              </div>
+              {editorDock}
+            </>
+          ) : (
+            <MarkdownArtifactPanel
+              content={content}
+              stepKey={stepName}
+              draft={draft}
+              editing={editing && !readOnly}
+              onDraftChange={setDraft}
+              onEditingChange={(v) => {
+                if (!v) clearAutosaveTimer();
+                setEditing(v);
+              }}
+              readOnly={readOnly}
+              canEdit={!readOnly && stepName !== "content_to_cms"}
+              bodyClassName={formattedPreview ? "run-artifact-body--flush" : ""}
+              previewNode={formattedPreview}
+              savedHint={savedHint}
+              footer={editorDock}
+              textareaRows={22}
+              showCopy={Boolean(content) && stepName !== "content_to_cms"}
+              copySource={
+                stepName === "final_output"
+                  ? copyMarkdownForStep(content, stepName)
+                  : content
+              }
+              onCopySuccess={() =>
+                toast?.(
+                  stepName === "final_output" || stepName === "draft"
+                    ? "Copied formatted article — paste into Word or your CMS"
+                    : "Copied to clipboard",
+                  { variant: "success", duration: 3500 }
+                )
+              }
+              onCopyError={() =>
+                toast?.("Could not copy", { variant: "error", duration: 4000 })
+              }
+            />
+          )}
+        </Suspense>
+        {stepName === "content_to_cms" && !readOnly ? (
+          <Suspense fallback={null}>
+            <CmsPublishPanel client={client} runId={runId} toast={toast} />
+          </Suspense>
+        ) : null}
       </div>
     </div>
   );

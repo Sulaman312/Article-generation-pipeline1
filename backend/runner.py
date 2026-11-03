@@ -3,6 +3,7 @@ import logging
 
 from . import artifacts
 from . import pipeline
+from .pipeline_steps import MANUAL_ONLY_STEPS
 
 logger = logging.getLogger(__name__)
 
@@ -27,6 +28,8 @@ def run_pipeline(client_id: str, topic: str, verbose: bool = True) -> str:
 
     previous = topic
     for step_name in pipeline.STEP_ORDER:
+        if step_name in MANUAL_ONLY_STEPS:
+            continue
         run_step = pipeline.STEP_RUNNERS[step_name]
         timings = artifacts.record_step_started(client_id, run_id, step_name)
         statuses[step_name] = "running"

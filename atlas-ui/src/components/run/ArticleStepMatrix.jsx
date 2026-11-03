@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { PIPELINE_STEPS as STEPS } from "../../constants/pipeline";
+import { stepsForPipeline } from "../../constants/pipelines";
 import {
   formatRunDate,
   formatRunDateTime,
@@ -8,8 +8,6 @@ import {
 } from "../../utils/formatRelativeAge";
 import MatrixRunActions from "./MatrixRunActions";
 import "./ArticleStepMatrix.css";
-
-const STEP_KEYS = STEPS.map((s) => s.key);
 
 function MatrixDoneGlyph() {
   return (
@@ -239,6 +237,7 @@ export default function ArticleStepMatrix({
   showRestore = false,
   emptyMessage = "No articles yet. Create a run from the Article board.",
 }) {
+  const steps = stepsForPipeline();
   return (
     <div
       className={`matrix-scroll${selectionMode ? " matrix-scroll--edit-mode" : ""}`}
@@ -247,7 +246,7 @@ export default function ArticleStepMatrix({
         <thead>
           <tr>
             <th className="matrix-th matrix-th--input">Input</th>
-            {STEPS.map((s) => (
+            {steps.map((s) => (
               <th
                 key={s.key}
                 className="matrix-th matrix-th--step"
@@ -261,7 +260,7 @@ export default function ArticleStepMatrix({
         <tbody>
           {runs.length === 0 && !loading ? (
             <tr>
-              <td colSpan={STEPS.length + 1} className="matrix-empty">
+              <td colSpan={steps.length + 1} className="matrix-empty">
                 {emptyMessage}
               </td>
             </tr>
@@ -314,7 +313,7 @@ export default function ArticleStepMatrix({
                     onDeleteRun={onDeleteRun}
                   />
                 </td>
-                {STEPS.map((s) => (
+                {steps.map((s) => (
                   <MatrixCell
                     key={s.key}
                     status={(r.statuses || {})[s.key]}

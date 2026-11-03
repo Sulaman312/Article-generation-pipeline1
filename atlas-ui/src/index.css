@@ -98,6 +98,10 @@ body,
   height: 100%;
 }
 
+#root:has(.layout) {
+  overflow: hidden;
+}
+
 body {
   background: var(--bg);
   color: var(--text);

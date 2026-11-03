@@ -24,4 +24,9 @@ COPY --from=ui-build /app/atlas-ui/build atlas-ui/build
 
 EXPOSE 8000
 
+HEALTHCHECK --interval=30s --timeout=5s --start-period=40s --retries=3 \
+  CMD python -c "import urllib.request; urllib.request.urlopen('http://127.0.0.1:%s/ready' % (__import__('os').environ.get('PORT','8000')))" || exit 1
+
+# In-process step jobs: keep a single worker so cancel/job state stays coherent.
 CMD ["sh", "-c", "gunicorn --bind :${PORT:-8000} --workers 1 --threads 8 --timeout 900 main:app"]
+
