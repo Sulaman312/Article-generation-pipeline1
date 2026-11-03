@@ -49,6 +49,37 @@ class WordCountSectionTests(unittest.TestCase):
         self.assertIn("Steps", text)
         self.assertIn("2,100", text)
 
+    def test_french_outline_word_counts_use_mots(self):
+        outline = (
+            "---OUTLINE START---\n"
+            "H2: Étapes seulement\n"
+            "  WORD COUNT: 200–250 words\n"
+            "H2: Lire une étiquette\n"
+            "  WORD COUNT: 400–450 words\n"
+            "TOTAL ESTIMATED WORD COUNT: 800 words (form target)\n"
+            "---OUTLINE END---\n"
+        )
+        out = editorial_input.enforce_outline_section_word_counts(
+            outline, 2200, lang="fr"
+        )
+        self.assertIn("mots", out)
+        self.assertNotIn(" words", out)
+        self.assertIn("cible du formulaire", out)
+        self.assertNotIn("form target", out)
+
+    def test_english_outline_word_counts_keep_words(self):
+        outline = (
+            "---OUTLINE START---\n"
+            "H2: Setup\n"
+            "  WORD COUNT: 200–250 words\n"
+            "---OUTLINE END---\n"
+        )
+        out = editorial_input.enforce_outline_section_word_counts(
+            outline, 800, lang="en"
+        )
+        self.assertIn("words", out)
+        self.assertNotIn("mots", out)
+
 
 if __name__ == "__main__":
     unittest.main()

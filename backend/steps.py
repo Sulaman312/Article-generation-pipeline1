@@ -387,7 +387,13 @@ def run_step_1(client_id: str, run_id: str, previous_artifact: str = "") -> str:
         max_tokens=max_tokens_for_step(step_name, word_count_target=wc_target),
     )
     if wc_target:
-        output = editorial_input.enforce_word_count_in_topic_card(output, wc_target)
+        output = editorial_input.enforce_word_count_in_topic_card(
+            output,
+            wc_target,
+            lang=editorial_input.article_language_from_manual(
+                manual if isinstance(manual, dict) else None
+            ),
+        )
     if isinstance(manual, dict):
         output = editorial_input.apply_manual_keywords_topic_card(
             output, manual, semrush_notes=""
@@ -857,7 +863,9 @@ def run_step_2(client_id: str, run_id: str, previous_artifact: str = "") -> str:
         max_tokens=max_tokens_for_step(step_name, word_count_target=wc_target),
     )
     if wc_target:
-        output = editorial_input.enforce_word_count_in_brief(output, wc_target)
+        output = editorial_input.enforce_word_count_in_brief(
+            output, wc_target, lang=lang
+        )
     output = writing_format_enforce.enforce_brief(output, allow_llm_repair=True)
     # French runs: English jargon in a brief is copied downstream. Retry, never pass it on.
     output = _enforce_french(
@@ -938,7 +946,9 @@ def run_step_4(client_id: str, run_id: str, previous_artifact: str = "") -> str:
         max_tokens=max_tokens_for_step(step_name, word_count_target=wc_target),
     )
     if wc_target:
-        output = editorial_input.enforce_outline_section_word_counts(output, wc_target)
+        output = editorial_input.enforce_outline_section_word_counts(
+            output, wc_target, lang=lang
+        )
     output = writing_format_enforce.enforce_outline(output, allow_llm_repair=True)
     output = _enforce_french(
         output, client_id=client_id, run_id=run_id, step_label=step_label

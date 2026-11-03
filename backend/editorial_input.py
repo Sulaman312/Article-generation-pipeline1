@@ -90,15 +90,35 @@ def word_count_from_manual(manual: dict | None) -> int | None:
         return None
 
 
-def word_count_range_label(target: int) -> str:
+def word_count_unit(lang: str | None = None) -> str:
+    """Visible unit on word-count lines. French outlines fail QA if this stays 'words'."""
+    return "mots" if (lang or "").lower() == "fr" else "words"
+
+
+def word_count_range_label(target: int, *, lang: str | None = None) -> str:
     """±WORD_COUNT_TOLERANCE range label for topic card / brief."""
     low, high = word_count_bounds(target)
-    return f"{low:,}–{high:,} words"
+    return f"{low:,}–{high:,} {word_count_unit(lang)}"
 
 
-def word_count_exact_label(target: int) -> str:
+def word_count_exact_label(target: int, *, lang: str | None = None) -> str:
     """Single-number label from the article form (what the editor entered)."""
-    return f"{max(100, int(target)):,} words (form target)"
+    n = max(100, int(target))
+    if (lang or "").lower() == "fr":
+        return f"{n:,} mots (cible du formulaire)"
+    return f"{n:,} words (form target)"
+
+
+def localize_word_count_units(text: str, lang: str | None = None) -> str:
+    """Rewrite leftover English 'N words' labels on French artifacts."""
+    if (lang or "").lower() != "fr" or not text:
+        return text
+    out = re.sub(
+        r"(?i)(\d[\d,]*(?:\s*[–-]\s*\d[\d,]*)?)\s+words\b",
+        r"\1 mots",
+        text,
+    )
+    return out.replace("(form target)", "(cible du formulaire)")
 
 
 def word_count_bounds(
@@ -891,61 +911,82 @@ def _replace_delimited_line(
     return text[: start + len(start_marker)] + body + text[end:]
 
 
-def enforce_word_count_in_brief(text: str, target: int) -> str:
-    exact = word_count_exact_label(target)
-    return _replace_delimited_line(
-        text,
-        start_marker="---BRIEF START---",
-        end_marker="---BRIEF END---",
-        line_prefix="WORD COUNT TARGET:",
-        new_line=f"WORD COUNT TARGET: {exact}",
+def enforce_word_count_in_brief(
+    text: str, target: int, *, lang: str | None = None
+) -> str:
+    exact = word_count_exact_label(target, lang=lang)
+    return localize_word_count_units(
+        _replace_delimited_line(
+            text,
+            start_marker="---BRIEF START---",
+            end_marker="---BRIEF END---",
+            line_prefix="WORD COUNT TARGET:",
+            new_line=f"WORD COUNT TARGET: {exact}",
+        ),
+        lang,
     )
 
 
-def enforce_word_count_in_outline(text: str, target: int) -> str:
+def enforce_word_count_in_outline(
+    text: str, target: int, *, lang: str | None = None
+) -> str:
     n = max(100, int(target))
-    return _replace_delimited_line(
-        text,
-        start_marker="---OUTLINE START---",
-        end_marker="---OUTLINE END---",
-        line_prefix="TOTAL ESTIMATED WORD COUNT:",
-        new_line=f"TOTAL ESTIMATED WORD COUNT: {n:,} words (form target)",
+    unit = word_count_unit(lang)
+    suffix = (
+        f"{n:,} {unit} (cible du formulaire)"
+        if (lang or "").lower() == "fr"
+        else f"{n:,} {unit} (form target)"
+    )
+    return localize_word_count_units(
+        _replace_delimited_line(
+            text,
+            start_marker="---OUTLINE START---",
+            end_marker="---OUTLINE END---",
+            line_prefix="TOTAL ESTIMATED WORD COUNT:",
+            new_line=f"TOTAL ESTIMATED WORD COUNT: {suffix}",
+        ),
+        lang,
     )
 
 
 _OUTLINE_SECTION_WC = re.compile(r"(^  WORD COUNT:\s*)(.+)$", re.MULTILINE)
 
 
-def enforce_outline_section_word_counts(text: str, target: int) -> str:
+def enforce_outline_section_word_counts(
+    text: str, target: int, *, lang: str | None = None
+) -> str:
     """Rescale per-H2 WORD COUNT lines so they sum to the form target."""
-    text = enforce_word_count_in_outline(text, target)
+    text = enforce_word_count_in_outline(text, target, lang=lang)
     matches = list(_OUTLINE_SECTION_WC.finditer(text))
     if not matches:
-        return text
+        return localize_word_count_units(text, lang)
     n = len(matches)
     body_target = max(n * 80, int(target * 0.9))
     base, extra = divmod(body_target, n)
+    unit = word_count_unit(lang)
     out: list[str] = []
     pos = 0
     for i, m in enumerate(matches):
         out.append(text[pos : m.start()])
         words = base + (1 if i < extra else 0)
         slack = max(25, words // 6)
-        out.append(f"{m.group(1)}{words}–{words + slack} words")
+        out.append(f"{m.group(1)}{words}–{words + slack} {unit}")
         pos = m.end()
     out.append(text[pos:])
-    return "".join(out)
+    return localize_word_count_units("".join(out), lang)
 
 
-def enforce_word_count_in_topic_card(text: str, target: int) -> str:
+def enforce_word_count_in_topic_card(
+    text: str, target: int, *, lang: str | None = None
+) -> str:
     """Replace RECOMMENDED WORD COUNT in a topic card if the model ignored the form."""
     if not text or not target:
         return text
     start = text.find(TOPIC_CARD_START)
     end = text.find(TOPIC_CARD_END)
     if start == -1 or end == -1 or end <= start:
-        return text
-    new_line = f"RECOMMENDED WORD COUNT: {word_count_exact_label(target)}"
+        return localize_word_count_units(text, lang)
+    new_line = f"RECOMMENDED WORD COUNT: {word_count_exact_label(target, lang=lang)}"
     body = text[start + len(TOPIC_CARD_START) : end]
     if re.search(r"^RECOMMENDED WORD COUNT:", body, re.MULTILINE):
         body = re.sub(
@@ -957,10 +998,9 @@ def enforce_word_count_in_topic_card(text: str, target: int) -> str:
         )
     else:
         body = body.rstrip() + "\n" + new_line + "\n"
-    return (
-        text[: start + len(TOPIC_CARD_START)]
-        + body
-        + text[end:]
+    return localize_word_count_units(
+        text[: start + len(TOPIC_CARD_START)] + body + text[end:],
+        lang,
     )
 
 

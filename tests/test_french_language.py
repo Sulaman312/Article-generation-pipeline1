@@ -151,6 +151,26 @@ class EnglishHeadingTests(unittest.TestCase):
         self.assertIn("KEY TAKEAWAYS NOTE", out)  # parsed label untouched
         self.assertIn("English `## Frequently Asked Questions`", out)  # comparison line kept
 
+    def test_step_templates_use_mots_for_word_count_examples(self):
+        out = french_language.localize_step_prompt(
+            "  WORD COUNT: [specific range — e.g. 180–220 words; stay lean]\n"
+        )
+        self.assertIn("180–220 mots", out)
+        self.assertNotIn("220 words", out)
+
+    def test_french_outline_with_mots_passes_scan(self):
+        outline = (
+            "H1: Sucres cachés : où les trouver\n\n"
+            "H2: Étapes seulement\n"
+            "  PURPOSE: Expliquer comment lire une étiquette.\n"
+            "  WORD COUNT: 270–315 mots\n"
+        )
+        issues = french_language.scan_french(outline, spelling=False)
+        self.assertFalse(
+            any(i.term.lower() == "words" for i in issues),
+            msg=issues,
+        )
+
     def test_prompt_builder_localizes_the_outline_template(self):
         from backend import prompt_cache, prompts
 

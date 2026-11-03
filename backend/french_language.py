@@ -428,6 +428,8 @@ def localize_step_prompt(text: str) -> str:
             continue
         for en, fr in _FIXED_HEADINGS:
             line = line.replace(en, fr)
+        # Count examples in templates ("180–220 words") must not teach English "words".
+        line = re.sub(r"(?i)(\d[\d,]*(?:\s*[–-]\s*\d[\d,]*)?)\s+words\b", r"\1 mots", line)
         out.append(line)
     return "\n".join(out)
 
