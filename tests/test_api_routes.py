@@ -46,6 +46,19 @@ class ApiRouteTests(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.get_json()["clients"], [])
 
+    def test_quality_diagnostic_is_authenticated_and_keeps_artifact_separate(self):
+        from backend import quality_execution
+        quality_execution.save_diagnostic("client-a", "r", "outline", {
+            "kind": "rejected", "content": "This is English.", "issues": []
+        })
+        url = "/clients/client-a/runs/r/quality/outline"
+        client = self.app.test_client()
+        self.assertEqual(client.get(url).status_code, 401)
+        response = client.get(url, headers=self.headers)
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.get_json()["content"], "This is English.")
+        self.assertEqual(client.get("/clients/client-a/runs/r/artifacts/outline", headers=self.headers).get_json()["content"], "")
+
     def test_pipeline_steps_endpoint(self):
         response = self.app.test_client().get(
             "/pipeline/steps", headers=self.headers

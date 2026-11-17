@@ -11,6 +11,7 @@ from . import faq_schema
 from . import final_output_enforce
 from . import french_language
 from . import job_control
+from . import quality_execution
 from .step_markers import extract_step_body, wrap_step_artifact
 from . import writing_format_enforce
 from .integrations import anthropic as claude
@@ -87,15 +88,20 @@ def _enforce_french(
 
     No-op for non-French runs. Raises ``FrenchQualityError`` after the retries.
     """
+    quality_execution.candidate_output.set(text)
     if not config.FRENCH_QA_ENABLED or _run_language(client_id, run_id) != "fr":
         return text
-    return french_language.enforce_french_artifact(
+    checked = french_language.enforce_french_artifact(
         text,
         step_label=step_label,
         glossary=_french_glossary(client_id),
         spelling=spelling and config.FRENCH_SPELLCHECK_ENABLED,
         attempts=config.QUALITY_RETRY_ATTEMPTS,
     )
+    research_steps = {"serp_research", "research", "atp_topic_research", "paa_faq_research", "case_study_research", "research_audit"}
+    if any(f"({name})" in step_label for name in research_steps):
+        return french_language.canonicalize_research_headings(checked)
+    return checked
 
 
 def _retry_call(fn, *, label: str, attempts: int | None = None, delay: float = 3.0):
@@ -155,12 +161,19 @@ def _chat_complete(
     if isinstance(system_msg, CachedPrompt):
         if debug_system_message:
             _debug_log_cached_prompt(system_msg)
-        return claude.chat_complete(
+        output = claude.chat_complete(
             system_msg,
             step_label=system_msg.step_label or step_label,
             max_tokens=max_tokens,
             temperature=temperature,
         )
+        quality_execution.candidate_output.set(output)
+        if config.FRENCH_QA_ENABLED and french_language.FRENCH_RULE in system_msg.system_text:
+            output = french_language.enforce_french_artifact(
+                output, step_label=step_label, structural=True,
+                glossary=quality_execution.active_glossary.get(),
+            )
+        return output
     if debug_system_message and isinstance(system_msg, str):
         logger.debug(
             "%s system_len=%s has_context_md=%s preview=%s",
@@ -398,6 +411,7 @@ def run_step_1(client_id: str, run_id: str, previous_artifact: str = "") -> str:
         output = editorial_input.apply_manual_keywords_topic_card(
             output, manual, semrush_notes=""
         )
+    output = _enforce_french(output, client_id=client_id, run_id=run_id, step_label=_step_label(step_name))
     output = wrap_step_artifact(step_name, output)
     if isinstance(manual, dict):
         output = editorial_input.apply_manual_internal_links_topic_card(output, manual)
@@ -421,6 +435,7 @@ def run_serp_research(client_id: str, run_id: str, previous_artifact: str = "") 
         logger.info("%s: no PERPLEXITY_API_KEY — writing manual placeholder", step_name)
         output = ppx.manual_serp_placeholder()
 
+    output = _enforce_french(output, client_id=client_id, run_id=run_id, step_label=_step_label(step_name))
     output = wrap_step_artifact(step_name, output)
     artifacts.save_artifact(client_id, run_id, step_name, output)
     logger.info("step complete %s", step_name)
@@ -505,6 +520,7 @@ def run_atp_topic_research(client_id: str, run_id: str, previous_artifact: str =
         logger.info("%s: no PERPLEXITY_API_KEY — writing manual placeholder", step_name)
         output = ppx.manual_atp_topic_placeholder()
 
+    output = _enforce_french(output, client_id=client_id, run_id=run_id, step_label=_step_label(step_name))
     output = wrap_step_artifact(step_name, output)
     artifacts.save_artifact(client_id, run_id, step_name, output)
     logger.info("step complete %s", step_name)
@@ -562,6 +578,7 @@ def run_case_study_research(client_id: str, run_id: str, previous_artifact: str 
                 step_name, url_verify.append_url_verification(output, limit=20)
             )
 
+    output = _enforce_french(output, client_id=client_id, run_id=run_id, step_label=_step_label(step_name))
     output = wrap_step_artifact(step_name, output)
     artifacts.save_artifact(client_id, run_id, step_name, output)
     logger.info("step complete %s", step_name)
@@ -616,6 +633,7 @@ def run_research_audit(client_id: str, run_id: str, previous_artifact: str = "")
         temperature=0.2,
         max_tokens=max_tokens_for_step(step_name),
     )
+    output = _enforce_french(output, client_id=client_id, run_id=run_id, step_label=_step_label(step_name))
     output = wrap_step_artifact(step_name, output)
     artifacts.save_artifact(client_id, run_id, step_name, output)
     logger.info("step complete %s", step_name)
@@ -816,6 +834,7 @@ def run_paa_faq_research(client_id: str, run_id: str, previous_artifact: str = "
         logger.info("%s: no PERPLEXITY_API_KEY — writing manual placeholder", step_name)
         output = ppx.manual_paa_faq_placeholder()
 
+    output = _enforce_french(output, client_id=client_id, run_id=run_id, step_label=_step_label(step_name))
     output = wrap_step_artifact(step_name, output)
     artifacts.save_artifact(client_id, run_id, step_name, output)
     logger.info("step complete %s", step_name)
@@ -907,6 +926,7 @@ def run_step_3(client_id: str, run_id: str, previous_artifact: str = "") -> str:
         step_name=step_name,
     )
     output = _chat_complete(cached, max_tokens=max_tokens_for_step(step_name))
+    output = _enforce_french(output, client_id=client_id, run_id=run_id, step_label=_step_label(step_name))
     output = wrap_step_artifact(step_name, output)
     artifacts.save_artifact(client_id, run_id, step_name, output)
     logger.info("step complete %s", step_name)
@@ -1043,6 +1063,7 @@ def run_step_5(client_id: str, run_id: str, previous_artifact: str = "") -> str:
         output = final_output_enforce.inject_form_internal_links(output, form_links)
 
     output = faq_schema.enforce_faq_answer_length(output)
+    output = _enforce_french(output, client_id=client_id, run_id=run_id, step_label=_step_label(step_name))
     output = wrap_step_artifact(step_name, output)
     artifacts.save_artifact(client_id, run_id, step_name, output)
     logger.info("step complete %s", step_name)
@@ -1137,9 +1158,11 @@ def run_step_7(client_id: str, run_id: str, previous_artifact: str = "") -> str:
         "final_output: applying mechanical polish + hard gates (no second article write)"
     )
     output = faq_schema.wrap_final_article(article)
+    quality_execution.candidate_output.set(output)
     output = final_output_enforce.enforce_final_output(
         output, client_id, run_id, allow_llm_repair=True
     )
+    output = _enforce_french(output, client_id=client_id, run_id=run_id, step_label=_step_label(step_name))
     output = wrap_step_artifact(step_name, output)
     artifacts.save_artifact(client_id, run_id, step_name, output)
     logger.info("step complete %s", step_name)

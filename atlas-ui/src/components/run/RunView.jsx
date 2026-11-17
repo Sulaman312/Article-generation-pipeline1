@@ -28,6 +28,7 @@ import { PIPELINE_MARKDOWN_CLASS } from "../../constants/markdownPreview";
 import { splitFinalOutput } from "../../utils/parseFinalOutput";
 import { manualInputsToDisplayFields } from "../../utils/editorialFields";
 import KeyValueStructured from "./KeyValueStructured";
+import QualityDiagnostic from "./QualityDiagnostic";
 
 const FinalOutputDocEditor = lazy(() => import("./FinalOutputDocEditor"));
 const CmsPublishPanel = lazy(() => import("./CmsPublishPanel"));
@@ -547,6 +548,9 @@ function OutputPanel({
       </div>
     );
   }
+  if (status === "error") {
+    return <QualityDiagnostic client={client} runId={runId} stepName={step.key} showEmpty />;
+  }
   if (status !== "done") {
     return (
       <div className="run-artifact-shell">
@@ -575,6 +579,8 @@ function OutputPanel({
     );
   }
   return (
+    <>
+    {step.key === "topic_card" && <QualityDiagnostic client={client} runId={runId} stepName={step.key} />}
     <ArtifactView
       client={client}
       runId={runId}
@@ -586,6 +592,7 @@ function OutputPanel({
       useHeaderEdit
       onSaveAndContinue={onGoToNextStep || undefined}
     />
+    </>
   );
 }
 

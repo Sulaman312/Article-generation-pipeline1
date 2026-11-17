@@ -91,3 +91,12 @@ __all__ = [
     "WRITING_FORMAT_BLOCK",
     "with_writing_format_guidelines",
 ]
+
+
+def french_template(text: str) -> str | None:
+    """Select a French template without changing the English pipeline."""
+    for filename in _PROMPTS_DIR.glob("*.md"):
+        if text.strip() == filename.read_text(encoding="utf-8").strip():
+            return ((_ROOT_PROMPTS_DIR / "french_common.md").read_text(encoding="utf-8")
+                    + "\n" + (_ROOT_PROMPTS_DIR / "fr" / filename.name).read_text(encoding="utf-8"))
+    return None

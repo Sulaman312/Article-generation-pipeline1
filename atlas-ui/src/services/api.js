@@ -670,3 +670,7 @@ export async function getContextFilesCatalog() {
 export async function getPipelineSteps() {
   return request("/pipeline/steps");
 }
+
+export async function getQualityDiagnostic(clientId, runId, stepName) {
+  return request(`/clients/${encodeURIComponent(clientId)}/runs/${encodeURIComponent(runId)}/quality/${encodeURIComponent(stepName)}`);
+}

@@ -112,3 +112,46 @@ git push -u origin main
 ## Sister repo
 
 `post-generation-pipeline` — social media posts (ports 8001 / 3001).
+
+## French quality checks and diagnostics
+
+French runs now select templates from `backend/prompts/fr/` and common rules from
+`backend/prompts/french_common.md`. Shared model-facing labels live in
+`backend/prompts/french_labels.json`. English runs retain their existing templates.
+Fixed field names, JSON keys, enums and delimiters remain a separate machine protocol
+for compatibility with the existing parsers; their prose values are French.
+
+The scanner protects citation names, workspace allowlisted phrases, URLs, Markdown
+and HTML link anchors, quoted titles, fenced code and inline backticks. Acronym and
+proper-name exemptions preserve case. Isolated ambiguous English tokens produce
+warnings; English phrases/headings, explicit banned terms, placeholders and spelling
+errors remain blocking. The default replacements now include `hero`, `bullet` and
+`from`. Workspace glossaries can override their replacements.
+
+Before the first step, a free preflight scans effective French templates, manual
+inputs and workspace context. Findings are logged and shown with the topic-card
+output. Source material may legitimately be English, so preflight findings are
+advisory. No model call is made by preflight.
+
+French generation and research outputs are checked before downstream use. Repairs
+use exact snippets and preserve protected text and numbers. `QUALITY_RETRY_ATTEMPTS`
+controls repairs per check (default 1), with a maximum of two paid French repairs
+across one step execution. Checks never restart earlier completed steps. After the
+budget is exhausted, the run stops and the sidebar can re-run the failed step.
+
+Rejected output and all blocking findings are retained in `<step>.quality.json`,
+separate from successful Markdown artifacts. The failed-step view highlights the
+reported terms. `GET /clients/<client>/runs/<run>/quality/<step>` returns these
+read-only diagnostics through the existing authenticated API. A successful re-run
+clears stale rejection diagnostics. Diagnostics use the same storage lifecycle as
+other run files and can include source content.
+
+Research templates request a French `SOURCE DISPLAY` field. At the drafting input
+boundary, reference-only `JOURNAL NAME`, `SOURCE TITLE` and `ORIGINAL TITLE` fields
+use that display text, or the neutral « la publication citée ». Original research
+is retained for reference, without inferring an unsupported publisher relationship.
+
+Validation covers protected terms, word boundaries, exact repairs, repair budgets,
+retained failures, preflight order, template selection and safe UI highlighting.
+These are deterministic/mocked tests; evaluate one real French article before a
+large production run to assess the revised prompt wording and source quality.

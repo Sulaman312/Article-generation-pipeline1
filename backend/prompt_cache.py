@@ -484,9 +484,13 @@ def build_cached_prompt(
         # are copied by the model: show the French headings instead.
         unique = french_language.localize_step_prompt(unique)
     suffix = (unique_suffix or "").strip()
+    if glossary is not None:
+        suffix = french_language.prepare_model_data(suffix)
     if suffix:
         unique = f"{unique}\n\n---STEP-SPECIFIC INPUT---\n{suffix}\n" if unique else suffix
     if glossary is not None:
+        shared = french_language.prepare_model_data(shared)
+        unique = french_language.localize_model_input(unique)
         unique = f"{unique}\n\n{french_language.step_directive(step_name, glossary)}".strip()
     if not unique.strip():
         unique = "(No additional step-specific input.)\n"
