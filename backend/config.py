@@ -53,7 +53,7 @@ STEP_MAX_TOKENS: dict[str, int] = {
     "assignment_brief": 2800,
     "outline": 2500,
     "draft": 6000,
-    "fact_check": 2200,
+    "fact_check": 6000,
     "meta_seo": 1600,
     "supporting_posts": 6000,
 }

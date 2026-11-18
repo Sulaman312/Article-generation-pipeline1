@@ -103,4 +103,10 @@ def get_quality_diagnostic(client_id: str, run_id: str, step_name: str):
     for bad in (reject_client(client_id), reject_run_id(run_id), reject_step_name(step_name)):
         if bad:
             return bad
-    return jsonify(quality_execution.load_diagnostic(client_id, run_id, step_name))
+    report = quality_execution.load_diagnostic(client_id, run_id, step_name)
+    if not report and step_name == "draft":
+        import json
+        path = artifacts.get_run_dir(client_id, run_id) / "draft_preflight.json"
+        if path.exists():
+            report = {"kind": "draft_preflight", "issues": json.loads(path.read_text(encoding="utf-8")).get("findings", [])}
+    return jsonify(report)

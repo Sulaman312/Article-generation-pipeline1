@@ -19,3 +19,17 @@ test("shows source-specific preflight findings", async () => {
   render(<QualityDiagnostic client="c" runId="r" stepName="topic_card" />);
   await screen.findByText(/input:Notes: hero/);
 });
+
+test("identifies a fact-check contract failure separately from French errors", async () => {
+  api.getQualityDiagnostic.mockResolvedValue({ kind: "rejected", check: "fact_check", content: '{"issues":', message: "JSON incomplete", issues: [] });
+  render(<QualityDiagnostic client="c" runId="r" stepName="fact_check" />);
+  await screen.findByText(/Fact-check output could not be validated/);
+  expect(screen.queryByText(/failed the French check/)).toBeNull();
+});
+
+test("shows early draft signals as advisory findings", async () => {
+  api.getQualityDiagnostic.mockResolvedValue({kind: "draft_preflight", issues: [{message:"Verify a potentially truncated surname.",severity:"warning"}]});
+  render(<QualityDiagnostic client="c" runId="r" stepName="draft" />);
+  await screen.findByText(/Draft findings to review/);
+  await screen.findByText(/Verify a potentially truncated surname/);
+});
