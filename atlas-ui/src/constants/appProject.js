@@ -1,8 +1,8 @@
 /**
  * Single-app vs split deployments.
- * Set REACT_APP_PROJECT_MODE=article | social (omit or "all" for both pipelines).
+ * Set VITE_PROJECT_MODE=article | social (omit or "all" for both pipelines).
  */
-const MODE = (process.env.REACT_APP_PROJECT_MODE || "all").trim().toLowerCase();
+const MODE = (import.meta.env.VITE_PROJECT_MODE || "all").trim().toLowerCase();
 
 export const APP_PROJECT_MODE = MODE;
 

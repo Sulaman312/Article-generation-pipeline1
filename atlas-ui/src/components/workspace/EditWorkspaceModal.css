@@ -1,0 +1,126 @@
+.ws-edit-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(15, 23, 42, 0.32);
+  backdrop-filter: blur(2px);
+  z-index: 60;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  animation: fadeIn 0.18s ease;
+}
+
+.ws-edit-modal {
+  width: min(560px, 100%);
+  max-height: min(90vh, 900px);
+  overflow: auto;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  box-shadow: var(--shadow-lg);
+  animation: wsEditModalIn 0.2s cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+.ws-edit-cms {
+  margin: 0;
+  padding: 14px 14px 16px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.ws-edit-cms-legend {
+  padding: 0 4px;
+  font-size: 13px;
+  font-weight: 650;
+  color: var(--text);
+}
+
+.ws-edit-cms-hint {
+  margin: -4px 0 0;
+}
+
+.ws-edit-token-hint {
+  font-weight: 500;
+  color: var(--text-muted);
+}
+
+.ws-edit-cms-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+
+@media (max-width: 520px) {
+  .ws-edit-cms-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+@keyframes wsEditModalIn {
+  from {
+    opacity: 0;
+    transform: translateY(8px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+.ws-edit-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 18px 20px 14px;
+  border-bottom: 1px solid var(--border);
+}
+
+.ws-edit-title {
+  margin: 0;
+  font-size: 17px;
+  font-weight: 700;
+  letter-spacing: -0.018em;
+  color: var(--text);
+}
+
+.ws-edit-close {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 22px;
+  line-height: 1;
+  cursor: pointer;
+  transition:
+    background 0.15s,
+    color 0.15s;
+}
+
+.ws-edit-close:hover:not(:disabled) {
+  background: var(--surface-2, #f1f5f9);
+  color: var(--text);
+}
+
+.ws-edit-body {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding: 18px 20px 20px;
+}
+
+.ws-edit-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-top: 4px;
+}

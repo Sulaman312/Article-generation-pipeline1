@@ -302,7 +302,8 @@
 }
 
 .fod-panes--aux .meta-panel,
-.fod-panes--aux .jsonld-panel {
+.fod-panes--aux .jsonld-panel,
+.fod-panes--aux .fod-meta-panel {
   padding: 12px 16px 16px;
   flex: 1;
   min-height: 0;

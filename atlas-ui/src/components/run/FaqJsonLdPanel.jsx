@@ -7,9 +7,11 @@ export default function FaqJsonLdPanel({ schemaScript }) {
     return (
       <div className="jsonld-panel">
         <p className="jsonld-panel__lead">
-          FAQPage JSON-LD is generated when the <strong>Article</strong> tab includes a{" "}
-          <strong>Frequently Asked Questions</strong> section. Re-run <strong>Final output</strong>{" "}
-          or refresh this step after the article is complete.
+          FAQPage JSON-LD is generated from the FAQ section in the{" "}
+          <strong>Article</strong> tab (for example{" "}
+          <strong>Frequently Asked Questions</strong> or{" "}
+          <strong>Questions fréquentes</strong>, with question headings). Re-run{" "}
+          <strong>Final output</strong> or refresh after the article is complete.
         </p>
       </div>
     );

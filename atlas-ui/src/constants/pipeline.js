@@ -1,4 +1,4 @@
-/** Must stay in sync with `backend/pipeline.py` STEP_ORDER. */
+/** Fallback when API is unreachable — keep keys aligned with `backend/pipeline_steps.py`. */
 export const PIPELINE_STEPS = [
   {
     key: "topic_card",
@@ -22,39 +22,60 @@ export const PIPELINE_STEPS = [
     index: 3,
   },
   {
+    key: "source_research",
+    label: "Source Research",
+    matrixLabel: "ATP · FAQ · cases · audit",
+    matrixCol: "SRC",
+    index: 4,
+  },
+  {
     key: "assignment_brief",
     label: "Assignment Brief",
     matrixLabel: "Editorial brief",
     matrixCol: "BR",
-    index: 4,
+    index: 5,
   },
   {
     key: "outline",
     label: "Outline",
     matrixLabel: "Article outline",
     matrixCol: "OL",
-    index: 5,
+    index: 6,
   },
   {
     key: "draft",
     label: "Draft",
-    matrixLabel: "First draft",
+    matrixLabel: "First draft + cluster",
     matrixCol: "DR",
-    index: 6,
+    index: 7,
   },
   {
     key: "fact_check",
     label: "Fact Check (web + editor)",
     matrixLabel: "Review & accuracy",
     matrixCol: "FC",
-    index: 7,
+    index: 8,
+  },
+  {
+    key: "meta_seo",
+    label: "Meta Title & Description",
+    matrixLabel: "SEO meta tags",
+    matrixCol: "MS",
+    index: 9,
   },
   {
     key: "final_output",
     label: "Final Output",
     matrixLabel: "Ready to publish",
     matrixCol: "FO",
-    index: 8,
+    index: 10,
+  },
+  {
+    key: "content_to_cms",
+    label: "Content to CMS",
+    matrixLabel: "Send draft to CMS",
+    matrixCol: "CMS",
+    index: 11,
   },
 ];
 

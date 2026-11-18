@@ -3,12 +3,14 @@ import * as api from "../../services/api";
 import PageHeader from "../shared/PageHeader";
 import WorkspaceLogo from "./WorkspaceLogo";
 import LogoFitImage from "./LogoFitImage";
-import { isImageFile, readImageFileAsBase64 } from "../../utils/readImageFile";
+import EditWorkspaceModal from "./EditWorkspaceModal";
+import { isImageFile, readImageFileAsBase64, LOGO_ACCEPT } from "../../utils/readImageFile";
 import {
   CONTEXT_FILE_LABELS,
   PIPELINE_CONTEXT_FILES_ORDERED,
 } from "../../constants/contextFiles";
 import { workspaceDisplayName } from "../../utils/formatWorkspaceLabel";
+import { ClientsSkeleton } from "../shared/Skeletons";
 import "./ManualArticleForm.css";
 import "./ClientsGrid.css";
 
@@ -39,6 +41,7 @@ export default function ClientsGrid({
   const [showSeedContext, setShowSeedContext] = useState(false);
   const [creating, setCreating] = useState(false);
   const [error, setError] = useState(null);
+  const [editingClient, setEditingClient] = useState(null);
   const [logoFile, setLogoFile] = useState(null);
   const [logoPreview, setLogoPreview] = useState(null);
   const logoInputRef = useRef(null);
@@ -151,16 +154,20 @@ export default function ClientsGrid({
         createOpts.logo_base64 = await readImageFileAsBase64(logoFile);
         createOpts.logo_filename = logoFile.name;
       }
-      await api.createClient(name, { ...createOpts, display_name: name });
+      const created = await api.createClient(name, {
+        ...createOpts,
+        display_name: name,
+      });
+      const id = created?.created || name;
       if (logoFile) {
-        onClientLogoSaved?.(name);
+        onClientLogoSaved?.(id);
       }
       const writes = [];
       for (const entry of pipelineEntries) {
         const fn = entry.filename;
         const body = (seedContext[fn] || "").trim();
         if (body) {
-          writes.push(api.saveContextFile(name, fn, body));
+          writes.push(api.saveContextFile(id, fn, body));
         }
       }
       if (writes.length > 0) {
@@ -168,7 +175,7 @@ export default function ClientsGrid({
       }
       resetForm();
       await load();
-      onOpenClient(name);
+      onOpenClient(id);
     } catch (err) {
       setError(err?.message || String(err));
     } finally {
@@ -230,7 +237,7 @@ export default function ClientsGrid({
               <input
                 id="new-client"
                 className="input"
-                placeholder="e.g. Gauchat or acme_co"
+                placeholder="e.g. Gauchat or Acme Corp"
                 value={newName}
                 onChange={(e) => setNewName(e.target.value)}
                 autoFocus
@@ -272,7 +279,7 @@ export default function ClientsGrid({
                   id="new-client-logo"
                   type="file"
                   className="manual-article-logo-input"
-                  accept="image/png,image/jpeg,image/webp,image/gif,image/svg+xml"
+                  accept={LOGO_ACCEPT}
                   onChange={handleLogoChange}
                   disabled={creating}
                 />
@@ -381,9 +388,7 @@ export default function ClientsGrid({
       ) : null}
 
       {loading ? (
-        <div className="empty-state">
-          <span className="spinner" /> &nbsp; loading clients…
-        </div>
+        <ClientsSkeleton cards={6} />
       ) : clients.length === 0 ? (
         <div
           className="card"
@@ -408,6 +413,12 @@ export default function ClientsGrid({
               displayName={workspaceDisplayName(c.id, c.display_name)}
               logoVersion={logoVersions[c.id] || 0}
               onOpen={() => onOpenClient(c.id)}
+              onEdit={() =>
+                setEditingClient({
+                  id: c.id,
+                  displayName: workspaceDisplayName(c.id, c.display_name),
+                })
+              }
             />
           ))}
           <div className="card client-card-add" onClick={() => setAdding(true)}>
@@ -415,13 +426,84 @@ export default function ClientsGrid({
           </div>
         </div>
       )}
+
+      {editingClient ? (
+        <EditWorkspaceModal
+          clientId={editingClient.id}
+          displayName={editingClient.displayName}
+          logoVersion={logoVersions[editingClient.id] || 0}
+          onClose={() => setEditingClient(null)}
+          onSaved={async ({ logoUpdated }) => {
+            if (logoUpdated) onClientLogoSaved?.(editingClient.id);
+            setEditingClient(null);
+            await load();
+          }}
+        />
+      ) : null}
     </div>
   );
 }
 
-function ClientCard({ clientId, displayName, onOpen, logoVersion = 0 }) {
+function ClientCard({ clientId, displayName, onOpen, onEdit, logoVersion = 0 }) {
+  const [menuOpen, setMenuOpen] = useState(false);
+  const menuRef = useRef(null);
+  const menuBtnRef = useRef(null);
+
+  useEffect(() => {
+    if (!menuOpen) return undefined;
+    function onDoc(e) {
+      const target = e.target;
+      if (
+        menuRef.current?.contains(target) ||
+        menuBtnRef.current?.contains(target)
+      ) {
+        return;
+      }
+      setMenuOpen(false);
+    }
+    const timer = window.setTimeout(() => {
+      document.addEventListener("click", onDoc);
+    }, 0);
+    return () => {
+      window.clearTimeout(timer);
+      document.removeEventListener("click", onDoc);
+    };
+  }, [menuOpen]);
+
   return (
     <div className="card client-card" onClick={onOpen}>
+      <div
+        className={`client-card-menu-wrap${menuOpen ? " client-card-menu-wrap--open" : ""}`}
+        onMouseDown={(e) => e.stopPropagation()}
+        onClick={(e) => e.stopPropagation()}
+      >
+        <button
+          ref={menuBtnRef}
+          type="button"
+          className={`client-card-menu-btn${menuOpen ? " client-card-menu-btn--open" : ""}`}
+          aria-label="Workspace actions"
+          aria-expanded={menuOpen}
+          aria-haspopup="menu"
+          onClick={() => setMenuOpen((v) => !v)}
+        >
+          ⋮
+        </button>
+        {menuOpen ? (
+          <div ref={menuRef} className="client-card-menu" role="menu">
+            <button
+              type="button"
+              className="client-card-menu-item"
+              role="menuitem"
+              onClick={() => {
+                setMenuOpen(false);
+                onEdit?.();
+              }}
+            >
+              Edit workspace
+            </button>
+          </div>
+        ) : null}
+      </div>
       <div className="client-card-inner">
         <WorkspaceLogo clientId={clientId} size={44} cacheKey={logoVersion} />
         <div className="client-card-text">

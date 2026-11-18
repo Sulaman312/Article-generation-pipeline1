@@ -1,13 +1,9 @@
-import { PIPELINE_STEPS } from "./pipeline";
-
-export const PIPELINE_IDS = {
-  ARTICLE: "article",
-};
+import { getPipelineSteps, getPipelineStepKeys } from "./pipelineRegistry";
 
 export function stepsForPipeline() {
-  return PIPELINE_STEPS;
+  return getPipelineSteps();
 }
 
 export function stepKeysForPipeline() {
-  return PIPELINE_STEPS.map((s) => s.key);
+  return getPipelineStepKeys();
 }

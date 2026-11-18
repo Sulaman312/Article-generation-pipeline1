@@ -39,8 +39,50 @@ $env:API_PORT=8000; python main.py
 
 # Terminal 2
 cd atlas-ui
-$env:PORT=3000; npm start
+npm start
 ```
+
+Pipeline step jobs run **in-process** (single Gunicorn worker). Cancel signals abort Claude streaming and interrupt waiting on Perplexity; active in-memory jobs are lost on restart.
+
+## Content to CMS (Webflow draft)
+
+The last pipeline step, **Content to CMS**, sends the finished `final_output` article to Webflow as a **Draft**. It never publishes, and it runs only when a user clicks Run on that step (the automatic full-pipeline run skips it).
+
+**Per workspace (recommended for multiple clients):** open **Edit workspace** → **CMS provider**. Choose **None** when the client has no CMS, or **Webflow** and fill in token, collection ID, body field slug, and live URL base. Settings are stored in that workspace’s `workspace.json` under `cms` and do not affect other workspaces.
+
+**Optional `.env` defaults** (used only when a workspace field is unset):
+
+```
+WEBFLOW_TOKEN=            # Webflow API token with cms:read and cms:write
+WEBFLOW_COLLECTION_ID=    # Blog Posts collection ID
+WEBFLOW_FIELD_BODY=content---1              # rich text field slug (see webflow_fields.json)
+WEBFLOW_FIELD_RUN_ID=                       # leave empty if the collection has no run-id field
+WEBFLOW_LIVE_URL_BASE=https://www.yoursite.com/blog
+```
+
+Install the new dependency (`pip install -r requirements.txt`) and restart the backend. Running the step again updates the same Webflow draft instead of creating a duplicate. Field slugs (not labels) come from the Webflow collection settings.
+
+## French articles (no English words)
+
+When the article language is French (Language field on the article form, or detected from the topic), every Claude step gets a French rule block (`Tout en français, aucun mot anglais, y compris titres, FAQ, tableaux et méta.`), the banned-word list and the brand glossary.
+
+- **Glossary:** add a workspace context file `french_glossary.md` (Edit workspace → context files) with sections `Termes de la marque`, `Mots interdits` (`bowl -> bol`) and `Mots autorisés`. Built-in defaults cover `bowl`, `wrap`, `snack`, `pack` and the `formule Découverte / Énergie / Gagnant` names. Banned words in the file are added to the defaults; brand terms in the file replace the default names (so another brand can use its own).
+- **No default text:** failed steps are retried (`QUALITY_RETRY_ATTEMPTS`) and then stop with an error. Fallback sentences such as « It depends on the task » are gone.
+- **FAQ:** each answer is checked to be French and to answer its question, and is regenerated otherwise.
+- **Before publishing:** Content to CMS scans the article, title and meta for English words, banned words, placeholders and spelling errors, and blocks the send with a report. Needs `pyspellchecker` for the spelling part.
+- Settings: `FRENCH_QA_ENABLED`, `FRENCH_SPELLCHECK`, `FRENCH_FAQ_LLM_CHECK` (see `.env.example`).
+
+## Prompt caching (Phase 2)
+
+Claude steps share a stable cacheable prefix:
+
+1. **System** — client context only (brand voice, banned words, format guidelines, personas, company, clusters)
+2. **User (cached)** — shared run docs in fixed order: topic card → SERP analysis → ATP → PAA → audit → brief
+3. **User (uncached)** — step prompt (`01_`…`08_`, audit, supporting) + step-unique input
+
+OpenRouter requests send a per-run `session_id` for sticky provider routing. Logs include `prompt_cache read=… write=… hit_rate=…`.
+
+**Verify on one article:** run a full pipeline, then in the OpenRouter dashboard confirm cache hit rate moves off 0% and cost/article drops. If hits stay at 0%, keep model/provider routing stable and ensure the cached prefix is above the model minimum (~1024 tokens for Sonnet 4.6). Env knobs: `PROMPT_CACHE_ENABLED`, `PROMPT_CACHE_TTL` (default `1h`).
 
 ## Push to GitHub
 
@@ -70,3 +112,95 @@ git push -u origin main
 ## Sister repo
 
 `post-generation-pipeline` — social media posts (ports 8001 / 3001).
+
+## French quality checks and diagnostics
+
+French runs now select templates from `backend/prompts/fr/` and common rules from
+`backend/prompts/french_common.md`. Shared model-facing labels live in
+`backend/prompts/french_labels.json`. English runs retain their existing templates.
+Fixed field names, JSON keys, enums and delimiters remain a separate machine protocol
+for compatibility with the existing parsers; their prose values are French.
+
+The scanner protects citation names, workspace allowlisted phrases, URLs, Markdown
+and HTML link anchors, quoted titles, fenced code and inline backticks. Acronym and
+proper-name exemptions preserve case. Isolated ambiguous English tokens produce
+warnings; English phrases/headings, explicit banned terms, placeholders and spelling
+errors remain blocking. The default replacements now include `hero`, `bullet` and
+`from`. Workspace glossaries can override their replacements.
+
+Before the first step, a free preflight scans effective French templates, manual
+inputs and workspace context. Findings are logged and shown with the topic-card
+output. Source material may legitimately be English, so preflight findings are
+advisory. No model call is made by preflight.
+
+French generation and research outputs are checked before downstream use. Repairs
+use exact snippets and preserve protected text and numbers. `QUALITY_RETRY_ATTEMPTS`
+controls repairs per check (default 1), with a maximum of two paid French repairs
+across one step execution. Checks never restart earlier completed steps. After the
+budget is exhausted, the run stops and the sidebar can re-run the failed step.
+
+Rejected output and all blocking findings are retained in `<step>.quality.json`,
+separate from successful Markdown artifacts. The failed-step view highlights the
+reported terms. `GET /clients/<client>/runs/<run>/quality/<step>` returns these
+read-only diagnostics through the existing authenticated API. A successful re-run
+clears stale rejection diagnostics. Diagnostics use the same storage lifecycle as
+other run files and can include source content.
+
+Research templates request a French `SOURCE DISPLAY` field. At the drafting input
+boundary, reference-only `JOURNAL NAME`, `SOURCE TITLE` and `ORIGINAL TITLE` fields
+use that display text, or the neutral « la publication citée ». Original research
+is retained for reference, without inferring an unsupported publisher relationship.
+
+Validation covers protected terms, word boundaries, exact repairs, repair budgets,
+retained failures, preflight order, template selection and safe UI highlighting.
+These are deterministic/mocked tests; evaluate one real French article before a
+large production run to assess the revised prompt wording and source quality.
+
+## Structured fact-checking and quotation scope
+
+The fact-check model now returns JSON validated with JSON Schema. The application
+renders the existing readable report and corrections blocks, preserving the UI and
+CMS artifact format. Locations use the indexed section, global paragraph number,
+sentence number and a 5–6 word verbatim anchor. Claims are exact contiguous spans of
+at most 12 words, resolved inside that sentence so duplicate text elsewhere is safe.
+Overlapping, missing, abbreviated or malformed claims are rejected before editing.
+
+The French/placeholder gate applies to replacement `fix` text and the resulting
+article. It does not run on the internal report, quoted `claim` evidence or source
+abstracts. Only report commentary has bracketed omissions normalized to semicolons;
+evidence and replacement text are never blindly cleaned. Real article/fix placeholders
+still block. One initial generation can receive at most two structured repairs with
+all errors supplied; research and source retrieval are not repeated during repairs.
+The structured output budget is 6,000 tokens to avoid cutting off a full report.
+
+Before fact-checking, free draft checks flag dangling name initials, possible missing
+subjects and numeric/source mismatches. Total-versus-per-group counts are flagged
+when the source explicitly describes a total. These are editorial signals, not
+proof of a wrong fact, and are shown above Draft output and passed to the model.
+Actual unresolved placeholders stop before the paid web fact-check. FAQ sentence
+splitting preserves initials such as Herbert M. Shelton; word limits no longer cut
+through the last sentence. Two complete overlong sentences are preserved for review.
+
+The fact checker receives the research summary, audit, case-study research and source
+pack. Up to five PubMed IDs cited in the draft/research are retrieved from NCBI's
+fixed EFetch endpoint; successful abstracts are cached per run. Missing or inaccessible
+abstracts are explicitly marked unavailable. No arbitrary web URLs are automatically
+fetched or considered primary evidence merely because they respond.
+
+For other primary references, add a workspace context file `primary_sources.md` with
+blocks in this form:
+
+```text
+SOURCE URL: https://official.example/reference
+The actual source passage, pasted verbatim by the editor.
+```
+
+Numeric replacements must cite an exact passage in the supplied source pack, including
+all replacement numbers; otherwise the model must flag them for human review. This
+prevents unsupported automatic edits, and does not establish that every remaining
+claim is verified. Flagged claims remain visible in the report for human review.
+
+`fact_check_sources.json`, `draft_preflight.json` and `fact_check_report.json` retain
+source retrieval, early findings and the validated structured report inside the run.
+One actual failing output was provided for regression testing. The two additional
+fixtures are explicitly labelled synthetic ASCII/Unicode quotation variants.
