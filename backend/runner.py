@@ -3,6 +3,7 @@ import logging
 
 from . import artifacts
 from . import pipeline
+from . import quality_execution
 from .pipeline_steps import MANUAL_ONLY_STEPS
 
 logger = logging.getLogger(__name__)
@@ -37,7 +38,7 @@ def run_pipeline(client_id: str, topic: str, verbose: bool = True) -> str:
             client_id, run_id, topic, statuses, step_timings=timings
         )
         try:
-            previous = run_step(client_id, run_id, previous)
+            previous = quality_execution.execute_step(run_step, client_id, run_id, step_name, previous)
             logger.info(
                 "pipeline step done name=%s out_len=%s preview=%s",
                 step_name,

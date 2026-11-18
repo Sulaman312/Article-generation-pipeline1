@@ -62,6 +62,26 @@ def _post_json(url: str, headers: dict[str, str], payload: dict[str, Any]) -> di
     from backend import job_control
 
     job_control.raise_if_cancelled()
+    from .. import french_language, quality_execution
+    if quality_execution.active_language.get() == "fr":
+        payload = dict(payload)
+        messages = []
+        for message in payload.get("messages", []):
+            message = dict(message)
+            content = message.get("content", "")
+            if message.get("role") == "system":
+                if content == SERP_SYSTEM_PROMPT:
+                    content = "Analysez les résultats de recherche actuels : formats dominants, intertitres, profondeur, fraîcheur, lacunes et contradictions. N'inventez ni classement ni trafic. Terminez par Sources à citer : éditeur, intérêt, URL complète récupérée."
+                elif content == FACTCHECK_SYSTEM_PROMPT:
+                    content = "Vérifiez les affirmations factuelles précises de l'article avec des sources web. Pour chaque affirmation douteuse, donnez l'extrait exact, la preuve, l'URL récupérée et une correction ou une demande de revue humaine. N'inventez aucune preuve."
+                else:
+                    content = french_language.localize_step_prompt(content)
+                content = french_language.system_block(quality_execution.active_glossary.get()) + "\n" + content
+            message["content"] = (french_language.prepare_model_data(content)
+                                  if message.get("role") == "user"
+                                  else french_language.localize_model_input(content))
+            messages.append(message)
+        payload["messages"] = messages
     body = json.dumps(payload).encode("utf-8")
 
     def _do_request() -> dict[str, Any]:

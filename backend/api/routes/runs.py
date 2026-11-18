@@ -10,6 +10,7 @@ from backend import artifacts
 from backend import config
 from backend import editorial_input
 from backend import job_control
+from backend import quality_execution
 from backend import mongo_storage
 from backend import pipeline_flow
 from backend.api.blueprint import api_bp
@@ -81,7 +82,7 @@ def _run_step_job(
             if cancel_event.is_set():
                 return
             try:
-                runner_fn(client_id, run_id, previous_artifact)
+                quality_execution.execute_step(runner_fn, client_id, run_id, step_name, previous_artifact)
             except job_control.JobCancelled:
                 _discard_cancelled_artifact(client_id, run_id, step_name)
                 return

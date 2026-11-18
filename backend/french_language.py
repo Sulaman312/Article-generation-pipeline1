@@ -24,6 +24,7 @@ import re
 import unicodedata
 from dataclasses import dataclass, field
 from functools import lru_cache
+from pathlib import Path
 from typing import Callable
 
 logger = logging.getLogger(__name__)
@@ -41,6 +42,9 @@ GLOSSARY_LABEL = "Glossaire français (termes de marque, mots interdits)"
 
 # English word or phrase  ->  French replacement.
 DEFAULT_BANNED: dict[str, str] = {
+    "hero": "image principale",
+    "bullet": "puce",
+    "from": "issu de",
     "bowl": "bol",
     "wrap": "galette roulée",
     "snack": "collation",
@@ -243,6 +247,7 @@ class FrenchIssue:
     suggestion: str = ""
     context: str = ""
     count: int = 1
+    severity: str = "error"
 
     def message(self) -> str:
         where = f' (ex. : « {self.context} »)' if self.context else ""
@@ -275,7 +280,8 @@ class FrenchIssue:
 class FrenchQualityError(RuntimeError):
     """Raised when French checks still fail after every retry."""
 
-    def __init__(self, label: str, issues: list[FrenchIssue]):
+    def __init__(self, label: str, issues: list[FrenchIssue], text: str = ""):
+        self.text = text
         self.label = label
         self.issues = issues
         super().__init__(format_issues(issues, header=f"{label} : contrôle de français échoué"))
@@ -348,7 +354,7 @@ def parse_glossary(text: str | None) -> Glossary:
                     banned[en] = fr
         elif section == "allowed":
             for piece in re.split(r"[,;]", item):
-                word = _clean_term(piece).lower()
+                word = _clean_term(piece)
                 if word:
                     allowed.add(word)
 
@@ -414,6 +420,45 @@ _FIXED_HEADINGS = (
 )
 
 
+@lru_cache(maxsize=1)
+def shared_labels() -> dict[str, str]:
+    return json.loads((Path(__file__).parent / "prompts" / "french_labels.json").read_text(encoding="utf-8"))
+
+
+def localize_model_input(text: str) -> str:
+    """Translate known metadata at the model boundary, preserving URL/code spans."""
+    current = text or ""
+    for en, fr in sorted(shared_labels().items(), key=lambda item: len(item[0]), reverse=True):
+        spans = _protected_spans(current)
+        # Fixed field keys are an explicit protocol, not natural-language labels.
+        spans.extend((m.start(), m.end()) for m in re.finditer(
+            r"^[ \t]*(?:- )?[A-Z][A-Z0-9 /&()#–\-]+:", current, re.M))
+        pattern = re.compile(rf"(?<!\w){re.escape(en)}(?!\w)")
+        current = pattern.sub(lambda m: m.group() if _span_hit(m.start(), spans) else fr, current)
+    return current
+
+
+def prepare_model_data(text: str) -> str:
+    """Hide reference-only journal titles behind a French display field.
+
+    Original titles stay in stored research for citation review, not in drafting input.
+    Never infer a publisher relationship from a journal name.
+    """
+    display = re.search(r"^[ \t]*-?[ \t]*SOURCE DISPLAY:[ \t]*(.+)$", text or "", re.M)
+    label = display[1].strip() if display else "la publication citée"
+    text = re.sub(r"^([ \t]*-?[ \t]*)(?:JOURNAL(?: NAME)?|SOURCE TITLE|ORIGINAL TITLE):[^\n]*$",
+                  lambda m: m[1] + "PUBLICATION : " + label, text or "", flags=re.M)
+    return localize_model_input(text)
+
+
+def canonicalize_research_headings(text: str) -> str:
+    # Legacy parsers read these headings; translate them back only in stored metadata.
+    inverse = {v: k for k, v in shared_labels().items()
+               if k[:1].isupper() and not k.isupper()
+               and k not in {"Key takeaways", "Frequently Asked Questions"}}
+    return re.sub(r"^(## )(.+)$", lambda m: m[1] + inverse.get(m[2], m[2]), text, flags=re.M)
+
+
 def localize_step_prompt(text: str) -> str:
     """Swap the English headings written into a step template for the French ones.
 
@@ -421,6 +466,10 @@ def localize_step_prompt(text: str) -> str:
     comparisons) are left alone. Upper-case field labels (KEY TAKEAWAYS NOTE) are
     never touched: the pipeline parses them.
     """
+    from . import prompts
+    translated = prompts.french_template(text)
+    if translated is not None:
+        return localize_model_input(translated)
     out: list[str] = []
     for line in (text or "").split("\n"):
         if "Questions fréquentes" in line or "À retenir" in line:
@@ -589,6 +638,7 @@ def prose_for_scan(text: str, *, structural: bool = False) -> str:
     outlines) the upper-case field labels the system parses.
     """
     t = text or ""
+    t = _mask_protected(t)
     t = _SCRIPT_STYLE.sub(" ", t)
     t = _HTML_COMMENT.sub(" ", t)
     t = _CODE_FENCE.sub(" ", t)
@@ -602,6 +652,10 @@ def prose_for_scan(text: str, *, structural: bool = False) -> str:
     t = _EMAIL.sub(" ", t)
     t = _BARE_URL.sub(" ", t)
     if structural:
+        for label in shared_labels():
+            if label in {"Frequently Asked Questions", "Key takeaways", "KEY TAKEAWAYS"}:
+                continue
+            t = re.sub(rf"^## {re.escape(label)}[ \t]*$", "", t, flags=re.M)
         t = _H_LABEL.sub(r"\1", t)
         t = _LABEL_PREFIX.sub(r"\1", t)
     return t
@@ -633,8 +687,7 @@ def spellcheck_available() -> bool:
 def _context(text: str, start: int, end: int, radius: int = 28) -> str:
     left = max(0, start - radius)
     right = min(len(text), end + radius)
-    snippet = re.sub(r"\s+", " ", text[left:right]).strip()
-    return ("…" if left else "") + snippet + ("…" if right < len(text) else "")
+    return text[left:right]
 
 
 def _phrase_pattern(phrase: str) -> re.Pattern[str]:
@@ -644,14 +697,36 @@ def _phrase_pattern(phrase: str) -> re.Pattern[str]:
     return re.compile(rf"(?<![\w]){body}{plural}(?![\w])", re.I)
 
 
+# Protect citation names as phrases, never their individual component words.
+# Acronyms are exact-case entries: FAQ is allowed; an arbitrary uppercase sentence is not.
+FIXED_TERMS = ("Nature", "Wiley", "Elsevier", "Springer", "The Lancet",
+               "New England Journal of Medicine", "British Journal of Nutrition",
+               "American Journal of Clinical Nutrition", "International Journal of Obesity", "E-E-A-T",
+               "H1", "H2", "H3", "FAQ", "SEO", "URL", "HTML", "PDF", "kcal", "yo-yo")
 _PROTECTED_SPAN = re.compile(
-    r"\]\([^)]+\)|`[^`]+`|https?://[^\s)\]>\"']+",
-    re.I,
+    r'```[\s\S]*?```|~~~[\s\S]*?~~~|`+[^`\n]*`+'
+    r'|!?\[[^\]\n]*\]\([^)]*\)|<a\b[^>]*>[\s\S]*?</a>'
+    r'|https?://[^\s)\]>"\']+|«[^»\n]+»|“[^”\n]+”|"[^"\n]+"', re.I,
 )
 
 
-def _protected_spans(text: str) -> list[tuple[int, int]]:
-    return [(m.start(), m.end()) for m in _PROTECTED_SPAN.finditer(text or "")]
+def _protected_spans(text: str, glossary: Glossary | None = None) -> list[tuple[int, int]]:
+    spans = [(m.start(), m.end()) for m in _PROTECTED_SPAN.finditer(text or "")]
+    g = glossary or Glossary()
+    for term in (*FIXED_TERMS, *g.allowed):
+        flags = 0 if any(c.isupper() for c in term) else re.I
+        pattern = re.compile(rf"(?<!\w){re.escape(term)}(?!\w)", flags)
+        spans.extend((m.start(), m.end()) for m in pattern.finditer(text))
+    return spans
+
+
+def _mask_protected(text: str, glossary: Glossary | None = None) -> str:
+    chars = list(text)
+    for start, end in _protected_spans(text, glossary):
+        for i in range(start, end):
+            if chars[i] != "\n":
+                chars[i] = " "
+    return "".join(chars)
 
 
 def _span_hit(pos: int, spans: list[tuple[int, int]]) -> bool:
@@ -668,9 +743,9 @@ def apply_glossary_replacements(text: str, glossary: Glossary | None = None) -> 
     def _replace_match(pattern: re.Pattern[str], repl: str, src: str) -> str:
         chunks: list[str] = []
         cursor = 0
-        local_protected = _protected_spans(src)
+        local_protected = _protected_spans(src, g)
         for m in pattern.finditer(src):
-            if _span_hit(m.start(), local_protected):
+            if any(m.start() < e and m.end() > a for a, e in local_protected):
                 continue
             chunks.append(src[cursor : m.start()])
             chunks.append(repl)
@@ -703,6 +778,8 @@ def apply_glossary_replacements(text: str, glossary: Glossary | None = None) -> 
         cursor = 0
         for m in re.finditer(rf"(?<!\w){re.escape(canonical)}(?!\w)", src, re.I):
             found = m.group(0)
+            if _span_hit(m.start(), _protected_spans(src, g)):
+                continue
             if found == canonical:
                 continue
             at_start = m.start() == 0 or src[: m.start()].rstrip()[-1:] in ".!?\n#*-|>:"
@@ -844,7 +921,7 @@ def _scan_english_headings(text: str, glossary: Glossary) -> list[FrenchIssue]:
     belong to a banned English phrase. Headings usually come from a fixed template, so
     this reports the whole heading, not just one word.
     """
-    allowed = {w.lower() for w in glossary.allowed}
+    allowed = {w for w in glossary.allowed if w == w.lower()}
     issues: list[FrenchIssue] = []
     for m in _HEADING_LINE.finditer(text):
         title = re.sub(r"[*_`]+", "", m.group(1)).strip()
@@ -905,7 +982,7 @@ def scan_french(
     raw = text or ""
     if not raw.strip():
         return []
-    prose = prose_for_scan(raw, structural=structural)
+    prose = prose_for_scan(_mask_protected(raw, g), structural=structural)
     issues: list[FrenchIssue] = []
     spans: list[tuple[int, int]] = []
 
@@ -916,7 +993,7 @@ def scan_french(
         issues.extend(banned_issues)
         issues.extend(_scan_brand_terms(prose, g))
 
-    allowed = {w.lower() for w in g.allowed}
+    allowed = {w for w in g.allowed if w == w.lower()}
     fr_spell, en_spell = _spellcheckers() if (spelling or english) else (None, None)
 
     english_hits: dict[str, list[int]] = {}
@@ -938,7 +1015,7 @@ def scan_french(
         if any(s <= start < e for s, e in spans):
             continue
         low = token.lower().replace("’", "'")
-        if low in allowed or token.isupper():
+        if low in allowed:
             continue
         parts = [p for p in re.split(r"['\-]", low) if p]
         if english:
@@ -1017,7 +1094,22 @@ def scan_french(
                 )
             ]
             issues = heading_issues + issues
-    return issues
+    # Isolated ambiguous English tokens are diagnostics. Two adjacent English
+    # tokens form a clear phrase and remain blocking, including uppercase prose.
+    tokens = list(_TOKEN.finditer(prose))
+    phrase_words: set[str] = set()
+    for left, right in zip(tokens, tokens[1:]):
+        if (left.group().lower() in ENGLISH_ONLY and right.group().lower() in ENGLISH_ONLY
+                and re.fullmatch(r"[ \t]+", prose[left.end():right.start()])):
+            phrase_words.update((left.group().lower(), right.group().lower()))
+    from dataclasses import replace
+    return [replace(i, severity="warning")
+            if i.code == "fr_english_word" and i.term.lower() not in phrase_words
+            else i for i in issues]
+
+
+def blocking_issues(issues: list[FrenchIssue]) -> list[FrenchIssue]:
+    return [i for i in issues if i.severity == "error"]
 
 
 def _spelling_suggestion(fr_spell, word: str) -> str:
@@ -1085,6 +1177,14 @@ def repair_french_llm(
     seen: set[str] = set()
     for issue in issues:
         snippet = (issue.context or issue.term or "").strip()
+        if snippet not in text:
+            protected_spans = _protected_spans(text, glossary)
+            match = next((m for m in _phrase_pattern(issue.term).finditer(text)
+                          if not _span_hit(m.start(), protected_spans)), None)
+            if match:
+                snippet = _context(text, match.start(), match.end())
+            else:
+                continue
         if len(snippet) < 3 or snippet in seen:
             continue
         seen.add(snippet)
@@ -1114,7 +1214,14 @@ def repair_french_llm(
         old = str(item.get("old") or "").strip()
         new = str(item.get("new") or "").strip()
         if old and new and old in current:
-            current = current.replace(old, new, 1)
+            proposed = current.replace(old, new)
+            from collections import Counter
+            protected = lambda body: Counter(body[a:b] for a, b in _protected_spans(body, glossary))
+            numbers = lambda body: re.findall(r"\d+(?:[.,]\d+)*", body)
+            if protected(proposed) == protected(current) and numbers(proposed) == numbers(current):
+                current = proposed
+            else:
+                logger.warning("%s: rejected repair that changed a protected span or number", step_label)
     return current
 
 
@@ -1145,17 +1252,24 @@ def enforce_french_artifact(
     from . import config as _config
 
     g = glossary or Glossary()
-    tries = _config.QUALITY_RETRY_ATTEMPTS if attempts is None else max(0, int(attempts))
+    tries = min(2, max(0, int(_config.QUALITY_RETRY_ATTEMPTS if attempts is None else attempts)))
     current = apply_glossary_replacements(text, g)
     issues: list[FrenchIssue] = []
     for attempt in range(tries + 1):
         issues = scan_french(current, glossary=g, spelling=spelling, structural=structural)
+        for issue in issues:
+            logger.warning("%s: French %s: %s", step_label, issue.severity, issue.message())
+        issues = blocking_issues(issues)
         if not issues:
             if attempt:
                 logger.info("%s: French check passed after %s repair(s)", step_label, attempt)
             return current
-        if attempt == tries:
+        from . import quality_execution
+        budget = quality_execution.repair_budget.get()
+        if attempt == tries or budget == 0:
             break
+        if budget is not None:
+            quality_execution.repair_budget.set(budget - 1)
         logger.warning(
             "%s: French check found %s issue(s) (attempt %s/%s): %s",
             step_label,
@@ -1169,10 +1283,21 @@ def enforce_french_artifact(
                 body, found, step_label=step_label, glossary=g
             )
         )
-        repaired = fixer(current, issues)
+        from . import job_control
+        job_control.raise_if_cancelled()
+        try:
+            repaired = fixer(current, issues)
+        except job_control.JobCancelled:
+            raise
+        except Exception as exc:
+            error = FrenchQualityError(step_label, issues, current)
+            error.original_text = text
+            raise error from exc
         if repaired and repaired.strip():
             current = apply_glossary_replacements(repaired, g)
-    raise FrenchQualityError(step_label, issues)
+    error = FrenchQualityError(step_label, issues, current)
+    error.original_text = text
+    raise error
 
 
 __all__ = [

@@ -31,11 +31,11 @@ class PublishReport:
 
     @property
     def ok(self) -> bool:
-        return not self.issues
+        return not any(i.severity == "error" for _, i in self.issues)
 
     def message(self) -> str:
         if self.ok:
-            return "Pre-publish check passed."
+            return "Pre-publish check passed." + (" Warnings: " + "; ".join(i.message() for _, i in self.issues) if self.issues else "")
         lines = [
             "Publication bloquée : le contrôle avant publication a trouvé "
             f"{len(self.issues)} problème(s). Corrigez-les, puis relancez l'étape.",
@@ -107,6 +107,8 @@ def check_publishable(
 def ensure_publishable(**kwargs) -> PublishReport:
     """Raise :class:`PublishCheckError` when the check finds anything."""
     report = check_publishable(**kwargs)
+    if report.issues and report.ok:
+        logger.warning("pre-publish warnings: %s", report.message())
     if not report.ok:
         logger.warning("pre-publish check blocked publishing: %s", report.message())
         raise PublishCheckError(report)

@@ -95,3 +95,12 @@ def put_artifact(client_id: str, run_id: str, step_name: str):
             )
     artifacts.save_artifact(client_id, run_id, step_name, content)
     return jsonify(saved=True)
+
+
+@api_bp.get("/clients/<client_id>/runs/<run_id>/quality/<step_name>")
+def get_quality_diagnostic(client_id: str, run_id: str, step_name: str):
+    from backend import quality_execution
+    for bad in (reject_client(client_id), reject_run_id(run_id), reject_step_name(step_name)):
+        if bad:
+            return bad
+    return jsonify(quality_execution.load_diagnostic(client_id, run_id, step_name))

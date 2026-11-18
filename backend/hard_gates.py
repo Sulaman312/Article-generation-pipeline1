@@ -1233,6 +1233,7 @@ def _faq_answer_problem(question: str, answer: str, faq_lang: str, glossary) -> 
     found = french_language.scan_french(
         f"{question}\n{answer}", glossary=glossary, spelling=False
     )
+    found = french_language.blocking_issues(found)
     if found:
         return "; ".join(i.message() for i in found[:3])
     if _faq_answer_not_french(answer):
@@ -1565,7 +1566,7 @@ def check_french_language(
         glossary=glossary,
         spelling=config.FRENCH_SPELLCHECK_ENABLED,
     )
-    return [GateIssue(i.code, i.message()) for i in issues[:25]]
+    return [GateIssue(i.code, i.message()) for i in french_language.blocking_issues(issues)[:25]]
 
 
 def check_image_alt(article: str) -> list[GateIssue]:
