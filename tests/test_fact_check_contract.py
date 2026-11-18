@@ -60,7 +60,16 @@ class ContractTests(unittest.TestCase):
                       'deux groupes … personnes', 'un groupe absent du brouillon',
                       'Cette étude comprend deux groupes de 54 personnes avec une autre phrase inventée'):
             with self.subTest(claim=claim), self.assertRaises(fc.FactCheckError):
-                fc.validate_report(report(claim=claim), DRAFT, lang='fr')
+                fc.validate_report(report(claim=claim, action='removed'), DRAFT, lang='fr')
+
+    def test_flagged_claim_is_repaired_in_code_not_rejected(self):
+        for claim in ('deux groupes […] personnes', 'deux groupes [...] personnes', 'deux groupes … personnes',
+                      'un groupe absent du brouillon', 'Cette étude comprend deux groupes de 54 personnes avec une autre phrase'):
+            with self.subTest(claim=claim):
+                data, edits = fc.validate_report(report(claim=claim), DRAFT, lang='fr')
+                self.assertEqual(edits, [])
+                self.assertEqual(data['issues'][0]['claim'], 'Cette étude comprend deux groupes de 54 personnes.')
+                self.assertNotRegex(data['issues'][0]['claim'], r'\[|…|\.\.\.')
 
     def test_real_placeholder_in_fix_still_blocks(self):
         for fix in ('[INSERT SOURCE]', '[…]', '[...]', '{{effectif}}'):
@@ -73,8 +82,8 @@ class ContractTests(unittest.TestCase):
             fc.run_fact_check(lambda _: clean, DRAFT + '\n[...]\n', lang='fr', retries=0)
 
     def test_numeric_fix_requires_supplied_source_and_exact_quote(self):
-        with self.assertRaises(fc.FactCheckError):
-            fc.validate_report(report(action='corrected', fix='54 personnes au total'), DRAFT, lang='fr')
+        data, edits = fc.validate_report(report(action='corrected', fix='54 personnes au total'), DRAFT, lang='fr')
+        self.assertEqual((data['issues'][0]['action'], data['issues'][0]['fix'], edits), ('flagged', '', []))
         data, edits = fc.validate_report(report(action='corrected', fix='54 personnes au total',
                                               source_url=SOURCE_URL, evidence_quote='A total of 54 participants'),
                                          DRAFT, lang='fr', source_texts={SOURCE_URL: SOURCE})
@@ -89,7 +98,7 @@ class ContractTests(unittest.TestCase):
         self.assertIn('## Preuves\n\nCette étude comprend deux groupes de 54 personnes.', article)
 
     def test_bad_location_anchor_and_overlap_block(self):
-        for fields in ({'paragraph': 3}, {'section': 'Inventé'}, {'sentence': 2}, {'anchor': 'Cette étude'}):
+        for fields in ({'paragraph': 3}, {'section': 'Inventé'}, {'sentence': 2}):
             with self.subTest(fields=fields), self.assertRaises(fc.FactCheckError):
                 fc.validate_report(report(**fields), DRAFT, lang='fr')
         data = report(action='removed')
@@ -97,8 +106,12 @@ class ContractTests(unittest.TestCase):
         with self.assertRaises(fc.FactCheckError):
             fc.validate_report(data, DRAFT, lang='fr')
 
+    def test_anchor_is_derived_from_the_draft_not_trusted_from_the_model(self):
+        data, _ = fc.validate_report(report(anchor='Cette étude'), DRAFT, lang='fr')
+        self.assertEqual(data['issues'][0]['anchor'], 'Cette étude comprend deux groupes de')
+
     def test_bad_json_is_repaired_once_with_exact_feedback(self):
-        bad = report(claim='deux groupes […] personnes')
+        bad = report(claim='deux groupes […] personnes', action='removed')
         generate = Mock(side_effect=[json.dumps(bad), json.dumps(report())])
         fc.run_fact_check(generate, DRAFT, lang='fr')
         self.assertEqual(generate.call_count, 2)
@@ -119,9 +132,22 @@ class ContractTests(unittest.TestCase):
         generate.assert_called_once()
 
     def test_number_evidence_is_not_invented(self):
-        with self.assertRaises(fc.FactCheckError):
-            fc.validate_report(report(action='corrected', fix='27 personnes par groupe', source_url=SOURCE_URL,
-                                      evidence_quote='27 participants per group'), DRAFT, lang='fr', source_texts={SOURCE_URL: SOURCE})
+        data, edits = fc.validate_report(report(action='corrected', fix='27 personnes par groupe', source_url=SOURCE_URL,
+                                                evidence_quote='27 participants per group'), DRAFT, lang='fr', source_texts={SOURCE_URL: SOURCE})
+        self.assertEqual((data['issues'][0]['action'], data['issues'][0]['evidence_quote'], edits), ('flagged', '', []))
+
+    def test_evidence_match_ignores_case_spacing_quotes_and_wrong_url(self):
+        data, edits = fc.validate_report(report(action='corrected', fix='54 personnes au total',
+                                                source_url='https://autre.example/', evidence_quote='a  TOTAL of 54\u00a0participants'),
+                                         DRAFT, lang='fr', source_texts={SOURCE_URL: SOURCE})
+        self.assertEqual(data['issues'][0]['source_url'], SOURCE_URL)
+        self.assertIn('comprend 54 personnes au total.', fc.apply_edits(DRAFT, edits))
+
+    def test_unverifiable_evidence_is_dropped_not_fatal(self):
+        data, _ = fc.validate_report(report(source_url=SOURCE_URL, evidence_quote='phrase inventée'), DRAFT, lang='fr',
+                                     source_texts={SOURCE_URL: SOURCE})
+        self.assertEqual(data['issues'][0]['evidence_quote'], '')
+        self.assertIn('à vérifier', data['issues'][0]['explanation'])
 
 
 class DraftTests(unittest.TestCase):
