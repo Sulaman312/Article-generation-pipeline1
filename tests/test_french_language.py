@@ -18,6 +18,10 @@ CLEAN = (
 
 
 class ScanFrenchTests(unittest.TestCase):
+    def test_meta_is_accepted_by_the_spellchecker(self):
+        text = "**Titres méta**\n1. Le régime Shelton\n**Descriptions méta**\n1. Un résumé clair.\n"
+        self.assertEqual(french_language.scan_french(text, spelling=True), [])
+
     def test_clean_french_has_no_issues(self):
         self.assertEqual(french_language.scan_french(CLEAN, spelling=False), [])
 

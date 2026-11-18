@@ -144,6 +144,7 @@ DEFAULT_ALLOWED: frozenset[str] = frozenset(
         "brocolis", "edamame", "guacamole", "tzatziki", "taboulé", "tajine",
         "seo", "faq", "url", "html", "pdf", "web", "email", "e-mail", "wifi",
         "week-end", "marketing", "blog", "internet", "site", "newsletter",
+        "méta", "meta",
     }
 )
 
