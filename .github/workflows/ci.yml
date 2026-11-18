@@ -35,4 +35,4 @@ jobs:
 
       - name: Run UI tests
         working-directory: atlas-ui
-        run: npm test -- --watchAll=false
+        run: npm test
