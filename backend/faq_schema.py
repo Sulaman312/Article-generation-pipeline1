@@ -265,7 +265,8 @@ def split_faq_sentences(answer: str) -> list[str]:
     text = re.sub(r"\s+", " ", (answer or "").strip())
     if not text:
         return []
-    return [p.strip() for p in _FAQ_SENTENCE_SPLIT.split(text) if p.strip()]
+    from .editorial_text import split_sentences
+    return split_sentences(text)
 
 
 def faq_answer_word_count(answer: str) -> int:
@@ -297,17 +298,10 @@ def trim_faq_answer(answer: str) -> str:
         and faq_answer_word_count(" ".join(sentences)) > FAQ_ANSWER_MAX_WORDS
     ):
         sentences.pop()
-    words = faq_answer_word_count(" ".join(sentences))
-    if words > FAQ_ANSWER_MAX_WORDS and sentences:
-        kept = " ".join(sentences[:-1]).strip()
-        budget = FAQ_ANSWER_MAX_WORDS - faq_answer_word_count(kept)
-        last_tokens = _FAQ_WORD_RE.findall(sentences[-1])
-        if budget >= 8 and last_tokens:
-            clipped = " ".join(last_tokens[:budget]).rstrip(" ,;:") + "."
-            sentences = ([kept] if kept else []) + [clipped]
-            sentences = [s for s in sentences if s]
-        elif len(sentences) > FAQ_ANSWER_MIN_SENTENCES:
-            sentences = sentences[:-1]
+    # Never cut the last sentence at an arbitrary word: it can sever a name or
+    # remove a subject. Keep two complete sentences; editorial QA can shorten them.
+    if faq_answer_word_count(" ".join(sentences)) > FAQ_ANSWER_MAX_WORDS:
+        logger.warning("FAQ exceeds the word budget; retaining complete sentences")
     return " ".join(sentences)
 
 

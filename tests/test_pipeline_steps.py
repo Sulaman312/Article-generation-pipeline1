@@ -60,7 +60,7 @@ class FinalOutputNoRewriteTests(unittest.TestCase):
         self.assertIn("---FINAL OUTPUT START---", out)
 
     def test_fact_check_prompt_asks_for_corrections_not_article(self):
-        self.assertIn("---CORRECTIONS START---", prompts.FACT_CHECK_PROMPT)
+        self.assertIn("ONE JSON object", prompts.FACT_CHECK_PROMPT)
         self.assertNotIn("---CORRECTED ARTICLE START---", prompts.FACT_CHECK_PROMPT)
 
     def test_hard_gates_run_on_final_not_draft(self):
@@ -87,11 +87,14 @@ class OutputTokenBudgetTests(unittest.TestCase):
             "outline",
             "research_audit",
             "meta_seo",
-            "fact_check",
         ):
             cap = steps.max_tokens_for_step(name)
             self.assertLess(cap, 4000, name)
             self.assertLess(cap, draft, name)
+
+    def test_structured_fact_check_has_a_bounded_report_budget(self):
+        # The indexed report now carries more metadata than the old short prose audit.
+        self.assertLessEqual(steps.max_tokens_for_step("fact_check"), 6000)
 
     def test_section_repair_cap_is_not_a_full_article(self):
         self.assertLessEqual(word_count_enforce._max_tokens_for_target(2000), 2200)

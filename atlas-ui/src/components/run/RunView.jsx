@@ -580,7 +580,7 @@ function OutputPanel({
   }
   return (
     <>
-    {step.key === "topic_card" && <QualityDiagnostic client={client} runId={runId} stepName={step.key} />}
+    {["topic_card", "draft"].includes(step.key) && <QualityDiagnostic client={client} runId={runId} stepName={step.key} />}
     <ArtifactView
       client={client}
       runId={runId}

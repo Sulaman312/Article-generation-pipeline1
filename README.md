@@ -155,3 +155,52 @@ Validation covers protected terms, word boundaries, exact repairs, repair budget
 retained failures, preflight order, template selection and safe UI highlighting.
 These are deterministic/mocked tests; evaluate one real French article before a
 large production run to assess the revised prompt wording and source quality.
+
+## Structured fact-checking and quotation scope
+
+The fact-check model now returns JSON validated with JSON Schema. The application
+renders the existing readable report and corrections blocks, preserving the UI and
+CMS artifact format. Locations use the indexed section, global paragraph number,
+sentence number and a 5–6 word verbatim anchor. Claims are exact contiguous spans of
+at most 12 words, resolved inside that sentence so duplicate text elsewhere is safe.
+Overlapping, missing, abbreviated or malformed claims are rejected before editing.
+
+The French/placeholder gate applies to replacement `fix` text and the resulting
+article. It does not run on the internal report, quoted `claim` evidence or source
+abstracts. Only report commentary has bracketed omissions normalized to semicolons;
+evidence and replacement text are never blindly cleaned. Real article/fix placeholders
+still block. One initial generation can receive at most two structured repairs with
+all errors supplied; research and source retrieval are not repeated during repairs.
+The structured output budget is 6,000 tokens to avoid cutting off a full report.
+
+Before fact-checking, free draft checks flag dangling name initials, possible missing
+subjects and numeric/source mismatches. Total-versus-per-group counts are flagged
+when the source explicitly describes a total. These are editorial signals, not
+proof of a wrong fact, and are shown above Draft output and passed to the model.
+Actual unresolved placeholders stop before the paid web fact-check. FAQ sentence
+splitting preserves initials such as Herbert M. Shelton; word limits no longer cut
+through the last sentence. Two complete overlong sentences are preserved for review.
+
+The fact checker receives the research summary, audit, case-study research and source
+pack. Up to five PubMed IDs cited in the draft/research are retrieved from NCBI's
+fixed EFetch endpoint; successful abstracts are cached per run. Missing or inaccessible
+abstracts are explicitly marked unavailable. No arbitrary web URLs are automatically
+fetched or considered primary evidence merely because they respond.
+
+For other primary references, add a workspace context file `primary_sources.md` with
+blocks in this form:
+
+```text
+SOURCE URL: https://official.example/reference
+The actual source passage, pasted verbatim by the editor.
+```
+
+Numeric replacements must cite an exact passage in the supplied source pack, including
+all replacement numbers; otherwise the model must flag them for human review. This
+prevents unsupported automatic edits, and does not establish that every remaining
+claim is verified. Flagged claims remain visible in the report for human review.
+
+`fact_check_sources.json`, `draft_preflight.json` and `fact_check_report.json` retain
+source retrieval, early findings and the validated structured report inside the run.
+One actual failing output was provided for regression testing. The two additional
+fixtures are explicitly labelled synthetic ASCII/Unicode quotation variants.

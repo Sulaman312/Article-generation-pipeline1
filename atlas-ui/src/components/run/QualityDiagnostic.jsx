@@ -27,11 +27,15 @@ export default function QualityDiagnostic({ client, runId, stepName, showEmpty =
     <section className="run-artifact-card" aria-label="Quality diagnostics">
       <div className="run-artifact-body">
         <p>{report.kind === "rejected"
-          ? "This output failed the French check and is saved for review. Re-run this step after correcting the reported terms."
-          : "French preflight findings (templates and inputs)."}</p>
+          ? (report.check === "fact_check"
+            ? "Fact-check output could not be validated and was saved for review. See the details below before re-running this step."
+            : "This output failed the French check and is saved for review. Re-run this step after correcting the reported terms.")
+          : (report.kind === "draft_preflight"
+            ? "Draft findings to review before fact-checking."
+            : "French preflight findings (templates and inputs).")}</p>
         {report.message && <p role="alert" style={{ whiteSpace: "pre-wrap" }}>{report.message}</p>}
         {(report.issues || []).length > 0 && <ul>{report.issues.map((issue, index) => (
-          <li key={index}>{issue.source ? `${issue.source}: ` : ""}{issue.term}
+          <li key={index}>{issue.source ? `${issue.source}: ` : ""}{issue.term || issue.message}
             {issue.suggestion ? ` → ${issue.suggestion}` : ""} ({issue.severity})</li>
         ))}</ul>}
         {text && <pre style={{ whiteSpace: "pre-wrap", overflowWrap: "anywhere" }}>

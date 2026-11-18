@@ -84,7 +84,7 @@ def execute_step(runner, client_id: str, run_id: str, step_name: str, previous: 
             if not content:
                 raise
             save_diagnostic(client_id, run_id, step_name, {
-                "kind": "rejected", "content": content,
+                "kind": "rejected", "check": "fact_check" if step_name == "fact_check" else "french", "content": content,
                 "original_content": getattr(exc, "original_text", content),
                 "issues": [asdict(i) for i in getattr(exc, "issues", [])], "message": str(exc),
             })

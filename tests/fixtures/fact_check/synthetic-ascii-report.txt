@@ -1,0 +1,4 @@
+---FACT CHECK REPORT START---
+LOCATION: « L'étude a réparti [...] les participants en deux groupes. »
+CORRECTION OR FLAG: L'effectif doit être vérifié dans la source primaire.
+---FACT CHECK REPORT END---
