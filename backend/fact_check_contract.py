@@ -9,6 +9,7 @@ import copy
 import json
 import logging
 import re
+import unicodedata
 from dataclasses import dataclass
 
 from jsonschema import Draft202012Validator
@@ -51,6 +52,37 @@ _VALIDATOR = Draft202012Validator(SCHEMA)
 _OMISSION = re.compile(r"\[\s*(?:…|\.{3})\s*\]")
 _ELLIPSIS = re.compile(r"…|\.{3}")
 _NUMBER = re.compile(r"(?<!\w)\d+(?:[ ,\u00a0\u202f.]\d+)*(?:%|\b)")
+MAX_FLAG_CLAIM_WORDS = 12
+MAX_EDIT_CLAIM_WORDS = 40
+
+
+def _leading_words(sentence: str, count: int) -> str:
+    match = re.match(r"(?:\S+\s+){0,%d}\S+" % (count - 1), sentence)
+    return match.group() if match else sentence
+
+
+def _norm(text: str) -> str:
+    """Whitespace/quote/dash-insensitive form used only to *match* evidence quotes."""
+    value = unicodedata.normalize('NFKC', text or '')
+    value = value.translate(str.maketrans({'\u2019': "'", '\u2018': "'", '\u201c': '"', '\u201d': '"', '\u2013': '-', '\u2014': '-',
+                                           '*': '', '_': ''}))
+    return re.sub(r"\s+", ' ', value).strip().casefold()
+
+
+def _find_source(evidence: str, url: str, sources: dict[str, str]) -> str | None:
+    """Return the url of a supplied source containing the quote (named source first)."""
+    needle = _norm(evidence)
+    if not needle:
+        return None
+    candidates = ([url] if url in sources else []) + [u for u in sources if u != url]
+    for candidate in candidates:
+        if needle in _norm(sources[candidate]):
+            return candidate
+    return None
+
+
+def _note(lang: str, fr: str, en: str) -> str:
+    return fr if lang == 'fr' else en
 
 
 @dataclass(frozen=True)
@@ -155,23 +187,30 @@ def validate_report(report: dict, draft: str, *, lang: str, glossary=None,
             continue
         a, b = spans[issue['sentence'] - 1]
         sentence = p.text[a:b]
-        anchor, claim = issue['anchor'], issue['claim']
-        if not sentence.startswith(anchor) or not min(5, len(sentence.split())) <= len(anchor.split()) <= 6:
-            errors.append(f"{prefix}.anchor: copy the first 5-6 words (all words for a shorter sentence)")
-        if _ELLIPSIS.search(claim) or len(claim.split()) > 12:
-            errors.append(f"{prefix}.claim: use at most 12 contiguous verbatim words, without ellipses")
-        if not re.search(r"\w", claim):
-            errors.append(f"{prefix}.claim: quote words, not punctuation alone")
-        if sentence.count(claim) != 1:
-            errors.append(f"{prefix}.claim: must occur exactly once, word for word, in the indexed sentence")
-            continue
-        claim_start = sentence.index(claim)
-        claim_end = claim_start + len(claim)
-        if ((claim_start and sentence[claim_start - 1].isalnum() and claim[0].isalnum())
-                or (claim_end < len(sentence) and sentence[claim_end].isalnum() and claim[-1].isalnum())):
-            errors.append(f"{prefix}.claim: do not quote a partial word")
-        if _ELLIPSIS.search(anchor):
-            errors.append(f"{prefix}.anchor: do not abbreviate with ellipses")
+        # The anchor is pure bookkeeping: derive it from the indexed sentence instead of
+        # asking the model to copy it (a miscopy used to discard the whole report).
+        issue['anchor'] = _leading_words(sentence, 6)
+        claim = issue['claim']
+        if issue['action'] == 'flagged':
+            # A flagged claim never drives an edit, so repair it in code rather than fail.
+            if (_ELLIPSIS.search(claim) or len(claim.split()) > MAX_FLAG_CLAIM_WORDS
+                    or not re.search(r"\w", claim) or sentence.count(claim) != 1):
+                claim = _leading_words(sentence, MAX_FLAG_CLAIM_WORDS)
+                issue['claim'] = claim
+        else:
+            # corrected/removed claims define the edited span: they must stay exact.
+            if _ELLIPSIS.search(claim) or len(claim.split()) > MAX_EDIT_CLAIM_WORDS:
+                errors.append(f"{prefix}.claim: use at most {MAX_EDIT_CLAIM_WORDS} contiguous verbatim words, without ellipses")
+            if not re.search(r"\w", claim):
+                errors.append(f"{prefix}.claim: quote words, not punctuation alone")
+            if sentence.count(claim) != 1:
+                errors.append(f"{prefix}.claim: must occur exactly once, word for word, in the indexed sentence")
+                continue
+            claim_start = sentence.index(claim)
+            claim_end = claim_start + len(claim)
+            if ((claim_start and sentence[claim_start - 1].isalnum() and claim[0].isalnum())
+                    or (claim_end < len(sentence) and sentence[claim_end].isalnum() and claim[-1].isalnum())):
+                errors.append(f"{prefix}.claim: do not quote a partial word")
         if issue['action'] != 'corrected' and issue['fix']:
             errors.append(f"{prefix}.fix: must be empty for removed or flagged items")
         if issue['action'] == 'corrected' and not issue['fix'].strip():
@@ -187,14 +226,24 @@ def validate_report(report: dict, draft: str, *, lang: str, glossary=None,
         found = french_language.scan_french(
             fix, glossary=glossary, spelling=False, english=french_enabled, banned=french_enabled)
         errors.extend(f"{prefix}.fix: {i.message()}" for i in french_language.blocking_issues(found))
+        # Evidence is checked leniently (quotes, dashes, spacing, case, wrong url) and never
+        # discards the report: an unverifiable quote is dropped and the issue is left for a human.
+        evidence = issue['evidence_quote']
+        if evidence:
+            found_url = _find_source(evidence, issue['source_url'], sources)
+            if found_url is None:
+                issue['evidence_quote'] = evidence = ''
+                issue['explanation'] += _note(lang, " [Citation de la source non retrouvée dans le texte fourni : à vérifier.]",
+                                              " [Source quote not found in the supplied text: please verify.]")
+            else:
+                issue['source_url'] = found_url
         replacement_numbers = numbers(fix)
-        if replacement_numbers:
-            evidence = issue['evidence_quote']
-            source = sources.get(issue['source_url'], '')
-            if not evidence or evidence not in source or not replacement_numbers <= numbers(evidence):
-                errors.append(f"{prefix}.fix: numeric replacements require a verbatim evidence_quote from a supplied source; otherwise flag for review")
-        if issue['evidence_quote'] and issue['evidence_quote'] not in sources.get(issue['source_url'], ''):
-            errors.append(f"{prefix}.evidence_quote: must occur verbatim in the supplied source text")
+        if replacement_numbers and issue['action'] == 'corrected' and (
+                not evidence or not replacement_numbers <= numbers(evidence)):
+            # A new number needs a verifiable source; otherwise do not touch the article.
+            issue['action'], issue['fix'], fix = 'flagged', '', ''
+            issue['explanation'] += _note(lang, " [Remplacement chiffré non appliqué faute de source vérifiable : revue humaine requise.]",
+                                          " [Numeric replacement not applied: no verifiable source, human review required.]")
         if issue['action'] in {'corrected', 'removed'}:
             start = p.start + a + sentence.index(claim)
             edits.append((start, start + len(claim), fix if issue['action'] == 'corrected' else ''))
